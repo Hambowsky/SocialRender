@@ -51,6 +51,24 @@ const migrations = [
      cost_usd REAL NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    );`,
+
+  `CREATE TABLE posts (                -- one row per image per Buffer channel
+     id INTEGER PRIMARY KEY,
+     idempotency_key TEXT NOT NULL,
+     render_id TEXT NOT NULL REFERENCES renders (id),
+     channel_id TEXT NOT NULL,
+     channel_name TEXT NOT NULL DEFAULT '',
+     text TEXT NOT NULL,
+     mode TEXT NOT NULL,               -- queue, scheduled or draft
+     due_at TEXT,                      -- ISO time, for scheduled posts
+     status TEXT NOT NULL,             -- pending_approval, approved, sending, sent, failed, check_buffer, rejected
+     buffer_post_id TEXT,              -- set once Buffer accepts it: never send again
+     error TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     decided_at TEXT,
+     sent_at TEXT,
+     UNIQUE (idempotency_key, channel_id)
+   );`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

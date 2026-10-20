@@ -15,6 +15,12 @@ export const TEMPLATE_VERSIONS_KEEP = Number(env.TEMPLATE_VERSIONS_KEEP || 50);
 export const CLAUDE_MONTHLY_CAP_GBP = Number(env.CLAUDE_MONTHLY_CAP_GBP || 20);
 export const GBP_PER_USD = Number(env.GBP_PER_USD || 0.79); // update now and then: the API bills in US dollars
 
+// Buffer. Images are handed to Buffer as links, so PUBLIC_URL must be the address the internet reaches this app on.
+export const BUFFER_API_KEY = env.BUFFER_API_KEY ?? '';
+export const BUFFER_API_URL = env.BUFFER_API_URL || 'https://api.buffer.com';
+export const PUBLIC_URL = (env.PUBLIC_URL ?? '').replace(/\/$/, '');
+export const AUTO_POST = env.AUTO_POST === 'true'; // off: every post waits for approval in the editor
+
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
 
