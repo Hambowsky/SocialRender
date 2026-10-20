@@ -44,7 +44,8 @@ Every endpoint needs `x-api-key`, except `/health`, the editor page with its fon
 A new line in a headline forces a line break. Fields are capped at 300 characters and are always escaped, so no field can change the design.
 
 ## Copywriting
-* `POST /copy` with `{"template": "social-post", "topic": "...", "keyword": "...", "audience": "...", "sources": "..."}` returns `fields` ready for `/render`, plus `caption`, `hashtags`, `fits`, `problems` and `cost_gbp`. Nothing is posted or queued.
+* `POST /copy` with `{"template": "social-post", "topic": "...", "url": "...", "keyword": "...", "audience": "...", "sources": "..."}` returns `fields` ready for `/render`, plus `caption`, `hashtags`, `fits`, `problems` and `cost_gbp`. Nothing is posted or queued.
+* Give `url` (with or without a topic) and the app reads that page as plain text and hands it to Claude as a source, so the post is about the page and uses its facts. Only public web addresses are read, and pages that need JavaScript to show their text will not work; paste the text into `sources` for those.
 * Sonnet 5.5 writes the image text. The app then runs the same layout check as a render, and if the text does not fit it asks Claude once to shorten it, saying what overflowed. Haiku 5.5 writes the caption.
 * Prompts live in `prompts/` as seeds and are versioned in the database like templates: `GET /prompts`, `GET /prompts/<name>`, `PUT /prompts/<name>` with `{body, note}`, `GET /prompts/<name>/versions`, `POST /prompts/<name>/rollback/<version>`.
 * `POST /prompts/<name>/test` with `{vars, body?, template?}` runs a prompt, saved or not, and shows the output.

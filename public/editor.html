@@ -41,7 +41,8 @@
   <p>Claude writes the text for the chosen template, checks it fits, and writes a caption. Nothing is posted. <span id="spend"></span></p>
   <main>
     <div class="side">
-      <label>Topic <input id="topic" placeholder="Why website speed matters"></label>
+      <label>Page link (optional, Claude reads the page and writes about it) <input id="url" type="url" placeholder="https://redcherryit.com/blog/..."></label>
+      <label>Topic <input id="topic" placeholder="Why website speed matters, or leave empty with a link"></label>
       <label>Keyword <input id="keyword"></label>
       <label>Audience <input id="audience" placeholder="UK small business owners"></label>
     </div>
@@ -226,14 +227,14 @@
     } catch {}
   }
   $('writeBtn').addEventListener('click', async () => {
-    $('writeOut').textContent = 'Writing...';
+    $('writeOut').textContent = $('url').value.trim() ? 'Reading the page and writing...' : 'Writing...';
     try {
-      const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...writeVars() }) })).json();
+      const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...writeVars(), ...($('url').value.trim() ? { url: $('url').value.trim() } : {}) }) })).json();
       for (const [k, v] of Object.entries(r.fields)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
       refresh();
-      $('postText').value = r.caption + '\n\n' + r.hashtags.join(' ');
+      $('postText').value = [r.caption, r.page?.url, r.hashtags.join(' ')].filter(Boolean).join('\n\n');
       $('writeOut').innerHTML = `${r.fits ? '' : '<p class="bad">Still too long after one rewrite. Shorten it by hand.</p>'}
-        <p><strong>Caption</strong> (copied to Post to Buffer)<br>${esc(r.caption)}<br>${esc(r.hashtags.join(' '))}</p><p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
+        <p><strong>Caption</strong> (copied to Post to Buffer)<br>${esc(r.caption)}<br>${esc(r.hashtags.join(' '))}</p>${r.page ? `<p>Read: ${esc(r.page.title || r.page.url)}</p>` : ''}<p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
     } catch (e) { $('writeOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
     loadSpend();
   });

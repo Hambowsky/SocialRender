@@ -108,3 +108,17 @@ test('Claude designs a template, gets one fix up round, and nothing is saved unt
   const saved = await app.inject({ method: 'PUT', url: '/templates/event-card', headers, payload: { html: body.html, note: 'Designed with Claude' } });
   assert.equal(saved.statusCode, 200, saved.body);
 });
+
+test('a page link is turned into plain text, and private addresses are refused', async () => {
+  const { pageText } = await import('../src/page.ts');
+  const p = pageText(`<html><head><title>Speed &amp; SEO</title><meta name="description" content="Why it matters"></head>
+    <body><nav>Menu</nav><script>evil()</script><h1>Fast sites</h1><p>Pages that load in 2&nbsp;seconds keep visitors.</p><footer>Copyright</footer></body></html>`);
+  assert.equal(p.title, 'Speed & SEO');
+  assert.equal(p.description, 'Why it matters');
+  assert.equal(p.text, 'Fast sites\nPages that load in 2 seconds keep visitors.');
+  for (const url of ['http://127.0.0.1:3000/usage', 'http://[::1]/', 'http://169.254.169.254/latest', 'file:///etc/passwd']) {
+    const res = await app.inject({ method: 'POST', url: '/copy', headers, payload: { template: 'social-post', url } });
+    assert.equal(res.statusCode, 400, url);
+  }
+  assert.equal((await app.inject({ method: 'POST', url: '/copy', headers, payload: { template: 'social-post' } })).statusCode, 400);
+});

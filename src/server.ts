@@ -122,8 +122,8 @@ export function buildApp() {
   // Claude copywriting. Nothing here posts or queues anything.
   const text = { type: 'string', maxLength: 2000 };
   app.post<{ Body: prompts.CopyInput }>('/copy', {
-    schema: { body: { type: 'object', required: ['template', 'topic'], additionalProperties: false,
-      properties: { template: name, topic: text, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
+    schema: { body: { type: 'object', required: ['template'], additionalProperties: false,
+      properties: { template: name, topic: text, url: { type: 'string', maxLength: 2000 }, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
   }, async req => prompts.writeCopy(req.body));
 
   app.post<{ Body: { description: string; base: string } }>('/templates/design', {

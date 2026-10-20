@@ -9,6 +9,7 @@ import { ask, type Ask } from './claude.ts';
 import { checkFit, checkHtml } from './render.ts';
 import { current as currentTemplate, fieldsOf, list as listTemplates, sampleOf, type Problem } from './templates.ts';
 import { NAME_PATTERN } from './versions.ts';
+import { readPage } from './page.ts';
 
 const PROMPTS_DIR = path.join(ROOT, 'prompts');
 
@@ -91,11 +92,18 @@ export function templateVars(template: string) {
   };
 }
 
-export type CopyInput = { template: string; topic: string; keyword?: string; audience?: string; sources?: string };
+export type CopyInput = { template: string; topic?: string; url?: string; keyword?: string; audience?: string; sources?: string };
 
 export async function writeCopy(input: CopyInput) {
   const t = templateVars(input.template);
+  if (!input.topic?.trim() && !input.url) fail(400, 'Give a topic or a page link');
+  // A page link is read here and handed to Claude as a source, so its facts can be used and quoted.
+  const page = input.url ? await readPage(input.url) : undefined;
   const vars = { ...input, ...t } as Record<string, string>;
+  if (page) {
+    vars.topic = input.topic?.trim() || `The page "${page.title || page.url}". Write a post that makes people want to read it.`;
+    vars.sources = [input.sources, `From ${page.url}\nTitle: ${page.title}\n${page.description}\n\n${page.text}`].filter(Boolean).join('\n\n');
+  }
   let cost = 0;
 
   let run = await runPrompt('social-post', vars, { job: 'copy:social-post' });
@@ -115,7 +123,7 @@ export async function writeCopy(input: CopyInput) {
 
   const cap = await runPrompt('caption', { ...vars, ...fields }, { job: 'copy:caption' });
   cost += cap.cost_gbp;
-  return { template: input.template, fields, fits: problems.length === 0, problems, caption: cap.output.caption, hashtags: cap.output.hashtags, cost_gbp: cost };
+  return { template: input.template, page: page && { url: page.url, title: page.title }, fields, fits: problems.length === 0, problems, caption: cap.output.caption, hashtags: cap.output.hashtags, cost_gbp: cost };
 }
 
 const ALLOWED_FIELDS = ['headline', 'highlight_word', 'subtitle', 'tag', 'footer_left', 'footer_right'];
