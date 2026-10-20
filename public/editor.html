@@ -44,7 +44,7 @@
       <label>Page link (optional, Claude reads the page and writes about it) <input id="url" type="url" placeholder="https://redcherryit.com/blog/..."></label>
       <label>Topic <input id="topic" placeholder="Why website speed matters, or leave empty with a link"></label>
       <label>Keyword <input id="keyword"></label>
-      <label>Audience <input id="audience" placeholder="UK small business owners"></label>
+      <label>Audience <input id="audience" placeholder="UK business owners"></label>
     </div>
     <div class="side">
       <label>Sources (facts and figures Claude may use) <textarea id="sources" rows="4"></textarea></label>
@@ -74,6 +74,42 @@
   </main>
   <p><strong>Posts</strong> <button id="postsReload" type="button" class="plain">Refresh</button></p>
   <ul id="posts"></ul>
+</details>
+
+<details id="articles">
+  <summary>Articles</summary>
+  <p>Claude drafts an article from your sources in the case study structure. The app checks it, you edit and approve it, then Publish puts it on the website in the same layout as your other guides. Nothing goes on the website until you press Publish.</p>
+  <main>
+    <div class="side">
+      <label>Topic <input id="aTopic" placeholder="The payments portal we built"></label>
+      <label>Keyword <input id="aKeyword"></label>
+      <label>Audience <input id="aAudience" placeholder="UK business owners"></label>
+      <label>Page link (optional) <input id="aUrl" type="url"></label>
+      <label>Site folder <input id="aCategory" value="/guides/stories/"></label>
+    </div>
+    <div class="side">
+      <label>Sources: notes, facts, results and quotes. The article only uses what is here. <textarea id="aSources" rows="9"></textarea></label>
+      <div><button id="aDraft" type="button">Draft the article</button></div>
+      <div id="aDraftOut"></div>
+    </div>
+  </main>
+  <hr>
+  <main>
+    <div class="side" style="flex:2 1 520px;max-width:none">
+      <label>Article <select id="aList"></select></label>
+      <div id="aEditor" hidden style="display:grid;gap:10px">
+        <div id="aStatus"></div>
+        <label>Title <input id="aTitle"></label>
+        <label>Summary <input id="aSummary" maxlength="400"></label>
+        <label>Slug <input id="aSlug"></label>
+        <label>Text (Markdown) <textarea id="aBody" class="code" spellcheck="true"></textarea></label>
+        <div id="aChecks"></div>
+        <div id="aButtons" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        <div id="aOut"></div>
+      </div>
+    </div>
+    <div class="side"><strong>Preview of the page</strong><iframe id="aPreview" title="Article page preview" style="width:100%;height:760px;border:1px solid #ddd;background:#fff;position:static;transform:none"></iframe></div>
+  </main>
 </details>
 
 <details id="prompts">
@@ -355,6 +391,83 @@
     e.target.disabled = true;
     try { await api(`/posts/${id}/${act}`, { method: 'POST' }); } catch (err) { alert(err.message); }
     loadPosts();
+  });
+
+  // Articles
+  let article;
+  const A_STATUS = { draft: 'Draft', approved: 'Approved, ready to publish', published: 'Published', rejected: 'Rejected' };
+  async function loadArticles(select) {
+    try {
+      const list = await (await api('/articles')).json();
+      $('aList').innerHTML = '<option value="">Pick an article</option>' + list.map(a => `<option value="${a.id}">${esc(a.title)} (${esc(A_STATUS[a.status] || a.status)})</option>`).join('');
+      if (select) $('aList').value = select;
+      await showArticle();
+    } catch (e) { $('aDraftOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  }
+  async function showArticle(a) {
+    const id = $('aList').value;
+    $('aEditor').hidden = !id;
+    if (!id) return $('aPreview').srcdoc = '';
+    article = a || await (await api('/articles/' + id)).json();
+    const draft = article.status === 'draft';
+    for (const k of ['Title', 'Summary', 'Slug', 'Body']) { $('a' + k).value = article[k.toLowerCase()]; $('a' + k).readOnly = !draft; }
+    $('aStatus').innerHTML = `<strong>${esc(A_STATUS[article.status])}</strong>. ${article.checks.words} words. Will live at <a href="${esc(article.url)}" target="_blank">${esc(article.url)}</a>`;
+    const c = article.checks;
+    $('aChecks').innerHTML = (c.errors.length ? `<p class="bad"><strong>Fix before approving</strong><br>${c.errors.map(esc).join('<br>')}</p>` : '<p class="good">All checks pass.</p>')
+      + (c.warnings.length ? `<p><strong>Check these</strong><br>${c.warnings.map(esc).join('<br>')}</p>` : '');
+    const b = (act, label, cls = '') => `<button type="button" class="${cls}" data-act="${act}">${label}</button>`;
+    $('aButtons').innerHTML = {
+      draft: b('save', 'Save changes', 'plain') + b('approve', 'Approve') + b('reject', 'Reject', 'plain'),
+      approved: b('publish', 'Publish') + b('reopen', 'Back to draft', 'plain') + b('reject', 'Reject', 'plain'),
+      published: b('social', 'Make a social post for Buffer') + b('publish', 'Publish again', 'plain') + b('reopen', 'Edit again', 'plain'),
+      rejected: b('reopen', 'Back to draft', 'plain'),
+    }[article.status] + b('md', 'Download .md', 'plain') + b('html', 'Download .html', 'plain');
+    // The page uses the live site's styles: <base> makes its relative links point at the real site.
+    const page = await (await api(`/articles/${article.id}/download?format=html`)).text();
+    $('aPreview').srcdoc = page.replace('<head>', `<head><base href="${esc(article.url)}">`);
+  }
+  $('articles').addEventListener('toggle', () => { if ($('articles').open && $('key').value) loadArticles($('aList').value); });
+  $('aList').addEventListener('change', () => showArticle());
+  $('aDraft').addEventListener('click', async () => {
+    $('aDraftOut').textContent = 'Drafting. This can take a minute or two...';
+    try {
+      const body = { topic: $('aTopic').value, keyword: $('aKeyword').value, audience: $('aAudience').value, sources: $('aSources').value, category: $('aCategory').value };
+      if ($('aUrl').value.trim()) body.url = $('aUrl').value.trim();
+      const a = await (await api('/articles', { method: 'POST', body: JSON.stringify(body) })).json();
+      $('aDraftOut').innerHTML = `<span class="good">Drafted. Cost £${a.cost_gbp.toFixed(4)}</span>`;
+      await loadArticles(a.id);
+    } catch (e) { $('aDraftOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    loadSpend();
+  });
+  $('aButtons').addEventListener('click', async e => {
+    const act = e.target.dataset?.act;
+    if (!act) return;
+    if (act === 'md' || act === 'html') {
+      const res = await api(`/articles/${article.id}/download?format=${act}`);
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: `${article.slug}.${act}` });
+      a.click(); return URL.revokeObjectURL(a.href);
+    }
+    if (act === 'publish' && !confirm('Put this article on the website now?')) return;
+    $('aOut').textContent = act === 'social' ? 'Writing and rendering the post...' : '';
+    try {
+      if (act === 'save' || act === 'approve') {
+        await api('/articles/' + article.id, { method: 'PUT', body: JSON.stringify({ title: $('aTitle').value, summary: $('aSummary').value, slug: $('aSlug').value, body: $('aBody').value }) });
+      }
+      if (act === 'social') {
+        const channels = [...$('channels').querySelectorAll('input:checked')].map(c => ({ id: c.value, name: c.dataset.name }));
+        if (!channels.length) { $('buffer').open = true; return $('aOut').innerHTML = '<span class="bad">Tick at least one channel in Post to Buffer first. The image uses the template picked at the top.</span>'; }
+        const r = await (await api(`/articles/${article.id}/social`, { method: 'POST', body: JSON.stringify({ template: $('template').value, channels, mode: $('postMode').value }) })).json();
+        $('aOut').innerHTML = `<span class="good">${r.reused ? 'Already made earlier.' : `Made. Cost £${r.cost_gbp.toFixed(4)}.`} It is waiting for approval in Post to Buffer.</span>`;
+        $('buffer').open = true; loadPosts(); return;
+      }
+      let published = false, result;
+      if (act !== 'save') result = await (await api(`/articles/${article.id}/${act}`, { method: 'POST' })).json();
+      if (act === 'publish') published = true;
+      await loadArticles(article.id);
+      if (published) { const p = result.published;
+        $('aOut').innerHTML = p.where === 'repo' ? `<span class="good">${p.files.length ? `Committed to the website repo: ${p.files.map(esc).join(', ')}. <a href="${esc(p.commit)}" target="_blank">See the commit</a>.` : 'Nothing changed since the last publish.'}</span>`
+          : `<span class="good">Saved to the publish folder: ${p.files.map(esc).join(', ')}</span>`; }
+    } catch (err) { $('aOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; if (act === 'approve') showArticle(); }
   });
 
   loadTemplates();

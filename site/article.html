@@ -1,0 +1,170 @@
+<!-- Page shell for published articles, copied from guides/stories/financial-services-information-portal-story.html
+     in the website repo. {{slots}} are filled in by src/articles.ts. Update this if the site layout changes. -->
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<!-- Google tag (gtag.js) -->
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', {
+  'analytics_storage': (function () {
+    try { return localStorage.getItem('rc_cookie_consent') === 'accepted' ? 'granted' : 'denied'; }
+    catch (e) { return 'denied'; }
+  })()
+});
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-2G5VH9HZ2E"></script>
+<script>
+gtag('js', new Date());
+gtag('config', 'G-2G5VH9HZ2E');
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} | Red Cherry IT Guides</title>
+<meta name="description" content="{{description}}">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="{{url}}">
+<link rel="icon" href="../../favicon.ico" sizes="any"><link rel="icon" href="../../images/favicon.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="../../css/style.css?v=20260903b">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Red Cherry IT">
+<meta property="og:title" content="{{title}}">
+<meta property="og:description" content="{{description}}">
+<meta property="og:url" content="{{url}}">
+<meta property="og:image" content="https://redcherryit.com/images/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
+
+<!-- Article schema — included on every article by default. Fill in every field. -->
+<script type="application/ld+json">
+{{article_schema}}
+</script>
+
+{{faq_schema}}
+
+<script type="application/ld+json">
+{{breadcrumb_schema}}
+</script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/"><img src="../../images/logo.png" alt="Red Cherry IT logo" width="223" height="42"></a>
+    <nav class="main-nav" aria-label="Primary">
+      <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span></button>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li><li><a href="../../about">About</a></li>
+        <li class="has-dropdown"><a href="../../services" class="dropdown-toggle">Services<svg class="caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></a><ul class="nav-dropdown"><li><a href="../../pricing">Web Design</a></li><li><a href="../../seo">SEO</a></li><li><a href="../../website-care-plans">Website Care Plans</a></li><li><a href="../../conversion-rate-optimisation">Conversion Rate Optimisation</a></li></ul></li>
+        <li><a href="../../pricing">Pricing</a></li>
+        <li><a href="../../how-it-works">How It Works</a></li>
+        <li><a href="../../testimonials">Testimonials</a></li><li><a href="../../faq">FAQs</a></li>
+        </ul>
+    </nav>
+    <a class="btn btn-primary" href="../../contact">Build My Website</a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="container">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <ol>
+        <li><a href="/">Home</a></li>
+        <li><a href="..">Guides</a></li>
+        <li><a href=".">{{section}}</a></li>
+        <li aria-current="page">{{title}}</li>
+      </ol>
+    </nav>
+  </div>
+
+  <section class="section" style="padding-bottom:0;">
+    <div class="container">
+      <span class="eyebrow">Guide &middot; {{section}}</span>
+      <h1>{{title}}</h1>
+
+      <div class="article-meta">
+        <div class="author-bio">
+          <span class="author-avatar" aria-hidden="true">DH</span>
+          <span class="author-bio-text">
+            <strong>David Hanmer</strong>
+            Red Cherry IT &middot; 13 years' experience
+          </span>
+        </div>
+        <span class="article-updated">Last updated: {{updated_month}}</span>
+      </div>
+
+      <div class="answer-box">
+        <strong>Short answer:</strong> {{short_answer}}
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="article-body">
+{{body}}
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-alt">
+    <div class="container">
+      <div class="section-head reveal">
+        <h2>Related Reading</h2>
+      </div>
+      <div class="related-grid reveal">
+        <a class="related-card" href="../../case-studies">
+          <span class="related-card-kicker">Case Studies</span>
+          <span class="related-card-title">See More Of Our Client Success Stories</span>
+        </a>
+        <a class="related-card" href="../../industries">
+          <span class="related-card-kicker">Industries</span>
+          <span class="related-card-title">See How We Help Different Industries</span>
+        </a>
+        <a class="related-card" href="../../pricing">
+          <span class="related-card-kicker">Pricing</span>
+          <span class="related-card-title">See Our Fixed-Price Website Packages</span>
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <div class="cta-banner reveal">
+        <h2>Ready To Get Started?</h2>
+        <p>{{cta}}</p>
+        <a class="btn btn-primary" href="../../contact">Get Started Now</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="../../images/logo.png" alt="Red Cherry IT logo" width="212" height="40">
+        <p>Affordable, professional websites for businesses across the UK, proudly rooted in the North East.</p>
+        <div class="social-row">
+          <a href="https://www.facebook.com/redcherryit1" aria-label="Red Cherry IT on Facebook" rel="me noopener">f</a>
+          <a href="https://www.linkedin.com/company/redcherryit" aria-label="Red Cherry IT on LinkedIn" rel="me noopener">in</a>
+          <a href="https://uk.trustpilot.com/review/redcherryit.com" aria-label="Red Cherry IT on Trustpilot" rel="me noopener">tp</a>
+        </div>
+      </div>
+      <div><h3>Company</h3><ul class="footer-links"><li><a href="../../about">About</a></li><li><a href="../../contact">Contact</a></li><li><a href="../../how-it-works">How It Works</a></li><li><a href="../../pricing">Pricing</a></li><li><a href="../../testimonials">Testimonials</a></li><li><a href="../../seo">SEO</a></li><li><a href="../../website-care-plans">Website Care Plans</a></li><li><a href="../../conversion-rate-optimisation">Conversion Rate Optimisation</a></li></ul></div>
+      <div><h3>Locations</h3><ul class="footer-links"><li><a href="../../locations">North East England</a></li><li><a href="../../locations/cumbria">North West England</a></li><li><a href="../../locations/scotland">Scotland</a></li><li><a href="../../locations/east-midlands">East Midlands</a></li><li><a href="../../locations/west-midlands">West Midlands</a></li></ul></div>
+      <div><h3>Resources</h3><ul class="footer-links"><li><a href="../../industries">All Industries</a></li><li><a href="../../locations">All Locations</a></li><li><a href="../../case-studies">Case Studies</a></li><li><a href="../../faq">FAQs</a></li><li><a href="../../guides">Guides</a></li></ul></div>
+    </div>
+    <div class="footer-bottom">
+      <span>Copyright &copy; 2026 Red Cherry IT</span>
+      <span><a href="../../privacy-policy">Privacy Policy</a> &middot; <a href="../../terms-conditions">Terms &amp; Conditions</a> &middot; <a href="../../cookie-policy">Cookie Policy</a> &middot; <a href="#" id="manage-cookies">Cookie Settings</a></span>
+    </div>
+  </div>
+</footer>
+<script src="../../js/main.js?v=20260903b"></script>
+</body>
+</html>

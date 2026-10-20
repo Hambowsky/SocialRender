@@ -15,6 +15,11 @@ services:
       BUFFER_API_KEY: ${BUFFER_API_KEY:-}
       PUBLIC_URL: ${PUBLIC_URL:-}
       AUTO_POST: ${AUTO_POST:-false}
+      SITE_REPO: ${SITE_REPO:-}
+      SITE_BRANCH: ${SITE_BRANCH:-main}
+      SITE_GITHUB_TOKEN: ${SITE_GITHUB_TOKEN:-}
+      PUBLISH_DIR: ${PUBLISH_DIR:-/data/site}
+      SITE_URL: ${SITE_URL:-https://redcherryit.com}
     volumes:
       - data:/data
     expose:

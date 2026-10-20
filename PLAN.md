@@ -41,7 +41,7 @@ Phase 1 creates `template_versions` and `renders`. Phase 2 adds `prompt_versions
 * `template_versions`: id, template, html, note, created_at. Saving creates a new row; rolling back copies an old row forward.
 * Phase 2 (built): `prompt_versions` (same shape as template versions), `claude_usage` (job, model, input_tokens, output_tokens, cost_usd, created_at). The spend cap reads this table.
 * Phase 3 (built): `posts` (idempotency_key and channel_id UNIQUE together, render_id, text, mode, due_at, status, buffer_post_id, error). Sending claims the row first; `buffer_post_id` set means never send again.
-* Phase 4: `drafts` (kind, title, body, sources JSON, checks JSON, status draft, review, approved, published).
+* Phase 4 (built): `articles` (slug UNIQUE, category, title, summary, body Markdown, topic, keyword, sources, status draft, approved, published or rejected). Checks are worked out on read, not stored. Publishing commits the full page, its listing card and sitemap line to the website repo (Hambowsky/red-cherry-it-website), which 20i deploys.
 * Phase 5: `contacts` and `suppressions` for email.
 
 ## API

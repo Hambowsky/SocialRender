@@ -13,6 +13,7 @@ import { monthSpendGbp } from './claude.ts';
 import { startCleanup } from './cleanup.ts';
 import * as buffer from './buffer.ts';
 import * as posts from './posts.ts';
+import * as articles from './articles.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -34,7 +35,7 @@ function keyMatches(given: unknown) {
 }
 
 export function buildApp() {
-  const app = Fastify({ logger: process.env.NODE_ENV !== 'test', bodyLimit: 64 * 1024 });
+  const app = Fastify({ logger: process.env.NODE_ENV !== 'test', bodyLimit: 256 * 1024 });
 
   // The editor page, fonts, logo and check script hold nothing private and must load without a header.
   // Everything else needs the key.
@@ -42,7 +43,7 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' ? 'render' : p === '/copy' || p === '/templates/design' || p.endsWith('/test') ? 'claude' : 'other';
+    const group = p === '/render' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -172,6 +173,37 @@ export function buildApp() {
   app.post<{ Params: { id: number } }>('/posts/:id/approve', { schema: { params: postId } }, async req => posts.approve(req.params.id));
   app.post<{ Params: { id: number } }>('/posts/:id/reject', { schema: { params: postId } }, async req => posts.reject(req.params.id));
   app.post<{ Params: { id: number } }>('/posts/:id/mark-sent', { schema: { params: postId } }, async req => posts.markSent(req.params.id));
+
+  // Articles: draft with Claude, check, approve, publish as static files, then social posts.
+  const articleId = { type: 'object', properties: { id: { type: 'integer' } } };
+  const category = { type: 'string', maxLength: 100 };
+  app.post<{ Body: articles.DraftInput }>('/articles', {
+    schema: { body: { type: 'object', required: ['topic'], additionalProperties: false, properties: {
+      topic: { type: 'string', minLength: 3, maxLength: 2000 }, keyword: text, audience: text, url: text, category,
+      sources: { type: 'string', maxLength: 40000 } } } },
+  }, async req => articles.draft(req.body));
+  app.get('/articles', async () => articles.list());
+  app.get<{ Params: { id: number } }>('/articles/:id', { schema: { params: articleId } }, async req => articles.show(req.params.id));
+  app.put<{ Params: { id: number }; Body: Parameters<typeof articles.update>[1] }>('/articles/:id', {
+    schema: { params: articleId, body: { type: 'object', additionalProperties: false, properties: {
+      title: { type: 'string', minLength: 3, maxLength: 200 }, summary: { type: 'string', maxLength: 400 }, slug: { type: 'string', maxLength: 80 },
+      category, body: { type: 'string', minLength: 1, maxLength: 60000 }, sources: { type: 'string', maxLength: 40000 } } } },
+  }, async req => articles.update(req.params.id, req.body));
+  for (const act of ['approve', 'reject', 'reopen', 'publish'] as const)
+    app.post<{ Params: { id: number } }>(`/articles/:id/${act}`, { schema: { params: articleId } }, async req => articles[act](req.params.id));
+  app.get<{ Params: { id: number }; Querystring: { format: 'md' | 'html' } }>('/articles/:id/download', {
+    schema: { params: articleId, querystring: { type: 'object', required: ['format'], properties: { format: { enum: ['md', 'html'] } } } },
+  }, async (req, reply) => {
+    const a = articles.show(req.params.id);
+    return reply.type(req.query.format === 'md' ? 'text/markdown; charset=utf-8' : 'text/html; charset=utf-8')
+      .header('content-disposition', `attachment; filename="${a.slug}.${req.query.format}"`).send(articles.download(a.id, req.query.format));
+  });
+  app.post<{ Params: { id: number }; Body: Parameters<typeof articles.social>[1] }>('/articles/:id/social', {
+    schema: { params: articleId, body: { type: 'object', required: ['template', 'channels', 'mode'], additionalProperties: false, properties: {
+      template: name, mode: { enum: ['queue', 'scheduled', 'draft'] }, due_at: { type: 'string', format: 'date-time' },
+      channels: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', required: ['id'], properties: { id: { type: 'string', maxLength: 100 }, name: { type: 'string', maxLength: 200 } } } },
+    } } },
+  }, async req => articles.social(req.params.id, req.body));
 
   app.get('/usage', async () => ({
     month_spend_gbp: monthSpendGbp(),
