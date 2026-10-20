@@ -1,0 +1,110 @@
+// Copywriting against a fake Claude API on localhost, so tests cost nothing.
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { after, before, test } from 'node:test';
+
+process.env.NODE_ENV = 'test';
+process.env.API_KEY = 'test-key';
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-copy-'));
+process.env.ANTHROPIC_API_KEY = 'fake';
+process.env.CLAUDE_MONTHLY_CAP_GBP = '1';
+
+const calls: any[] = [];
+const fake = http.createServer((req, res) => {
+  let body = '';
+  req.on('data', c => (body += c));
+  req.on('end', () => {
+    const r = JSON.parse(body);
+    calls.push(r);
+    const prompt = JSON.stringify(r.messages);
+    const design = prompt.includes('Design a new 1080');
+    const good = fs.readFileSync(path.join(import.meta.dirname, '..', 'templates', 'tip-card.html'), 'utf8').replace('<title>Tip card', '<title>Event card');
+    const out = design
+      ? (r.messages.length === 1 ? { name: 'event-card', html: good.replace('</style>', '</style><link href="https://fonts.googleapis.com/x">') } : { name: 'event-card', html: good })
+      : prompt.includes('Write the caption')
+      ? { caption: 'Slow pages cost you enquiries. Get in touch for a fixed price quote.', hashtags: ['#WebDesign', '#SmallBusiness', '#SEO'] }
+      : r.messages.length === 1 // first draft is too long, the rewrite fits
+        ? { headline: 'Why speed matters so much more than you think for every small business website in the UK today', highlight_word: 'speed', subtitle: 'Faster pages keep visitors.', tag: 'Marketing Guide', footer_left: 'Free guide' }
+        : { headline: 'Why speed matters', highlight_word: 'speed', subtitle: 'Faster pages keep visitors and win more enquiries.', tag: 'Marketing Guide', footer_left: 'Free guide' };
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({
+      id: 'msg_fake', type: 'message', role: 'assistant', model: r.model, stop_reason: 'end_turn', stop_sequence: null, stop_details: null,
+      content: [{ type: 'text', text: JSON.stringify(out) }],
+      usage: { input_tokens: 2000, output_tokens: 300 },
+    }));
+  });
+});
+
+let app: any, closeBrowser: any, db: any;
+before(async () => {
+  await new Promise<void>(ok => fake.listen(0, '127.0.0.1', () => ok()));
+  process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
+  ({ closeBrowser } = await import('../src/render.ts'));
+  ({ db } = await import('../src/db.ts'));
+  const { buildApp } = await import('../src/server.ts');
+  (await import('../src/templates.ts')).seed();
+  (await import('../src/copy.ts')).seed();
+  app = buildApp();
+});
+after(async () => { await app.close(); await closeBrowser(); fake.close(); });
+
+const headers = { 'x-api-key': 'test-key' };
+
+test('copy writes fields, rewrites once when they do not fit, then writes a caption', async () => {
+  const res = await app.inject({ method: 'POST', url: '/copy', headers, payload: { template: 'social-post', topic: 'Website speed' } });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json();
+  assert.equal(body.fits, true, res.body);
+  assert.equal(body.fields.headline, 'Why speed matters');
+  assert.equal(body.fields.footer_right, 'redcherryit.com');
+  assert.ok(body.caption && body.hashtags.length === 3);
+  assert.deepEqual(calls.map(c => c.model), ['claude-sonnet-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5']);
+  assert.match(JSON.stringify(calls[1].messages.at(-1)), /does not fit/);
+  assert.match(calls[0].system, /Red Cherry IT/);
+  const rows = db.prepare('SELECT job FROM claude_usage ORDER BY id').all().map((r: any) => r.job);
+  assert.deepEqual(rows, ['copy:social-post', 'copy:social-post:retry', 'copy:caption']);
+});
+
+test('a test run uses unsaved prompt text and saves nothing', async () => {
+  const before = calls.length;
+  const res = await app.inject({ method: 'POST', url: '/prompts/caption/test', headers,
+    payload: { vars: { headline: 'Why speed matters', subtitle: 'x' }, body: '---\nmodel: claude-haiku-5-5\n---\nWrite the caption for {headline}' } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(calls.length, before + 1);
+  assert.match(JSON.stringify(calls.at(-1).messages), /Write the caption for Why speed matters/);
+});
+
+test('calls stop once the monthly cap would be passed', async () => {
+  db.prepare(`INSERT INTO claude_usage (job, model, input_tokens, output_tokens, cost_usd) VALUES ('test', 'claude-sonnet-5-5', 0, 0, 5)`).run();
+  const before = calls.length;
+  const res = await app.inject({ method: 'POST', url: '/copy', headers, payload: { template: 'social-post', topic: 'Website speed' } });
+  assert.equal(res.statusCode, 402, res.body);
+  assert.equal(calls.length, before, 'no request reached Claude');
+});
+
+test('prompts are versioned and can be rolled back', async () => {
+  const first = (await app.inject({ method: 'GET', url: '/prompts/caption', headers })).json();
+  assert.ok(first.vars.includes('headline'));
+  const saved = await app.inject({ method: 'PUT', url: '/prompts/caption', headers, payload: { body: first.body + '\nKeep it upbeat.', note: 'test' } });
+  assert.equal(saved.statusCode, 200, saved.body);
+  await app.inject({ method: 'POST', url: `/prompts/caption/rollback/${first.version}`, headers });
+  assert.equal((await app.inject({ method: 'GET', url: '/prompts/caption', headers })).json().body, first.body);
+  const bad = await app.inject({ method: 'PUT', url: '/prompts/caption', headers, payload: { body: '---\neffort: huge\n---\nx' } });
+  assert.equal(bad.statusCode, 400);
+});
+
+test('Claude designs a template, gets one fix up round, and nothing is saved until asked', async () => {
+  db.prepare('DELETE FROM claude_usage').run(); // clear the cap test's spend
+  const res = await app.inject({ method: 'POST', url: '/templates/design', headers, payload: { description: 'An event card', base: 'social-post' } });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json();
+  assert.equal(body.ok, true, res.body);
+  assert.equal(body.name, 'event-card');
+  assert.match(JSON.stringify(calls.at(-1).messages.at(-1)), /loads something from outside the app/);
+  assert.equal((await app.inject({ method: 'GET', url: '/templates/event-card', headers })).statusCode, 404);
+  const saved = await app.inject({ method: 'PUT', url: '/templates/event-card', headers, payload: { html: body.html, note: 'Designed with Claude' } });
+  assert.equal(saved.statusCode, 200, saved.body);
+});

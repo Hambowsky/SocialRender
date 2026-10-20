@@ -35,6 +35,52 @@
   <div class="frame"><iframe id="preview" title="Live preview"></iframe></div>
 </main>
 
+<details id="write" open>
+  <summary>Write with Claude</summary>
+  <p>Claude writes the text for the chosen template, checks it fits, and writes a caption. Nothing is posted. <span id="spend"></span></p>
+  <main>
+    <div class="side">
+      <label>Topic <input id="topic" placeholder="Why website speed matters"></label>
+      <label>Keyword <input id="keyword"></label>
+      <label>Audience <input id="audience" placeholder="UK small business owners"></label>
+    </div>
+    <div class="side">
+      <label>Sources (facts and figures Claude may use) <textarea id="sources" rows="4"></textarea></label>
+      <div><button id="writeBtn" type="button">Write the text</button></div>
+      <div id="writeOut"></div>
+    </div>
+  </main>
+</details>
+
+<details id="prompts">
+  <summary>Prompts and test runs</summary>
+  <p>Test run uses the text below, saved or not, with the topic and fields above. It never posts or queues anything.</p>
+  <main>
+    <div class="side" style="flex:2 1 520px;max-width:none">
+      <label>Prompt <select id="promptName"></select></label>
+      <textarea id="promptBody" class="code" spellcheck="false"></textarea>
+      <label>Note for this version <input id="promptNote" maxlength="200"></label>
+      <div><button id="promptTest" type="button" class="plain">Test run</button> <button id="promptSave" type="button">Save new version</button></div>
+      <pre id="promptOut" style="white-space:pre-wrap"></pre>
+    </div>
+    <div class="side"><strong>Versions</strong><ul id="promptVersions"></ul></div>
+  </main>
+</details>
+
+<details id="design">
+  <summary>Design a template with Claude</summary>
+  <p>Describe the template you want. Claude designs it in the brand style, starting from the template picked above, and the app checks its sample text fits. It shows in the preview. Nothing is saved until you save it.</p>
+  <main>
+    <div class="side" style="flex:2 1 520px;max-width:none">
+      <label>What should it look like? <textarea id="designDesc" rows="4" placeholder="An event card with a big date block on the left, the event name as the headline and the venue as the subtitle"></textarea></label>
+      <div><button id="designBtn" type="button">Design it</button></div>
+      <div id="designOut"></div>
+      <label>Name <input id="designName" pattern="[a-z0-9-]+"></label>
+      <div><button id="designSave" type="button" disabled>Save as new template</button></div>
+    </div>
+  </main>
+</details>
+
 <details id="code">
   <summary>Template code and versions</summary>
   <p>Edits show in the preview straight away. Save to make them live for renders.</p>
@@ -76,6 +122,8 @@
       $('template').innerHTML = list.map(t => `<option>${esc(t.name)}</option>`).join('');
       if (keep && list.some(t => t.name === keep)) $('template').value = keep;
       await loadTemplate($('template').value === keep);
+      loadPrompts().catch(e => { $('promptOut').textContent = e.message; });
+      loadSpend();
     } catch (e) { status(esc(e.message), 'bad'); }
   }
 
@@ -144,6 +192,96 @@
       await api(`/templates/${$('template').value}/rollback/${v}`, { method: 'POST' });
       await loadTemplate(true);
     } catch (err) { status(esc(err.message), 'bad'); }
+  });
+
+  // Claude copywriting
+  const writeVars = () => ({ topic: $('topic').value, keyword: $('keyword').value, audience: $('audience').value, sources: $('sources').value });
+  async function loadSpend() {
+    try {
+      const u = await (await api('/usage')).json();
+      $('spend').textContent = `Spent this month: £${u.month_spend_gbp.toFixed(2)} of £${u.cap_gbp}.`;
+    } catch {}
+  }
+  $('writeBtn').addEventListener('click', async () => {
+    $('writeOut').textContent = 'Writing...';
+    try {
+      const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...writeVars() }) })).json();
+      for (const [k, v] of Object.entries(r.fields)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
+      refresh();
+      $('writeOut').innerHTML = `${r.fits ? '' : '<p class="bad">Still too long after one rewrite. Shorten it by hand.</p>'}
+        <p><strong>Caption</strong><br>${esc(r.caption)}<br>${esc(r.hashtags.join(' '))}</p><p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
+    } catch (e) { $('writeOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    loadSpend();
+  });
+
+  let savedPrompt = '';
+  async function loadPrompts() {
+    const list = await (await api('/prompts')).json();
+    const keep = $('promptName').value;
+    $('promptName').innerHTML = list.map(p => `<option>${esc(p.name)}</option>`).join('');
+    if (keep && list.some(p => p.name === keep)) $('promptName').value = keep;
+    await loadPrompt();
+  }
+  async function loadPrompt() {
+    const name = $('promptName').value;
+    const p = await (await api('/prompts/' + name)).json();
+    savedPrompt = $('promptBody').value = p.body;
+    $('promptVersions').innerHTML = (await (await api(`/prompts/${name}/versions`)).json()).map(v =>
+      `<li>Version ${v.id}, ${esc(v.created_at)}${v.note ? ': ' + esc(v.note) : ''}
+       ${v.id === p.version ? ' <strong>(live)</strong>' : ` <button type="button" class="plain" data-v="${v.id}">Roll back</button>`}</li>`).join('');
+  }
+  $('promptName').addEventListener('change', loadPrompt);
+  $('promptTest').addEventListener('click', async () => {
+    $('promptOut').textContent = 'Running...';
+    try {
+      const r = await (await api(`/prompts/${$('promptName').value}/test`, { method: 'POST',
+        body: JSON.stringify({ vars: { ...writeVars(), ...fieldValues() }, body: $('promptBody').value, template: $('template').value }) })).json();
+      $('promptOut').textContent = JSON.stringify(r.output, null, 2) + `\n\nCost £${r.cost_gbp.toFixed(4)}`;
+    } catch (e) { $('promptOut').textContent = e.message; }
+    loadSpend();
+  });
+  $('promptSave').addEventListener('click', async () => {
+    try {
+      await api('/prompts/' + $('promptName').value, { method: 'PUT', body: JSON.stringify({ body: $('promptBody').value, note: $('promptNote').value }) });
+      $('promptNote').value = '';
+      await loadPrompt();
+    } catch (e) { $('promptOut').textContent = e.message; }
+  });
+  $('promptVersions').addEventListener('click', async e => {
+    const v = e.target.dataset?.v;
+    if (!v || !confirm(`Make version ${v} of this prompt live again?`)) return;
+    try { await api(`/prompts/${$('promptName').value}/rollback/${v}`, { method: 'POST' }); await loadPrompt(); }
+    catch (err) { $('promptOut').textContent = err.message; }
+  });
+
+  // Template designer
+  $('designBtn').addEventListener('click', async () => {
+    $('designOut').textContent = 'Designing. This can take a minute...';
+    $('designSave').disabled = true;
+    try {
+      const r = await (await api('/templates/design', { method: 'POST', body: JSON.stringify({ description: $('designDesc').value, base: $('template').value }) })).json();
+      $('html').value = r.html;
+      $('designName').value = r.name;
+      for (const [k, v] of Object.entries(r.sample)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
+      refresh();
+      $('designSave').disabled = !r.ok;
+      $('designOut').innerHTML = (r.ok ? '<p class="good">Ready. Check the preview, edit the code below if you like, then save it.</p>'
+        : `<p class="bad">Still has problems after one fix up round:<br>${problemList(r.problems)}</p>`) + `<p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
+      $('code').open = true;
+      window.scrollTo({ top: 0, behavior: 'smooth' }); // the preview is at the top
+    } catch (e) { $('designOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    loadSpend();
+  });
+  $('designSave').addEventListener('click', async () => {
+    const name = $('designName').value.trim();
+    try {
+      await api('/templates/' + name, { method: 'PUT', body: JSON.stringify({ html: $('html').value, note: 'Designed with Claude' }) });
+      $('designSave').disabled = true;
+      $('designOut').innerHTML = `<p class="good">Saved as ${esc(name)}.</p>`;
+      $('template').innerHTML += `<option>${esc(name)}</option>`;
+      $('template').value = name;
+      await loadTemplate(true);
+    } catch (e) { $('designOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
   });
 
   loadTemplates();

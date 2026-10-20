@@ -12,6 +12,9 @@ export const RENDER_RETENTION_DAYS = Number(env.RENDER_RETENTION_DAYS || 14);
 export const RENDERS_PER_MIN = Number(env.RENDERS_PER_MIN || 30);
 export const TEMPLATE_VERSIONS_KEEP = Number(env.TEMPLATE_VERSIONS_KEEP || 50);
 
+export const CLAUDE_MONTHLY_CAP_GBP = Number(env.CLAUDE_MONTHLY_CAP_GBP || 20);
+export const GBP_PER_USD = Number(env.GBP_PER_USD || 0.79); // update now and then: the API bills in US dollars
+
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
 

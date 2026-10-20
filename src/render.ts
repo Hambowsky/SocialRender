@@ -32,7 +32,8 @@ async function getBrowser() {
 }
 export const closeBrowser = () => browser?.close();
 
-async function shoot(html: string, file: string): Promise<Problem[]> {
+// Lays the page out and runs the layout check. Saves a screenshot only when `file` is given and everything fits.
+async function shoot(html: string, file?: string): Promise<Problem[]> {
   const page = await (await getBrowser()).newPage({ viewport: { width: 1080, height: 1080 } });
   try {
     // No network at all: the page gets its HTML and local files only, so renders are repeatable.
@@ -45,7 +46,7 @@ async function shoot(html: string, file: string): Promise<Problem[]> {
     });
     await page.goto('http://render.local/');
     const problems: Problem[] = await page.evaluate(() => (window as any).layoutErrors());
-    if (!problems.length) await page.locator('.post').screenshot({ path: file });
+    if (file && !problems.length) await page.locator('.post').screenshot({ path: file });
     return problems;
   } finally {
     await page.close().catch(() => {});
@@ -56,21 +57,15 @@ export type RenderResult = { ok: true; id: string; file: string } | { ok: false;
 
 async function renderNow(template: string, fields: Record<string, string>): Promise<RenderResult> {
   const tpl = current(template);
-  const id = crypto.createHash('sha256').update(JSON.stringify([template, tpl.html, fields])).digest('hex').slice(0, 20);
+  const id = crypto.createHash('sha256').update(JSON.stringify([template, tpl.body, fields])).digest('hex').slice(0, 20);
   const file = renderPath(id);
   // Same template and text as an earlier render: hand back that file, never render twice.
   if (fs.existsSync(file)) return { ok: true, id, file };
 
-  const filled = fill(tpl.html, fields);
+  const filled = fill(tpl.body, fields);
   if (filled.problems.length) return { ok: false, problems: filled.problems };
 
-  let problems: Problem[];
-  try {
-    problems = await shoot(filled.html, file);
-  } catch (err) {
-    if (browser?.isConnected()) throw err;
-    problems = await shoot(filled.html, file); // browser crashed: one retry on a fresh one
-  }
+  const problems = await shootWithRetry(filled.html, file);
   if (problems.length) return { ok: false, problems };
 
   db.prepare(`INSERT INTO renders (id, template, template_version, fields) VALUES (?, ?, ?, ?)
@@ -79,9 +74,29 @@ async function renderNow(template: string, fields: Record<string, string>): Prom
   return { ok: true, id, file };
 }
 
+async function shootWithRetry(html: string, file?: string) {
+  try {
+    return await shoot(html, file);
+  } catch (err) {
+    if (browser?.isConnected()) throw err;
+    return shoot(html, file); // browser crashed: one retry on a fresh one
+  }
+}
+
 let queue: Promise<unknown> = Promise.resolve();
-export function render(template: string, fields: Record<string, string>): Promise<RenderResult> {
-  const job = queue.then(() => renderNow(template, fields));
+function enqueue<T>(work: () => Promise<T>): Promise<T> {
+  const job = queue.then(work);
   queue = job.catch(() => {});
   return job;
 }
+
+export const render = (template: string, fields: Record<string, string>) => enqueue(() => renderNow(template, fields));
+
+// Does this text fit the template? Same check as a render, without saving an image.
+export const checkFit = (template: string, fields: Record<string, string>) => checkHtml(current(template).body, fields);
+
+// The same check for template HTML that is not saved yet.
+export const checkHtml = (html: string, fields: Record<string, string>) => enqueue(async () => {
+  const filled = fill(html, fields);
+  return filled.problems.length ? filled.problems : shootWithRetry(filled.html);
+});
