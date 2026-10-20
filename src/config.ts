@@ -21,6 +21,10 @@ export const BUFFER_API_URL = env.BUFFER_API_URL || 'https://api.buffer.com';
 export const PUBLIC_URL = (env.PUBLIC_URL ?? '').replace(/\/$/, '');
 export const AUTO_POST = env.AUTO_POST === 'true'; // off: every post waits for approval in the editor
 
+// Articles. Published ones are written as files under PUBLISH_DIR, in a folder per category, for the static site.
+export const PUBLISH_DIR = path.resolve(env.PUBLISH_DIR || path.join(DATA_DIR, 'site'));
+export const SITE_URL = (env.SITE_URL || 'https://redcherryit.com').replace(/\/$/, '');
+
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
 

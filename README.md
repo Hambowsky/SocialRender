@@ -31,6 +31,8 @@ All in environment variables, listed in `.env.example`.
 | `BUFFER_API_KEY` | none | Buffer API key. Without it only the Buffer endpoints are off. |
 | `PUBLIC_URL` | none | The app's public address. Buffer fetches images from here, so posting needs it. |
 | `AUTO_POST` | `false` | When true, posts go to Buffer as soon as they are added, with no approval. |
+| `PUBLISH_DIR` | `DATA_DIR/site` | Where published articles are written. Point it at your static site's folder to publish straight into it. |
+| `SITE_URL` | `https://redcherryit.com` | Used for article links in social posts. |
 
 ## API
 Every endpoint needs `x-api-key`, except `/health`, the editor page with its fonts, logo and check script, and `/public/renders/<id>.png` (Buffer fetches images from there; ids are long random looking hashes that cannot be listed).
@@ -61,6 +63,14 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 * A post is only ever sent once: approving claims it in one database step, and once Buffer returns an id it is never sent again. If Buffer says no, the status is `failed` with the reason, and you can send again. If the request may have reached Buffer but the answer was lost (timeout, network or server error), the status is `check_buffer`: look in Buffer, then `POST /posts/<id>/mark-sent` or send again.
 * The editor's "Post to Buffer" panel does all this. Write with Claude fills in its caption.
 * Only images are sent. Video support in Buffer's API is still to be checked, so videos (phase 5) will be saved for you to post by hand until then.
+
+## Articles
+* `POST /articles` with `{"topic": "...", "keyword": "...", "audience": "...", "sources": "...", "url": "...", "category": "/guides/stories/"}` has Claude (Sonnet 5.5) draft an article in the case study structure, using only facts from the sources and the page link. It is saved as a draft and returned with its checks.
+* The checks are plain code: word count, required headings, sources present, no `[SOURCE NEEDED]` left in, and no dashes used as punctuation. These must pass before approval. Figures and quotes that do not appear in the sources are listed as warnings to look at. The limits and headings live in the `article` prompt's settings, so they are versioned with it.
+* `GET /articles`, `GET /articles/<id>`, `PUT /articles/<id>` (edit title, summary, slug, body or sources; drafts only), then `POST /articles/<id>/approve`, `/reject`, `/reopen` (back to draft) and `/publish`.
+* Publishing writes `<slug>.md` (with front matter like your example) and `<slug>.html` (the article as an HTML fragment) to `PUBLISH_DIR/<category>/`. Publishing again overwrites the same files. `GET /articles/<id>/download?format=md` or `html` gets either file.
+* `POST /articles/<id>/social` with `{"template", "channels", "mode"}` writes a social post for a published article, renders it and adds it to the Buffer approval queue with the article link in the caption. Asking again for the same article and template returns the same posts without calling Claude.
+* The editor's "Articles" panel does all this, with a preview.
 
 ## Templates
 `templates/` holds the four starting templates: social post, quote card, stat card and tip card. On start, any template file whose exact HTML is not already in the database is added as a new version. After that, edits made in the editor are the live version, and every save can be rolled back.

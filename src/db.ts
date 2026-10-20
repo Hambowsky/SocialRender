@@ -69,6 +69,22 @@ const migrations = [
      sent_at TEXT,
      UNIQUE (idempotency_key, channel_id)
    );`,
+
+  `CREATE TABLE articles (
+     id INTEGER PRIMARY KEY,
+     slug TEXT NOT NULL UNIQUE,
+     category TEXT NOT NULL,           -- site path, for example /guides/stories/
+     title TEXT NOT NULL,
+     summary TEXT NOT NULL,
+     body TEXT NOT NULL,               -- Markdown
+     topic TEXT NOT NULL,
+     keyword TEXT NOT NULL DEFAULT '',
+     sources TEXT NOT NULL,            -- what Claude was given, kept so claims can be checked against it
+     status TEXT NOT NULL,             -- draft, approved, published, rejected
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+     published_at TEXT
+   );`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

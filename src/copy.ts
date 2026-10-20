@@ -32,6 +32,7 @@ export function parsePrompt(body: string) {
     effort: (settings.effort || 'medium') as Ask['effort'],
     maxTokens: Number(settings.max_tokens || 4000),
     text: m ? body.slice(m[0].length) : body,
+    settings: settings as Record<string, string>,
   };
 }
 
@@ -51,6 +52,11 @@ function systemPrompt() {
 
 const str = { type: 'string' };
 const SCHEMAS: Record<string, Record<string, unknown>> = {
+  article: {
+    type: 'object', additionalProperties: false,
+    required: ['title', 'summary', 'body'],
+    properties: { title: str, summary: str, body: str },
+  },
   'social-post': {
     type: 'object', additionalProperties: false,
     required: ['headline', 'highlight_word', 'subtitle', 'tag', 'footer_left'],
