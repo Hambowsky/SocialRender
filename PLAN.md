@@ -35,12 +35,12 @@ Dockerfile  .env.example  README.md  CLAUDE.md
 Template files are seeds. On start they are loaded into the database as versions, and edits from the editor are saved there too, so a redeploy never wipes them.
 
 ## Data model (SQLite)
-Phase 1 creates `template_versions` and `renders`. Phase 2 adds `prompt_versions` and `claude_usage`, and renames the version columns to `name` and `body` so templates and prompts share one store. `jobs` arrives in phase 3 with Buffer, the first background work. The rest are listed so later phases slot in without changing these.
+Phase 1 creates `template_versions` and `renders`. Phase 2 adds `prompt_versions` and `claude_usage`, and renames the version columns to `name` and `body` so templates and prompts share one store. Phase 3 adds `posts`. `jobs` waits until there is background work that needs it. The rest are listed so later phases slot in without changing these.
 * `jobs`: id, kind (render, copy, post, article, email), idempotency_key UNIQUE, status (queued, running, done, failed, needs_approval, approved), input JSON, output JSON, error, attempts, created_at, updated_at. A retry with the same key returns the existing job instead of doing the work again.
 * `renders`: id (hash of template and text), template, template_version, fields, created_at, posted_at, deleted_at.
 * `template_versions`: id, template, html, note, created_at. Saving creates a new row; rolling back copies an old row forward.
 * Phase 2 (built): `prompt_versions` (same shape as template versions), `claude_usage` (job, model, input_tokens, output_tokens, cost_usd, created_at). The spend cap reads this table.
-* Phase 3: `posts` (job_id, channel, buffer_id, scheduled_for, status). Posting needs status approved; `buffer_id` set means never send again.
+* Phase 3 (built): `posts` (idempotency_key and channel_id UNIQUE together, render_id, text, mode, due_at, status, buffer_post_id, error). Sending claims the row first; `buffer_post_id` set means never send again.
 * Phase 4: `drafts` (kind, title, body, sources JSON, checks JSON, status draft, review, approved, published).
 * Phase 5: `contacts` and `suppressions` for email.
 

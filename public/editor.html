@@ -21,6 +21,7 @@
   summary { font-weight: 600; cursor: pointer; }
   ul { padding-left: 18px; margin: 0; }
   li { margin: 4px 0; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -40,7 +41,8 @@
   <p>Claude writes the text for the chosen template, checks it fits, and writes a caption. Nothing is posted. <span id="spend"></span></p>
   <main>
     <div class="side">
-      <label>Topic <input id="topic" placeholder="Why website speed matters"></label>
+      <label>Page link (optional, Claude reads the page and writes about it) <input id="url" type="url" placeholder="https://redcherryit.com/blog/..."></label>
+      <label>Topic <input id="topic" placeholder="Why website speed matters, or leave empty with a link"></label>
       <label>Keyword <input id="keyword"></label>
       <label>Audience <input id="audience" placeholder="UK small business owners"></label>
     </div>
@@ -50,6 +52,28 @@
       <div id="writeOut"></div>
     </div>
   </main>
+</details>
+
+<details id="buffer">
+  <summary>Post to Buffer</summary>
+  <p>Renders the image above and adds a post for each channel you tick. Nothing goes to Buffer until you approve it below.</p>
+  <main>
+    <div class="side">
+      <strong>Channels</strong>
+      <div id="channels">Open this section with your API key entered to load channels.</div>
+      <label>When
+        <select id="postMode"><option value="queue">Next free slot in the Buffer queue</option><option value="scheduled">At a set time</option><option value="draft">As a Buffer draft</option></select>
+      </label>
+      <label id="dueWrap" hidden>Date and time <input id="dueAt" type="datetime-local"></label>
+    </div>
+    <div class="side">
+      <label>Caption <textarea id="postText" rows="7" maxlength="5000"></textarea></label>
+      <div><button id="postBtn" type="button">Send for approval</button></div>
+      <div id="postOut"></div>
+    </div>
+  </main>
+  <p><strong>Posts</strong> <button id="postsReload" type="button" class="plain">Refresh</button></p>
+  <ul id="posts"></ul>
 </details>
 
 <details id="prompts">
@@ -203,13 +227,14 @@
     } catch {}
   }
   $('writeBtn').addEventListener('click', async () => {
-    $('writeOut').textContent = 'Writing...';
+    $('writeOut').textContent = $('url').value.trim() ? 'Reading the page and writing...' : 'Writing...';
     try {
-      const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...writeVars() }) })).json();
+      const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...writeVars(), ...($('url').value.trim() ? { url: $('url').value.trim() } : {}) }) })).json();
       for (const [k, v] of Object.entries(r.fields)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
       refresh();
+      $('postText').value = [r.caption, r.page?.url, r.hashtags.join(' ')].filter(Boolean).join('\n\n');
       $('writeOut').innerHTML = `${r.fits ? '' : '<p class="bad">Still too long after one rewrite. Shorten it by hand.</p>'}
-        <p><strong>Caption</strong><br>${esc(r.caption)}<br>${esc(r.hashtags.join(' '))}</p><p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
+        <p><strong>Caption</strong> (copied to Post to Buffer)<br>${esc(r.caption)}<br>${esc(r.hashtags.join(' '))}</p>${r.page ? `<p>Read: ${esc(r.page.title || r.page.url)}</p>` : ''}<p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
     } catch (e) { $('writeOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
     loadSpend();
   });
@@ -282,6 +307,54 @@
       $('template').value = name;
       await loadTemplate(true);
     } catch (e) { $('designOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  });
+
+  // Buffer posting
+  const STATUS = { pending_approval: 'Waiting for approval', sending: 'Sending', sent: 'Sent to Buffer', failed: 'Failed',
+    check_buffer: 'Unsure if it reached Buffer. Check Buffer, then mark it sent or send again', rejected: 'Rejected' };
+  async function loadChannels() {
+    try {
+      const list = await (await api('/buffer/channels')).json();
+      $('channels').innerHTML = list.length ? list.map(c => `<label style="display:flex;gap:6px;font-weight:400"><input type="checkbox" value="${esc(c.id)}" data-name="${esc(c.name + ' (' + c.service + ')')}"> ${esc(c.name)} (${esc(c.service)})</label>`).join('') : 'No channels in Buffer yet.';
+    } catch (e) { $('channels').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+  }
+  async function loadPosts() {
+    try {
+      const list = await (await api('/posts')).json();
+      $('posts').innerHTML = list.map(p => `<li><a href="/public/renders/${p.render_id}.png" target="_blank">image</a>
+        ${esc(p.channel_name || p.channel_id)}, ${p.mode === 'scheduled' ? esc(new Date(p.due_at).toLocaleString()) : p.mode === 'draft' ? 'draft' : 'queue'}:
+        <strong>${esc(STATUS[p.status] || p.status)}</strong>${p.error ? ` <span class="bad">${esc(p.error)}</span>` : ''}
+        <br><small>${esc(p.text.slice(0, 140))}</small><br>
+        ${['pending_approval', 'failed', 'check_buffer'].includes(p.status) ? `<button type="button" data-act="approve" data-id="${p.id}">${p.status === 'pending_approval' ? 'Approve and send' : 'Send again'}</button>
+          <button type="button" class="plain" data-act="reject" data-id="${p.id}">Reject</button>` : ''}
+        ${p.status === 'check_buffer' ? `<button type="button" class="plain" data-act="mark-sent" data-id="${p.id}">It is in Buffer, mark sent</button>` : ''}</li>`).join('') || '<li>No posts yet.</li>';
+    } catch (e) { $('posts').innerHTML = `<li class="bad">${esc(e.message)}</li>`; }
+  }
+  $('buffer').addEventListener('toggle', () => { if ($('buffer').open && $('key').value) { loadChannels(); loadPosts(); } });
+  $('postsReload').addEventListener('click', loadPosts);
+  $('postMode').addEventListener('change', () => { $('dueWrap').hidden = $('postMode').value !== 'scheduled'; });
+  $('postBtn').addEventListener('click', async () => {
+    const channels = [...$('channels').querySelectorAll('input:checked')].map(c => ({ id: c.value, name: c.dataset.name }));
+    if (!channels.length) return $('postOut').innerHTML = '<span class="bad">Tick at least one channel.</span>';
+    const mode = $('postMode').value;
+    if (mode === 'scheduled' && !$('dueAt').value) return $('postOut').innerHTML = '<span class="bad">Pick a date and time.</span>';
+    $('postOut').textContent = 'Rendering...';
+    try {
+      const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) })).json();
+      const body = { render_id: r.id, channels, text: $('postText').value, mode };
+      if (mode === 'scheduled') body.due_at = new Date($('dueAt').value).toISOString();
+      await api('/posts', { method: 'POST', body: JSON.stringify(body) });
+      $('postOut').innerHTML = '<span class="good">Added. Approve it below to send it to Buffer.</span>';
+      loadPosts();
+    } catch (e) { $('postOut').innerHTML = `<span class="bad">${e.body?.problems ? problemList(e.body.problems) : esc(e.message)}</span>`; }
+  });
+  $('posts').addEventListener('click', async e => {
+    const { act, id } = e.target.dataset ?? {};
+    if (!act) return;
+    if (act === 'approve' && !confirm('Send this post to Buffer now?')) return;
+    e.target.disabled = true;
+    try { await api(`/posts/${id}/${act}`, { method: 'POST' }); } catch (err) { alert(err.message); }
+    loadPosts();
   });
 
   loadTemplates();

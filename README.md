@@ -22,15 +22,18 @@ All in environment variables, listed in `.env.example`.
 | `API_KEY` | none, required | Sent as the `x-api-key` header. The app will not start without it. |
 | `DATA_DIR` | `./data` (`/data` in Docker) | Database and rendered PNGs. |
 | `PORT`, `HOST` | `3000`, `127.0.0.1` | Where it listens. |
-| `RENDER_RETENTION_DAYS` | `14` | Unposted renders older than this are deleted hourly. |
+| `RENDER_RETENTION_DAYS` | `14` | Unposted renders older than this are deleted hourly. Posted ones go 3 days after they go out. |
 | `RENDERS_PER_MIN` | `30` | Render rate limit. Other endpoints allow 600 a minute. |
 | `TEMPLATE_VERSIONS_KEEP` | `50` | Saved versions kept per template and per prompt. |
 | `ANTHROPIC_API_KEY` | none | Console API key for copywriting. Without it only the copywriting endpoints are off. |
 | `CLAUDE_MONTHLY_CAP_GBP` | `20` | Hard stop on Claude spend each calendar month. |
 | `GBP_PER_USD` | `0.79` | Rate for converting the API's dollar prices. |
+| `BUFFER_API_KEY` | none | Buffer API key. Without it only the Buffer endpoints are off. |
+| `PUBLIC_URL` | none | The app's public address. Buffer fetches images from here, so posting needs it. |
+| `AUTO_POST` | `false` | When true, posts go to Buffer as soon as they are added, with no approval. |
 
 ## API
-Every endpoint needs `x-api-key`, except `/health` and the editor page with its fonts, logo and check script.
+Every endpoint needs `x-api-key`, except `/health`, the editor page with its fonts, logo and check script, and `/public/renders/<id>.png` (Buffer fetches images from there; ids are long random looking hashes that cannot be listed).
 
 * `POST /render` with `{"template": "social-post", "fields": {"headline": "...", "highlight_word": "...", "subtitle": "...", "tag": "...", "footer_left": "...", "footer_right": "..."}}` returns the PNG. Add `?format=json` to get `{id, url}` instead. The same template and text always give the same render, so a retry never makes a second image.
 * If the text does not fit you get a 422 with a list of problems, each naming the field, the overflow in pixels and roughly how many characters to cut.
@@ -41,7 +44,8 @@ Every endpoint needs `x-api-key`, except `/health` and the editor page with its 
 A new line in a headline forces a line break. Fields are capped at 300 characters and are always escaped, so no field can change the design.
 
 ## Copywriting
-* `POST /copy` with `{"template": "social-post", "topic": "...", "keyword": "...", "audience": "...", "sources": "..."}` returns `fields` ready for `/render`, plus `caption`, `hashtags`, `fits`, `problems` and `cost_gbp`. Nothing is posted or queued.
+* `POST /copy` with `{"template": "social-post", "topic": "...", "url": "...", "keyword": "...", "audience": "...", "sources": "..."}` returns `fields` ready for `/render`, plus `caption`, `hashtags`, `fits`, `problems` and `cost_gbp`. Nothing is posted or queued.
+* Give `url` (with or without a topic) and the app reads that page as plain text and hands it to Claude as a source, so the post is about the page and uses its facts. Only public web addresses are read, and pages that need JavaScript to show their text will not work; paste the text into `sources` for those.
 * Sonnet 5.5 writes the image text. The app then runs the same layout check as a render, and if the text does not fit it asks Claude once to shorten it, saying what overflowed. Haiku 5.5 writes the caption.
 * Prompts live in `prompts/` as seeds and are versioned in the database like templates: `GET /prompts`, `GET /prompts/<name>`, `PUT /prompts/<name>` with `{body, note}`, `GET /prompts/<name>/versions`, `POST /prompts/<name>/rollback/<version>`.
 * `POST /prompts/<name>/test` with `{vars, body?, template?}` runs a prompt, saved or not, and shows the output.
@@ -49,6 +53,14 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 * A prompt can start with settings between `---` lines: `model`, `effort` (low, medium or high) and `max_tokens`.
 * `POST /templates/design` with `{"description": "...", "base": "social-post"}` has Claude design a new template in the brand style, starting from an existing one. The app checks the rules (only the six standard fields, no scripts, nothing loaded from outside) and that the sample text fits, and gives Claude one fix up round if not. It returns `{name, html, sample, ok, problems, cost_gbp}` and saves nothing; save it with `PUT /templates/<name>`. The editor's "Design a template with Claude" panel does all this with a preview.
 * Every Claude call goes through `src/claude.ts`. It refuses any call whose worst case cost would take this month over the cap, and logs tokens and cost to the `claude_usage` table. `GET /usage` shows this month's spend and the last 20 calls.
+
+## Buffer
+* `GET /buffer/channels` lists the channels in every Buffer organisation.
+* `POST /posts` with `{"render_id": "...", "channels": [{"id": "...", "name": "..."}], "text": "...", "mode": "queue"}` adds one post per channel. `mode` is `queue` (next free Buffer slot), `scheduled` (add `due_at`, an ISO time in the future) or `draft` (a Buffer draft). Posts wait with status `pending_approval`. Sending the same thing twice returns the same posts; pass `idempotency_key` to set the key yourself.
+* `POST /posts/<id>/approve` sends it to Buffer. `POST /posts/<id>/reject` drops it. `GET /posts` lists open and recent posts, `?status=sent` filters.
+* A post is only ever sent once: approving claims it in one database step, and once Buffer returns an id it is never sent again. If Buffer says no, the status is `failed` with the reason, and you can send again. If the request may have reached Buffer but the answer was lost (timeout, network or server error), the status is `check_buffer`: look in Buffer, then `POST /posts/<id>/mark-sent` or send again.
+* The editor's "Post to Buffer" panel does all this. Write with Claude fills in its caption.
+* Only images are sent. Video support in Buffer's API is still to be checked, so videos (phase 5) will be saved for you to post by hand until then.
 
 ## Templates
 `templates/` holds the four starting templates: social post, quote card, stat card and tip card. On start, any template file whose exact HTML is not already in the database is added as a new version. After that, edits made in the editor are the live version, and every save can be rolled back.

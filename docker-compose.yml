@@ -12,6 +12,9 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_MONTHLY_CAP_GBP: ${CLAUDE_MONTHLY_CAP_GBP:-20}
       GBP_PER_USD: ${GBP_PER_USD:-0.79}
+      BUFFER_API_KEY: ${BUFFER_API_KEY:-}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      AUTO_POST: ${AUTO_POST:-false}
     volumes:
       - data:/data
     expose:

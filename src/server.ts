@@ -11,6 +11,8 @@ import { NAME_PATTERN } from './versions.ts';
 import * as prompts from './copy.ts';
 import { monthSpendGbp } from './claude.ts';
 import { startCleanup } from './cleanup.ts';
+import * as buffer from './buffer.ts';
+import * as posts from './posts.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -38,7 +40,7 @@ export function buildApp() {
   // Everything else needs the key.
   app.addHook('onRequest', async (req, reply) => {
     const p = req.url.split('?')[0];
-    if (p === '/health' || p === '/' || publicFile(p)) return;
+    if (p === '/health' || p === '/' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
     const group = p === '/render' ? 'render' : p === '/copy' || p === '/templates/design' || p.endsWith('/test') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
@@ -101,6 +103,15 @@ export function buildApp() {
       .send(fs.createReadStream(result.file));
   });
 
+  // Buffer fetches images from here, so it needs no key. Render ids are 80 bit random looking hashes,
+  // so nobody can list or guess other images.
+  app.get<{ Params: { id: string } }>('/public/renders/:id.png', {
+    schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[a-f0-9]{20}$' } } } },
+  }, async (req, reply) => {
+    const file = renderPath(req.params.id);
+    return fs.existsSync(file) ? reply.type('image/png').send(fs.createReadStream(file)) : reply.code(404).send({ error: 'Not found' });
+  });
+
   app.get<{ Params: { id: string } }>('/renders/:id.png', {
     schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[a-f0-9]{20}$' } } } },
   }, async (req, reply) => {
@@ -111,8 +122,8 @@ export function buildApp() {
   // Claude copywriting. Nothing here posts or queues anything.
   const text = { type: 'string', maxLength: 2000 };
   app.post<{ Body: prompts.CopyInput }>('/copy', {
-    schema: { body: { type: 'object', required: ['template', 'topic'], additionalProperties: false,
-      properties: { template: name, topic: text, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
+    schema: { body: { type: 'object', required: ['template'], additionalProperties: false,
+      properties: { template: name, topic: text, url: { type: 'string', maxLength: 2000 }, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
   }, async req => prompts.writeCopy(req.body));
 
   app.post<{ Body: { description: string; base: string } }>('/templates/design', {
@@ -142,6 +153,25 @@ export function buildApp() {
     const run = await prompts.runPrompt(req.params.name, vars, { body: req.body.body });
     return { output: run.output, cost_gbp: run.cost_gbp };
   });
+
+  // Buffer posting. Nothing goes to Buffer until a post is approved (or AUTO_POST is on).
+  app.get('/buffer/channels', async () => buffer.channels());
+
+  const postId = { type: 'object', properties: { id: { type: 'integer' } } };
+  app.post<{ Body: posts.PostInput }>('/posts', {
+    schema: { body: { type: 'object', required: ['render_id', 'channels', 'text', 'mode'], additionalProperties: false, properties: {
+      render_id: { type: 'string', pattern: '^[a-f0-9]{20}$' },
+      channels: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', required: ['id'], properties: { id: { type: 'string', maxLength: 100 }, name: { type: 'string', maxLength: 200 } } } },
+      text: { type: 'string', minLength: 1, maxLength: 5000 },
+      mode: { enum: ['queue', 'scheduled', 'draft'] },
+      due_at: { type: 'string', format: 'date-time' },
+      idempotency_key: { type: 'string', maxLength: 100 },
+    } } },
+  }, async req => posts.create(req.body));
+  app.get<{ Querystring: { status?: string } }>('/posts', async req => posts.list(req.query.status));
+  app.post<{ Params: { id: number } }>('/posts/:id/approve', { schema: { params: postId } }, async req => posts.approve(req.params.id));
+  app.post<{ Params: { id: number } }>('/posts/:id/reject', { schema: { params: postId } }, async req => posts.reject(req.params.id));
+  app.post<{ Params: { id: number } }>('/posts/:id/mark-sent', { schema: { params: postId } }, async req => posts.markSent(req.params.id));
 
   app.get('/usage', async () => ({
     month_spend_gbp: monthSpendGbp(),
