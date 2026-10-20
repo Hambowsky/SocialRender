@@ -47,6 +47,7 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 * `POST /prompts/<name>/test` with `{vars, body?, template?}` runs a prompt, saved or not, and shows the output.
 * `brand-voice` is added to every call as the system prompt. Its `{examples}` slot is filled with every file in `prompts/examples/`.
 * A prompt can start with settings between `---` lines: `model`, `effort` (low, medium or high) and `max_tokens`.
+* `POST /templates/design` with `{"description": "...", "base": "social-post"}` has Claude design a new template in the brand style, starting from an existing one. The app checks the rules (only the six standard fields, no scripts, nothing loaded from outside) and that the sample text fits, and gives Claude one fix up round if not. It returns `{name, html, sample, ok, problems, cost_gbp}` and saves nothing; save it with `PUT /templates/<name>`. The editor's "Design a template with Claude" panel does all this with a preview.
 * Every Claude call goes through `src/claude.ts`. It refuses any call whose worst case cost would take this month over the cap, and logs tokens and cost to the `claude_usage` table. `GET /usage` shows this month's spend and the last 20 calls.
 
 ## Templates

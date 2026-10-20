@@ -20,7 +20,11 @@ const fake = http.createServer((req, res) => {
     const r = JSON.parse(body);
     calls.push(r);
     const prompt = JSON.stringify(r.messages);
-    const out = prompt.includes('Write the caption')
+    const design = prompt.includes('Design a new 1080');
+    const good = fs.readFileSync(path.join(import.meta.dirname, '..', 'templates', 'tip-card.html'), 'utf8').replace('<title>Tip card', '<title>Event card');
+    const out = design
+      ? (r.messages.length === 1 ? { name: 'event-card', html: good.replace('</style>', '</style><link href="https://fonts.googleapis.com/x">') } : { name: 'event-card', html: good })
+      : prompt.includes('Write the caption')
       ? { caption: 'Slow pages cost you enquiries. Get in touch for a fixed price quote.', hashtags: ['#WebDesign', '#SmallBusiness', '#SEO'] }
       : r.messages.length === 1 // first draft is too long, the rewrite fits
         ? { headline: 'Why speed matters so much more than you think for every small business website in the UK today', highlight_word: 'speed', subtitle: 'Faster pages keep visitors.', tag: 'Marketing Guide', footer_left: 'Free guide' }
@@ -90,4 +94,17 @@ test('prompts are versioned and can be rolled back', async () => {
   assert.equal((await app.inject({ method: 'GET', url: '/prompts/caption', headers })).json().body, first.body);
   const bad = await app.inject({ method: 'PUT', url: '/prompts/caption', headers, payload: { body: '---\neffort: huge\n---\nx' } });
   assert.equal(bad.statusCode, 400);
+});
+
+test('Claude designs a template, gets one fix up round, and nothing is saved until asked', async () => {
+  db.prepare('DELETE FROM claude_usage').run(); // clear the cap test's spend
+  const res = await app.inject({ method: 'POST', url: '/templates/design', headers, payload: { description: 'An event card', base: 'social-post' } });
+  assert.equal(res.statusCode, 200, res.body);
+  const body = res.json();
+  assert.equal(body.ok, true, res.body);
+  assert.equal(body.name, 'event-card');
+  assert.match(JSON.stringify(calls.at(-1).messages.at(-1)), /loads something from outside the app/);
+  assert.equal((await app.inject({ method: 'GET', url: '/templates/event-card', headers })).statusCode, 404);
+  const saved = await app.inject({ method: 'PUT', url: '/templates/event-card', headers, payload: { html: body.html, note: 'Designed with Claude' } });
+  assert.equal(saved.statusCode, 200, saved.body);
 });

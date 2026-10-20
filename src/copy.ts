@@ -6,8 +6,9 @@ import type Anthropic from '@anthropic-ai/sdk';
 import { fail, ROOT } from './config.ts';
 import { versionStore } from './versions.ts';
 import { ask, type Ask } from './claude.ts';
-import { checkFit } from './render.ts';
-import { current as currentTemplate, fieldsOf, sampleOf, type Problem } from './templates.ts';
+import { checkFit, checkHtml } from './render.ts';
+import { current as currentTemplate, fieldsOf, list as listTemplates, sampleOf, type Problem } from './templates.ts';
+import { NAME_PATTERN } from './versions.ts';
 
 const PROMPTS_DIR = path.join(ROOT, 'prompts');
 
@@ -23,7 +24,8 @@ export function parsePrompt(body: string) {
     return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
   }));
   if (settings.effort && !['low', 'medium', 'high'].includes(settings.effort)) fail(400, 'effort must be low, medium or high');
-  if (settings.max_tokens && !(Number(settings.max_tokens) > 0)) fail(400, 'max_tokens must be a positive number');
+  // ponytail: calls are not streamed, which caps max_tokens at 16000. Stream in claude.ts if a prompt ever needs more.
+  if (settings.max_tokens && !(Number(settings.max_tokens) > 0 && Number(settings.max_tokens) <= 16000)) fail(400, 'max_tokens must be between 1 and 16000');
   return {
     model: settings.model || 'claude-sonnet-5-5',
     effort: (settings.effort || 'medium') as Ask['effort'],
@@ -52,6 +54,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     type: 'object', additionalProperties: false,
     required: ['headline', 'highlight_word', 'subtitle', 'tag', 'footer_left'],
     properties: { headline: str, highlight_word: str, subtitle: str, tag: str, footer_left: str },
+  },
+  'template-design': {
+    type: 'object', additionalProperties: false,
+    required: ['name', 'html'],
+    properties: { name: str, html: str },
   },
   caption: {
     type: 'object', additionalProperties: false,
@@ -109,4 +116,49 @@ export async function writeCopy(input: CopyInput) {
   const cap = await runPrompt('caption', { ...vars, ...fields }, { job: 'copy:caption' });
   cost += cap.cost_gbp;
   return { template: input.template, fields, fits: problems.length === 0, problems, caption: cap.output.caption, hashtags: cap.output.hashtags, cost_gbp: cost };
+}
+
+const ALLOWED_FIELDS = ['headline', 'highlight_word', 'subtitle', 'tag', 'footer_left', 'footer_right'];
+
+// Rule checks that need no browser. The layout check runs after these.
+function designProblems(name: string, html: string): Problem[] {
+  const out: string[] = [];
+  if (!new RegExp(NAME_PATTERN).test(name)) out.push('name must use lowercase letters, numbers and hyphens only');
+  if ((listTemplates() as { name: string }[]).some(t => t.name === name)) out.push(`a template called ${name} already exists, pick another name`);
+  if (!/class="post"/.test(html)) out.push('there is no element with class="post"');
+  const fields = fieldsOf(html);
+  if (!fields.includes('headline')) out.push('there is no {{headline}} placeholder');
+  const extra = fields.filter(f => !ALLOWED_FIELDS.includes(f));
+  if (extra.length) out.push(`these placeholders are not allowed: ${extra.join(', ')}`);
+  if (/<script(?![^>]*id="sample")/i.test(html)) out.push('it contains JavaScript');
+  if (/(src|href)\s*=\s*["']?(https?:)?\/\//i.test(html) || /url\(\s*["']?(https?:)?\/\//i.test(html)) out.push('it loads something from outside the app');
+  let sample: Record<string, string> = {};
+  try { sample = sampleOf(html); } catch { out.push('the sample script is not valid JSON'); }
+  const missing = fields.filter(f => f !== 'highlight_word' && !String(sample[f] ?? '').trim());
+  if (missing.length) out.push(`the sample text is missing: ${missing.join(', ')}`);
+  return out.map(message => ({ field: null, message }));
+}
+
+// Claude designs a new template. Nothing is saved: the editor loads it for David to preview and save.
+export async function designTemplate(input: { description: string; base: string }) {
+  const vars = { description: input.description, base: currentTemplate(input.base).body };
+  let cost = 0;
+  let run = await runPrompt('template-design', vars, { job: 'design:template' });
+  cost += run.cost_gbp;
+
+  const check = async (o: { name: string; html: string }) => {
+    const rules = designProblems(o.name, o.html);
+    return rules.length ? rules : checkHtml(o.html, sampleOf(o.html));
+  };
+  let problems = await check(run.output);
+
+  // One fix up round, telling Claude exactly what is wrong.
+  if (problems.length) {
+    const history: Anthropic.MessageParam[] = [...run.messages, { role: 'assistant', content: run.content }];
+    const note = `That template cannot be used yet:\n${problems.map(p => `* ${p.message}`).join('\n')}\nFix these and return the whole template again.`;
+    run = await runPrompt('template-design', {}, { job: 'design:template:retry', followUp: { history, note } });
+    cost += run.cost_gbp;
+    problems = await check(run.output);
+  }
+  return { name: run.output.name, html: run.output.html, sample: problems.length ? {} : sampleOf(run.output.html), ok: problems.length === 0, problems, cost_gbp: cost };
 }

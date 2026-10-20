@@ -40,7 +40,7 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || publicFile(p)) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' ? 'render' : p === '/copy' || p.endsWith('/test') ? 'claude' : 'other';
+    const group = p === '/render' ? 'render' : p === '/copy' || p === '/templates/design' || p.endsWith('/test') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -114,6 +114,11 @@ export function buildApp() {
     schema: { body: { type: 'object', required: ['template', 'topic'], additionalProperties: false,
       properties: { template: name, topic: text, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
   }, async req => prompts.writeCopy(req.body));
+
+  app.post<{ Body: { description: string; base: string } }>('/templates/design', {
+    schema: { body: { type: 'object', required: ['description', 'base'], additionalProperties: false,
+      properties: { description: { type: 'string', minLength: 3, maxLength: 4000 }, base: name } } },
+  }, async req => prompts.designTemplate(req.body));
 
   app.get('/prompts', async () => prompts.list());
   app.get<{ Params: { name: string } }>('/prompts/:name', { schema: { params: nameParams } }, async req => {

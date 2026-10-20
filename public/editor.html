@@ -67,6 +67,20 @@
   </main>
 </details>
 
+<details id="design">
+  <summary>Design a template with Claude</summary>
+  <p>Describe the template you want. Claude designs it in the brand style, starting from the template picked above, and the app checks its sample text fits. It shows in the preview. Nothing is saved until you save it.</p>
+  <main>
+    <div class="side" style="flex:2 1 520px;max-width:none">
+      <label>What should it look like? <textarea id="designDesc" rows="4" placeholder="An event card with a big date block on the left, the event name as the headline and the venue as the subtitle"></textarea></label>
+      <div><button id="designBtn" type="button">Design it</button></div>
+      <div id="designOut"></div>
+      <label>Name <input id="designName" pattern="[a-z0-9-]+"></label>
+      <div><button id="designSave" type="button" disabled>Save as new template</button></div>
+    </div>
+  </main>
+</details>
+
 <details id="code">
   <summary>Template code and versions</summary>
   <p>Edits show in the preview straight away. Save to make them live for renders.</p>
@@ -238,6 +252,36 @@
     if (!v || !confirm(`Make version ${v} of this prompt live again?`)) return;
     try { await api(`/prompts/${$('promptName').value}/rollback/${v}`, { method: 'POST' }); await loadPrompt(); }
     catch (err) { $('promptOut').textContent = err.message; }
+  });
+
+  // Template designer
+  $('designBtn').addEventListener('click', async () => {
+    $('designOut').textContent = 'Designing. This can take a minute...';
+    $('designSave').disabled = true;
+    try {
+      const r = await (await api('/templates/design', { method: 'POST', body: JSON.stringify({ description: $('designDesc').value, base: $('template').value }) })).json();
+      $('html').value = r.html;
+      $('designName').value = r.name;
+      for (const [k, v] of Object.entries(r.sample)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
+      refresh();
+      $('designSave').disabled = !r.ok;
+      $('designOut').innerHTML = (r.ok ? '<p class="good">Ready. Check the preview, edit the code below if you like, then save it.</p>'
+        : `<p class="bad">Still has problems after one fix up round:<br>${problemList(r.problems)}</p>`) + `<p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
+      $('code').open = true;
+      window.scrollTo({ top: 0, behavior: 'smooth' }); // the preview is at the top
+    } catch (e) { $('designOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    loadSpend();
+  });
+  $('designSave').addEventListener('click', async () => {
+    const name = $('designName').value.trim();
+    try {
+      await api('/templates/' + name, { method: 'PUT', body: JSON.stringify({ html: $('html').value, note: 'Designed with Claude' }) });
+      $('designSave').disabled = true;
+      $('designOut').innerHTML = `<p class="good">Saved as ${esc(name)}.</p>`;
+      $('template').innerHTML += `<option>${esc(name)}</option>`;
+      $('template').value = name;
+      await loadTemplate(true);
+    } catch (e) { $('designOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
   });
 
   loadTemplates();

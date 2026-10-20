@@ -93,7 +93,10 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
 export const render = (template: string, fields: Record<string, string>) => enqueue(() => renderNow(template, fields));
 
 // Does this text fit the template? Same check as a render, without saving an image.
-export const checkFit = (template: string, fields: Record<string, string>) => enqueue(async () => {
-  const filled = fill(current(template).body, fields);
+export const checkFit = (template: string, fields: Record<string, string>) => checkHtml(current(template).body, fields);
+
+// The same check for template HTML that is not saved yet.
+export const checkHtml = (html: string, fields: Record<string, string>) => enqueue(async () => {
+  const filled = fill(html, fields);
   return filled.problems.length ? filled.problems : shootWithRetry(filled.html);
 });
