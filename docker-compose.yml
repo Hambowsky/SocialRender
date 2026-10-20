@@ -1,0 +1,19 @@
+# For Coolify: add this repo as a Docker Compose resource, set API_KEY in its environment
+# variables, and give the app service a domain on port 3000.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      API_KEY: ${API_KEY:?set API_KEY}
+      RENDER_RETENTION_DAYS: ${RENDER_RETENTION_DAYS:-14}
+      RENDERS_PER_MIN: ${RENDERS_PER_MIN:-30}
+      TEMPLATE_VERSIONS_KEEP: ${TEMPLATE_VERSIONS_KEEP:-50}
+    volumes:
+      - data:/data
+    expose:
+      - "3000"
+    shm_size: 256mb # Chromium needs more shared memory than Docker's 64 MB default
+
+volumes:
+  data:

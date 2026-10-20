@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Quote card</title>
+<script type="application/json" id="sample">{"headline": "Our new website paid for itself within three months.", "highlight_word": "paid", "subtitle": "Client name, Business name", "tag": "Client Words", "footer_left": "Web design for small businesses", "footer_right": "redcherryit.com"}</script>
+<style>
+  @font-face { font-family: "Archivo"; font-weight: 400; src: url(/fonts/archivo-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 500; src: url(/fonts/archivo-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 900; src: url(/fonts/archivo-latin-900-normal.woff2) format("woff2"); }
+  :root { --red: #b5333f; --ink: #1a1a1a; --grey: #444; --logo-grey: #a89c9c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #e9e9e9; }
+  .post {
+    width: 1080px; height: 1080px; background: #fff; position: relative; overflow: hidden;
+    font-family: "Archivo", "Arial Black", Arial, sans-serif; color: var(--ink);
+  }
+
+  /* shared frame: logo, tag, footer */
+  .logo { position: absolute; left: 88px; top: 88px; width: 372px; height: auto; }
+  .tag {
+    position: absolute; right: 88px; top: 108px;
+    font-weight: 500; font-size: 22px; letter-spacing: 5px; line-height: 1;
+    color: var(--red); text-transform: uppercase; white-space: nowrap;
+  }
+  .rule { position: absolute; left: 88px; right: 88px; top: 915px; height: 2px; background: #111; }
+  .foot-l { position: absolute; left: 88px; top: 960px; font-weight: 900; font-size: 27px; white-space: nowrap; }
+  .foot-r { position: absolute; right: 88px; top: 960px; font-weight: 500; font-size: 27px; color: var(--red); white-space: nowrap; }
+
+  .mark { position: absolute; left: 76px; top: 230px; height: 160px; font-weight: 900; font-size: 300px; line-height: 1; color: var(--red); }
+  h1 { position: absolute; left: 88px; top: 420px; width: 900px;
+       font-weight: 900; font-size: 66px; line-height: 1.12; letter-spacing: -2px; }
+  h1 .hl { color: var(--red); }
+  .sub { position: absolute; left: 88px; top: 820px; width: 900px; white-space: nowrap;
+         font-weight: 500; font-size: 26px; letter-spacing: 3px; text-transform: uppercase; color: var(--grey); }
+</style>
+</head>
+<body>
+  <div class="post">
+    <img class="logo" src="/assets/logo.png" alt="Red Cherry IT">
+    <div class="tag" data-field="tag">{{tag}}</div>
+
+    <div class="mark" aria-hidden="true">&ldquo;</div>
+    <h1 data-field="headline">{{headline}}</h1>
+    <p class="sub" data-field="subtitle">{{subtitle}}</p>
+
+    <div class="rule"></div>
+    <div class="foot-l" data-field="footer_left">{{footer_left}}</div>
+    <div class="foot-r" data-field="footer_right">{{footer_right}}</div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,125 @@
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Fastify from 'fastify';
+import { API_KEY, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
+import { db } from './db.ts';
+import { closeBrowser, publicFile, render, renderPath } from './render.ts';
+import { current, fieldsOf, fill, list, NAME_PATTERN, rollback, sampleOf, save, seed, versions } from './templates.ts';
+import { startCleanup } from './cleanup.ts';
+
+type Fields = Record<string, string>;
+const name = { type: 'string', pattern: NAME_PATTERN };
+const fields = { type: 'object', maxProperties: 20, additionalProperties: { type: 'string', maxLength: MAX_FIELD_CHARS } };
+const nameParams = { type: 'object', properties: { name } };
+
+// ponytail: one fixed one-minute window per route group, in memory. Fine for a single process and a single key.
+const windows = new Map<string, { start: number; count: number }>();
+function allow(group: string, limit: number) {
+  const now = Date.now();
+  let w = windows.get(group);
+  if (!w || now - w.start >= 60_000) windows.set(group, (w = { start: now, count: 0 }));
+  return ++w.count <= limit;
+}
+
+function keyMatches(given: unknown) {
+  const a = Buffer.from(String(given ?? '')), b = Buffer.from(API_KEY);
+  return API_KEY !== '' && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+export function buildApp() {
+  const app = Fastify({ logger: process.env.NODE_ENV !== 'test', bodyLimit: 64 * 1024 });
+
+  // The editor page, fonts, logo and check script hold nothing private and must load without a header.
+  // Everything else needs the key.
+  app.addHook('onRequest', async (req, reply) => {
+    const p = req.url.split('?')[0];
+    if (p === '/health' || p === '/' || publicFile(p)) return;
+    if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
+    const isRender = p === '/render';
+    if (!allow(isRender ? 'render' : 'other', isRender ? RENDERS_PER_MIN : 600))
+      return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
+  });
+
+  app.get('/health', async () => {
+    db.prepare('SELECT 1').get();
+    return { ok: true };
+  });
+
+  app.get('/', (_req, reply) => reply.type('text/html; charset=utf-8').send(fs.createReadStream(path.join(ROOT, 'public', 'editor.html'))));
+  const sendPublic = (req: { url: string }, reply: any) => {
+    const f = publicFile(req.url.split('?')[0]);
+    return f ? reply.type(f.type).send(fs.createReadStream(f.file)) : reply.code(404).send({ error: 'Not found' });
+  };
+  app.get('/check.js', sendPublic);
+  app.get('/fonts/:file', sendPublic);
+  app.get('/assets/:file', sendPublic);
+
+  app.get('/templates', async () => list());
+
+  app.get<{ Params: { name: string } }>('/templates/:name', { schema: { params: nameParams } }, async req => {
+    const t = current(req.params.name);
+    return { name: req.params.name, version: t.id, html: t.html, fields: fieldsOf(t.html), sample: sampleOf(t.html) };
+  });
+
+  app.put<{ Params: { name: string }; Body: { html: string; note?: string } }>('/templates/:name', {
+    schema: {
+      params: nameParams,
+      body: { type: 'object', required: ['html'], properties: { html: { type: 'string', maxLength: 60000 }, note: { type: 'string', maxLength: 200 } } },
+    },
+  }, async req => ({ version: save(req.params.name, req.body.html, req.body.note) }));
+
+  app.get<{ Params: { name: string } }>('/templates/:name/versions', { schema: { params: nameParams } }, async req => versions(req.params.name));
+
+  app.post<{ Params: { name: string; version: number } }>('/templates/:name/rollback/:version', {
+    schema: { params: { type: 'object', properties: { name, version: { type: 'integer' } } } },
+  }, async req => ({ version: rollback(req.params.name, req.params.version) }));
+
+  // Filled HTML for the editor's live preview. `html` previews unsaved template code.
+  app.post<{ Body: { template: string; fields: Fields; html?: string } }>('/preview', {
+    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, html: { type: 'string', maxLength: 60000 } } } },
+  }, async (req, reply) => {
+    const html = req.body.html ?? current(req.body.template).html;
+    return reply.type('text/html; charset=utf-8').send(fill(html, req.body.fields).html);
+  });
+
+  app.post<{ Body: { template: string; fields: Fields }; Querystring: { format?: string } }>('/render', {
+    schema: {
+      body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields } },
+      querystring: { type: 'object', properties: { format: { enum: ['png', 'json'] } } },
+    },
+  }, async (req, reply) => {
+    const result = await render(req.body.template, req.body.fields);
+    if (!result.ok) return reply.code(422).send({ error: 'The text does not fit this template', problems: result.problems });
+    if (req.query.format === 'json') return { id: result.id, url: `/renders/${result.id}.png`, width: 1080, height: 1080 };
+    return reply.type('image/png').header('x-render-id', result.id)
+      .header('content-disposition', `inline; filename="${req.body.template}-${result.id}.png"`)
+      .send(fs.createReadStream(result.file));
+  });
+
+  app.get<{ Params: { id: string } }>('/renders/:id.png', {
+    schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[a-f0-9]{20}$' } } } },
+  }, async (req, reply) => {
+    const file = renderPath(req.params.id);
+    return fs.existsSync(file) ? reply.type('image/png').send(fs.createReadStream(file)) : reply.code(404).send({ error: 'Render not found or already cleaned up' });
+  });
+
+  return app;
+}
+
+export async function start() {
+  if (!API_KEY) {
+    console.error('API_KEY is not set. Copy .env.example to .env and set it.');
+    process.exit(1);
+  }
+  seed();
+  startCleanup();
+  const app = buildApp();
+  const stop = async () => { await app.close(); await closeBrowser(); process.exit(0); };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  await app.listen({ port: PORT, host: HOST });
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) await start();

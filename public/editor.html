@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Red Cherry IT Editor</title>
+<style>
+  body { font: 15px/1.4 system-ui, sans-serif; margin: 0; padding: 24px; background: #f4f4f4; color: #1a1a1a; }
+  main { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+  form, .side { flex: 1 1 320px; max-width: 460px; display: grid; gap: 10px; }
+  label { display: grid; gap: 4px; font-weight: 600; }
+  input, textarea, select { font: inherit; padding: 8px; border: 1px solid #bbb; border-radius: 6px; background: #fff; }
+  textarea.code { font: 13px/1.4 ui-monospace, monospace; min-height: 360px; }
+  button { font: inherit; font-weight: 600; padding: 9px 14px; border: 0; border-radius: 6px; background: #b5333f; color: #fff; cursor: pointer; }
+  button.plain { background: #ddd; color: #1a1a1a; }
+  .frame { width: 540px; height: 540px; overflow: hidden; border: 1px solid #ccc; background: #fff; flex: none; position: relative; }
+  iframe { width: 1080px; height: 1080px; border: 0; transform: scale(.5); transform-origin: 0 0; position: absolute; }
+  .bad { color: #b5333f; }
+  .good { color: #1d7a3a; }
+  details { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-top: 24px; }
+  summary { font-weight: 600; cursor: pointer; }
+  ul { padding-left: 18px; margin: 0; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<main>
+  <form id="f">
+    <label>API key <input id="key" type="password" autocomplete="off"></label>
+    <label>Template <select id="template"></select></label>
+    <div id="fields" style="display:grid;gap:10px"></div>
+    <button>Render and download PNG</button>
+    <div id="status" aria-live="polite"></div>
+  </form>
+  <div class="frame"><iframe id="preview" title="Live preview"></iframe></div>
+</main>
+
+<details id="code">
+  <summary>Template code and versions</summary>
+  <p>Edits show in the preview straight away. Save to make them live for renders.</p>
+  <main>
+    <div class="side" style="flex:2 1 520px;max-width:none">
+      <textarea id="html" class="code" spellcheck="false"></textarea>
+      <label>Note for this version <input id="note" maxlength="200"></label>
+      <div><button id="save" type="button">Save new version</button> <button id="revert" type="button" class="plain">Discard edits</button></div>
+    </div>
+    <div class="side"><strong>Versions</strong><ul id="versions"></ul></div>
+  </main>
+</details>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const status = (msg, cls = '') => { $('status').className = cls; $('status').innerHTML = msg; };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  let savedHtml = '';
+
+  try { $('key').value = localStorage.getItem('rct-key') || ''; } catch {}
+  $('key').addEventListener('change', () => { try { localStorage.setItem('rct-key', $('key').value); } catch {} loadTemplates(); });
+
+  async function api(path, opts = {}) {
+    const res = await fetch(path, { ...opts, headers: { 'x-api-key': $('key').value, ...(opts.body ? { 'content-type': 'application/json' } : {}) } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(body.error || body.message || res.statusText), { body });
+    }
+    return res;
+  }
+  const fieldValues = () => Object.fromEntries([...$('fields').querySelectorAll('[name]')].map(el => [el.name, el.value]));
+  const problemList = ps => ps.map(p => esc(p.message)).join('<br>');
+
+  async function loadTemplates() {
+    if (!$('key').value) return status('Enter your API key to start.');
+    try {
+      const list = await (await api('/templates')).json();
+      const keep = $('template').value;
+      $('template').innerHTML = list.map(t => `<option>${esc(t.name)}</option>`).join('');
+      if (keep && list.some(t => t.name === keep)) $('template').value = keep;
+      await loadTemplate($('template').value === keep);
+    } catch (e) { status(esc(e.message), 'bad'); }
+  }
+
+  async function loadTemplate(keepValues = false) {
+    const t = await (await api('/templates/' + $('template').value)).json();
+    const old = fieldValues();
+    $('fields').innerHTML = t.fields.map(n => {
+      const v = esc(keepValues && n in old ? old[n] : t.sample[n] ?? '');
+      const input = n === 'headline' || n === 'subtitle' ? `<textarea name="${n}" rows="3">${v}</textarea>` : `<input name="${n}" value="${v}">`;
+      return `<label>${n.replace('_', ' ')} ${input}</label>`;
+    }).join('');
+    savedHtml = $('html').value = t.html;
+    $('versions').innerHTML = (await (await api(`/templates/${t.name}/versions`)).json()).map(v =>
+      `<li>Version ${v.id}, ${esc(v.created_at)}${v.note ? ': ' + esc(v.note) : ''}
+       ${v.id === t.version ? ' <strong>(live)</strong>' : ` <button type="button" class="plain" data-v="${v.id}">Roll back</button>`}</li>`).join('');
+    refresh();
+  }
+
+  let timer;
+  function refresh() {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      try {
+        const res = await api('/preview', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), html: $('html').value }) });
+        $('preview').srcdoc = await res.text();
+      } catch (e) { status(esc(e.message), 'bad'); }
+    }, 250);
+  }
+  $('preview').onload = async () => {
+    const check = $('preview').contentWindow.layoutErrors;
+    if (!check) return;
+    const problems = await check();
+    problems.length ? status(problemList(problems), 'bad') : status($('html').value === savedHtml ? 'Everything fits.' : 'Everything fits. Template edits are not saved yet.', 'good');
+  };
+
+  $('template').addEventListener('change', () => loadTemplate());
+  $('fields').addEventListener('input', refresh);
+  $('html').addEventListener('input', refresh);
+
+  $('f').addEventListener('submit', async e => {
+    e.preventDefault();
+    status('Rendering...');
+    try {
+      const res = await api('/render', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) });
+      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: `${$('template').value}-${res.headers.get('x-render-id')}.png` });
+      a.click();
+      URL.revokeObjectURL(a.href);
+      status('Downloaded.', 'good');
+    } catch (err) {
+      status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
+    }
+  });
+
+  $('save').addEventListener('click', async () => {
+    try {
+      await api('/templates/' + $('template').value, { method: 'PUT', body: JSON.stringify({ html: $('html').value, note: $('note').value }) });
+      $('note').value = '';
+      await loadTemplate(true);
+    } catch (e) { status(esc(e.message), 'bad'); }
+  });
+  $('revert').addEventListener('click', () => { $('html').value = savedHtml; refresh(); });
+  $('versions').addEventListener('click', async e => {
+    const v = e.target.dataset?.v;
+    if (!v || !confirm(`Make version ${v} live again? The current version stays in the list.`)) return;
+    try {
+      await api(`/templates/${$('template').value}/rollback/${v}`, { method: 'POST' });
+      await loadTemplate(true);
+    } catch (err) { status(esc(err.message), 'bad'); }
+  });
+
+  loadTemplates();
+</script>
+</body>
+</html>
