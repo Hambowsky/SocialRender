@@ -3,12 +3,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.ts';
-import { fail, PUBLISH_DIR, SITE_URL } from './config.ts';
+import { fail, ROOT, SITE_URL } from './config.ts';
 import { current as currentPrompt, parsePrompt, runPrompt, writeCopy } from './copy.ts';
 import { readPage } from './page.ts';
-import { toHtml } from './markdown.ts';
+import { esc, inline, toHtml } from './markdown.ts';
 import { render } from './render.ts';
 import * as posts from './posts.ts';
+import { publishPage } from './site.ts';
 
 type Article = { id: number; slug: string; category: string; title: string; summary: string; body: string; topic: string; keyword: string; sources: string; status: string; published_at: string | null };
 export type DraftInput = { topic: string; keyword?: string; audience?: string; sources?: string; url?: string; category?: string };
@@ -102,29 +103,76 @@ export function reopen(id: number) {
   return show(id);
 }
 
-export function files(a: Article, date: string) {
-  const md = `---\nCategory: ${a.category}\nSlug: ${a.slug}\nTitle: ${a.title}\nSummary: ${a.summary}\nLast updated: ${date}\n---\n\n${a.body}\n`;
-  const html = `<!-- ${a.category}${a.slug} | ${a.title.replace(/--/g, '')} | Last updated ${date} -->\n<article>\n${toHtml(a.body)}\n</article>\n`;
-  return { md, html };
+const SHELL = path.join(ROOT, 'site', 'article.html');
+const plain = (md: string) => md.replace(/\*\*|\*|`/g, '').replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
+const json = (v: unknown) => JSON.stringify(v, null, 2).replace(/</g, '\\u003c');
+const DEFAULT_CTA = 'Want something similar for your business? Get in touch for a fixed price quote.';
+
+// The full page in the same layout as the live story pages (site/article.html): the opening paragraph
+// becomes the short answer box, the closing call to action goes in the banner, and FAQs get their schema.
+export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' | 'slug'>, date: string, published = date) {
+  const blocks = a.body.replace(/\r/g, '').split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+  if (blocks[0]?.startsWith('# ')) blocks.shift();
+  const shortAnswer = blocks[0] && !blocks[0].startsWith('#') ? blocks.shift()! : a.summary;
+  let cta = DEFAULT_CTA;
+  // Trailing rule and italic lines are the call to action and notes for David, not page content.
+  while (blocks.length && /^(-{3,}|\*[^*][\s\S]*\*)$/.test(blocks.at(-1)!)) {
+    const b = blocks.pop()!;
+    if (/get in touch|contact/i.test(b)) cta = plain(b);
+  }
+  const faqs: { q: string; a: string }[] = [];
+  const faqStart = blocks.findIndex(b => /^##\s+FAQs?/i.test(b));
+  const out = blocks.map((b, i) => {
+    const m = faqStart >= 0 && i > faqStart && b.match(/^\*\*(.+?)\*\*\s*\n([\s\S]+)$/);
+    if (!m) return b;
+    faqs.push({ q: plain(m[1]), a: plain(m[2]) });
+    return `### ${m[1]}\n\n${m[2]}`;
+  });
+  const url = `${SITE_URL}${a.category}${a.slug}`;
+  const sectionUrl = `${SITE_URL}${a.category.replace(/\/$/, '')}`;
+  const sectionSlug = a.category.split('/').filter(Boolean).at(-1)!;
+  const section = sectionSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const vars: Record<string, string> = {
+    title: esc(a.title), description: esc(a.summary), url: esc(url), section: esc(section), section_url: esc(sectionUrl),
+    short_answer: inline(shortAnswer.replace(/\n/g, ' ')), cta: esc(cta), year: date.slice(0, 4),
+    updated_month: new Date(date + 'T12:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
+    body: toHtml(out.join('\n\n')).split('\n').map(l => l && '        ' + l).join('\n'),
+    article_schema: json({
+      '@context': 'https://schema.org', '@type': 'Article', headline: a.title, description: a.summary,
+      image: 'https://redcherryit.com/images/og-image.png',
+      author: { '@type': 'Person', name: 'David Hanmer', url: 'https://redcherryit.com/about' },
+      publisher: { '@type': 'Organization', name: 'Red Cherry IT', logo: { '@type': 'ImageObject', url: 'https://redcherryit.com/images/logo.png' } },
+      datePublished: published, dateModified: date, mainEntityOfPage: { '@type': 'WebPage', '@id': url },
+    }),
+    faq_schema: faqs.length ? `<script type="application/ld+json">\n${json({ '@context': 'https://schema.org', '@type': 'FAQPage',
+      mainEntity: faqs.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) })}\n</script>` : '',
+    breadcrumb_schema: json({ '@context': 'https://schema.org', '@type': 'BreadcrumbList', itemListElement: [
+      ['Home', `${SITE_URL}/`], ['Guides', `${SITE_URL}/guides`], [section, sectionUrl], [a.title, url],
+    ].map(([name, item], i) => ({ '@type': 'ListItem', position: i + 1, name, item })) }),
+  };
+  return fs.readFileSync(SHELL, 'utf8').replace(/^<!--[\s\S]*?-->\n/, '').replace(/\{\{(\w+)\}\}/g, (m, k: string) => vars[k] ?? m);
 }
 
-// Writes the Markdown and an HTML fragment for the static site. Publishing again overwrites the same files.
-export function publish(id: number) {
+// Front matter like David's example, for keeping a copy. It is never put on the site.
+const markdown = (a: Article, date: string) =>
+  `---\nCategory: ${a.category}\nSlug: ${a.slug}\nTitle: ${a.title}\nSummary: ${a.summary}\nLast updated: ${date}\n---\n\n${a.body}\n`;
+
+const today = () => new Date().toISOString().slice(0, 10);
+const firstPublished = (a: Article) => a.published_at?.slice(0, 10) ?? today();
+
+// Puts the finished page on the site (see site.ts). Publishing again updates the same page.
+export async function publish(id: number) {
   const a = get(id);
   if (a.status !== 'approved' && a.status !== 'published') fail(409, `Approve the article before publishing. It is ${a.status}.`);
-  const date = new Date().toISOString().slice(0, 10);
-  const dir = path.join(PUBLISH_DIR, ...a.category.split('/').filter(Boolean));
-  fs.mkdirSync(dir, { recursive: true });
-  const f = files(a, date);
-  fs.writeFileSync(path.join(dir, `${a.slug}.md`), f.md);
-  fs.writeFileSync(path.join(dir, `${a.slug}.html`), f.html);
-  db.prepare(`UPDATE articles SET status = 'published', published_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(id);
-  return { ...show(id), files: [`${a.category}${a.slug}.md`, `${a.category}${a.slug}.html`] };
+  const date = today();
+  const result = await publishPage({ category: a.category, slug: a.slug, title: a.title, summary: a.summary, date }, page(a, date, firstPublished(a)));
+  db.prepare(`UPDATE articles SET status = 'published', published_at = COALESCE(published_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`).run(id);
+  return { ...show(id), published: result };
 }
 
 export function download(id: number, format: 'md' | 'html') {
   const a = get(id);
-  return files(a, (a.published_at ?? new Date().toISOString()).slice(0, 10))[format];
+  return format === 'md' ? markdown(a, today()) : page(a, today(), firstPublished(a));
 }
 
 // One social post per template for a published article, added to the Buffer approval queue.

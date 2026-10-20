@@ -1,0 +1,91 @@
+// Publishing to the website. With SITE_REPO set, the page, its listing card and its sitemap entry go into
+// the website's GitHub repo as one commit, and the host deploys from there. Without it, the page is written
+// to PUBLISH_DIR to upload by hand.
+import fs from 'node:fs';
+import path from 'node:path';
+import { fail, GITHUB_API_URL, PUBLISH_DIR, SITE_BRANCH, SITE_GITHUB_TOKEN, SITE_REPO, SITE_URL } from './config.ts';
+import { esc } from './markdown.ts';
+
+export type Listing = { category: string; slug: string; title: string; summary: string; date: string };
+type File = { path: string; content: string };
+
+async function gh(method: string, url: string, body?: unknown) {
+  const res = await fetch(`${GITHUB_API_URL}/repos/${SITE_REPO}${url}`, {
+    method,
+    headers: { authorization: `Bearer ${SITE_GITHUB_TOKEN}`, accept: 'application/vnd.github+json', 'x-github-api-version': '2022-11-28', ...(body ? { 'content-type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (res.status === 404 && method === 'GET') return undefined;
+  if (!res.ok) fail(502, `GitHub said ${res.status}: ${(await res.json().catch(() => ({}))).message ?? ''}`.trim());
+  return res.json();
+}
+
+async function readRepoFile(p: string, ref: string): Promise<string | undefined> {
+  const f = await gh('GET', `/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`);
+  return f && Buffer.from(f.content, 'base64').toString('utf8');
+}
+
+// Adds the article's card to the end of its category listing, once.
+export function addCard(index: string, l: Listing) {
+  if (index.includes(`href="${l.slug}"`)) return index;
+  const start = index.indexOf('<div class="guide-list">');
+  const end = index.indexOf('\n      </div>', start);
+  if (start < 0 || end < 0) return index;
+  const tag = esc(l.category.split('/').filter(Boolean).at(-1)!.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+  const card = `\n        <a class="guide-card" href="${l.slug}">\n          <span class="guide-card-tag">${tag}</span>\n          <h3>${esc(l.title)}</h3>\n          <p>${esc(l.summary)}</p>\n        </a>`;
+  return index.slice(0, end) + card + index.slice(end);
+}
+
+// Adds the page to the sitemap after the rest of its category, or updates its date.
+export function addToSitemap(xml: string, l: Listing) {
+  const loc = `${SITE_URL}${l.category}${l.slug}`;
+  const line = `  <url><loc>${loc}</loc><lastmod>${l.date}</lastmod><changefreq>monthly</changefreq><priority>0.6</priority></url>`;
+  const lines = xml.split('\n');
+  const at = lines.findIndex(x => x.includes(`<loc>${loc}</loc>`));
+  if (at >= 0) { lines[at] = lines[at].replace(/<lastmod>[^<]*<\/lastmod>/, `<lastmod>${l.date}</lastmod>`); return lines.join('\n'); }
+  const sameCategory = lines.map((x, i) => x.includes(`<loc>${SITE_URL}${l.category.replace(/\/$/, '')}`) ? i : -1).filter(i => i >= 0);
+  const after = sameCategory.length ? sameCategory.at(-1)! : lines.findIndex(x => x.includes('</urlset>')) - 1;
+  lines.splice(after + 1, 0, line);
+  return lines.join('\n');
+}
+
+// One commit with every file that changed. If someone pushes in between, it rebuilds from their commit once.
+async function commit(build: (head: string) => Promise<File[]>, message: string) {
+  for (let attempt = 0; ; attempt++) {
+    const head = (await gh('GET', `/git/ref/heads/${SITE_BRANCH}`))?.object.sha ?? fail(502, `The ${SITE_BRANCH} branch was not found in ${SITE_REPO}`);
+    const files = await build(head);
+    const old = await Promise.all(files.map(f => readRepoFile(f.path, head)));
+    const tree = files.filter((f, i) => old[i] !== f.content).map(f => ({ path: f.path, mode: '100644', type: 'blob', content: f.content }));
+    if (!tree.length) return { commit: head, changed: [] as string[] };
+    const base = await gh('GET', `/git/commits/${head}`);
+    const t = await gh('POST', '/git/trees', { base_tree: base.tree.sha, tree });
+    const c = await gh('POST', '/git/commits', { message, tree: t.sha, parents: [head] });
+    try {
+      await gh('PATCH', `/git/refs/heads/${SITE_BRANCH}`, { sha: c.sha, force: false });
+      return { commit: c.sha as string, changed: tree.map(x => x.path) };
+    } catch (err) {
+      if (attempt >= 1) throw err;
+    }
+  }
+}
+
+export async function publishPage(l: Listing, html: string) {
+  const dir = l.category.replace(/^\/|\/$/g, '');
+  if (!SITE_REPO) {
+    const out = path.join(PUBLISH_DIR, ...dir.split('/'));
+    fs.mkdirSync(out, { recursive: true });
+    fs.writeFileSync(path.join(out, `${l.slug}.html`), html);
+    return { where: 'folder', files: [`${l.category}${l.slug}.html`] };
+  }
+  if (!SITE_GITHUB_TOKEN) fail(503, 'SITE_GITHUB_TOKEN is not set, so the site repo cannot be updated');
+  const r = await commit(async head => {
+    const files: File[] = [{ path: `${dir}/${l.slug}.html`, content: html }];
+    const index = await readRepoFile(`${dir}/index.html`, head);
+    if (index) files.push({ path: `${dir}/index.html`, content: addCard(index, l) });
+    const sitemap = await readRepoFile('sitemap.xml', head);
+    if (sitemap) files.push({ path: 'sitemap.xml', content: addToSitemap(sitemap, l) });
+    return files;
+  }, `Publish ${l.title}`);
+  return { where: 'repo', commit: `https://github.com/${SITE_REPO}/commit/${r.commit}`, files: r.changed };
+}

@@ -44,7 +44,7 @@
       <label>Page link (optional, Claude reads the page and writes about it) <input id="url" type="url" placeholder="https://redcherryit.com/blog/..."></label>
       <label>Topic <input id="topic" placeholder="Why website speed matters, or leave empty with a link"></label>
       <label>Keyword <input id="keyword"></label>
-      <label>Audience <input id="audience" placeholder="UK small business owners"></label>
+      <label>Audience <input id="audience" placeholder="UK business owners"></label>
     </div>
     <div class="side">
       <label>Sources (facts and figures Claude may use) <textarea id="sources" rows="4"></textarea></label>
@@ -78,12 +78,12 @@
 
 <details id="articles">
   <summary>Articles</summary>
-  <p>Claude drafts an article from your sources in the case study structure. The app checks it, you edit and approve it, then Publish writes the files for the website. Nothing is published until you press Publish.</p>
+  <p>Claude drafts an article from your sources in the case study structure. The app checks it, you edit and approve it, then Publish puts it on the website in the same layout as your other guides. Nothing goes on the website until you press Publish.</p>
   <main>
     <div class="side">
       <label>Topic <input id="aTopic" placeholder="The payments portal we built"></label>
       <label>Keyword <input id="aKeyword"></label>
-      <label>Audience <input id="aAudience" placeholder="UK small business owners"></label>
+      <label>Audience <input id="aAudience" placeholder="UK business owners"></label>
       <label>Page link (optional) <input id="aUrl" type="url"></label>
       <label>Site folder <input id="aCategory" value="/guides/stories/"></label>
     </div>
@@ -108,7 +108,7 @@
         <div id="aOut"></div>
       </div>
     </div>
-    <div class="side"><strong>Preview</strong><div id="aPreview" style="background:#fff;border:1px solid #ddd;padding:12px;max-height:700px;overflow:auto"></div></div>
+    <div class="side"><strong>Preview of the page</strong><iframe id="aPreview" title="Article page preview" style="width:100%;height:760px;border:1px solid #ddd;background:#fff;position:static;transform:none"></iframe></div>
   </main>
 </details>
 
@@ -407,7 +407,7 @@
   async function showArticle(a) {
     const id = $('aList').value;
     $('aEditor').hidden = !id;
-    if (!id) return $('aPreview').innerHTML = '';
+    if (!id) return $('aPreview').srcdoc = '';
     article = a || await (await api('/articles/' + id)).json();
     const draft = article.status === 'draft';
     for (const k of ['Title', 'Summary', 'Slug', 'Body']) { $('a' + k).value = article[k.toLowerCase()]; $('a' + k).readOnly = !draft; }
@@ -422,7 +422,9 @@
       published: b('social', 'Make a social post for Buffer') + b('publish', 'Publish again', 'plain') + b('reopen', 'Edit again', 'plain'),
       rejected: b('reopen', 'Back to draft', 'plain'),
     }[article.status] + b('md', 'Download .md', 'plain') + b('html', 'Download .html', 'plain');
-    $('aPreview').innerHTML = await (await api(`/articles/${article.id}/download?format=html`)).text();
+    // The page uses the live site's styles: <base> makes its relative links point at the real site.
+    const page = await (await api(`/articles/${article.id}/download?format=html`)).text();
+    $('aPreview').srcdoc = page.replace('<head>', `<head><base href="${esc(article.url)}">`);
   }
   $('articles').addEventListener('toggle', () => { if ($('articles').open && $('key').value) loadArticles($('aList').value); });
   $('aList').addEventListener('change', () => showArticle());
@@ -445,7 +447,7 @@
       const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: `${article.slug}.${act}` });
       a.click(); return URL.revokeObjectURL(a.href);
     }
-    if (act === 'publish' && !confirm('Write this article to the website files now?')) return;
+    if (act === 'publish' && !confirm('Put this article on the website now?')) return;
     $('aOut').textContent = act === 'social' ? 'Writing and rendering the post...' : '';
     try {
       if (act === 'save' || act === 'approve') {
@@ -458,9 +460,13 @@
         $('aOut').innerHTML = `<span class="good">${r.reused ? 'Already made earlier.' : `Made. Cost £${r.cost_gbp.toFixed(4)}.`} It is waiting for approval in Post to Buffer.</span>`;
         $('buffer').open = true; loadPosts(); return;
       }
-      if (act !== 'save') await api(`/articles/${article.id}/${act}`, { method: 'POST' });
-      if (act === 'publish') $('aOut').innerHTML = '<span class="good">Published. The files are in the site folder.</span>';
+      let published = false, result;
+      if (act !== 'save') result = await (await api(`/articles/${article.id}/${act}`, { method: 'POST' })).json();
+      if (act === 'publish') published = true;
       await loadArticles(article.id);
+      if (published) { const p = result.published;
+        $('aOut').innerHTML = p.where === 'repo' ? `<span class="good">${p.files.length ? `Committed to the website repo: ${p.files.map(esc).join(', ')}. <a href="${esc(p.commit)}" target="_blank">See the commit</a>.` : 'Nothing changed since the last publish.'}</span>`
+          : `<span class="good">Saved to the publish folder: ${p.files.map(esc).join(', ')}</span>`; }
     } catch (err) { $('aOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; if (act === 'approve') showArticle(); }
   });
 

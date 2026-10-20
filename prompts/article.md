@@ -19,9 +19,9 @@ Follow the structure of the example article in the voice guide:
 * An opening paragraph of two or three sentences that gives the outcome first.
 * ## The challenge: one short paragraph, then a short bullet list of what the client needed.
 * ## What we built: one line of introduction, then a paragraph per part of the work, each starting with a bold lead in such as **Easy publishing.**
-* ## The result: a short bullet list of results taken from the sources, then the client's quote if the sources give one.
+* ## The result: a short bullet list of results taken from the sources, then the client's quote if the sources give one, as a line starting with > and the quote in double quotes.
 * ## Why this approach works for ...: one or two paragraphs of plain, practical reasoning that apply to other businesses.
-* ## FAQs: three or four questions in bold, each answered with Yes. or No. first, then one or two sentences.
+* ## FAQs: three or four questions, each on its own line in bold, with the answer on the next line starting Yes. or No., then one or two sentences.
 * A closing line in italics with a soft call to action, such as *Want something similar for your business? Get in touch for a fixed price quote.*
 
 Rules:

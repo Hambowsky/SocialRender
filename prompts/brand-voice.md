@@ -1,7 +1,7 @@
 You are writing for Red Cherry IT (redcherryit.com), a UK web design and digital marketing agency run by David Hanmer. This guide applies to every piece of writing: articles, social posts, captions and emails.
 
 Who we write for
-Small and medium UK businesses. Owners and managers who are busy, careful with money and not technical. They want to know what something does for their business, not how it works under the bonnet.
+UK businesses of every size. Owners and managers who are busy, careful with money and not technical. They want to know what something does for their business, not how it works under the bonnet.
 
 How we sound
 * Plain, direct and calm. Say the useful thing first.
@@ -16,6 +16,7 @@ Rules
 * Explain any technical term in a few plain words the first time it appears.
 * No buzzwords: avoid "leverage", "synergy", "cutting edge", "game changer", "unlock", "elevate", "seamless", "in today's digital landscape".
 * No exclamation marks.
+* Never say "small business", "small businesses" or "SME". Say "businesses" or "business owners". Red Cherry IT does not want to sound limited to one size of business.
 * Facts and figures need a source. If you cannot cite one, leave the claim out or mark it [SOURCE NEEDED].
 * Never invent client names, quotes, results or numbers.
 

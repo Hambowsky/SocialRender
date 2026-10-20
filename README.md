@@ -31,8 +31,11 @@ All in environment variables, listed in `.env.example`.
 | `BUFFER_API_KEY` | none | Buffer API key. Without it only the Buffer endpoints are off. |
 | `PUBLIC_URL` | none | The app's public address. Buffer fetches images from here, so posting needs it. |
 | `AUTO_POST` | `false` | When true, posts go to Buffer as soon as they are added, with no approval. |
-| `PUBLISH_DIR` | `DATA_DIR/site` | Where published articles are written. Point it at your static site's folder to publish straight into it. |
-| `SITE_URL` | `https://redcherryit.com` | Used for article links in social posts. |
+| `SITE_REPO` | none | The website's GitHub repo, for example `Hambowsky/red-cherry-it-website`. When set, Publish commits to it. |
+| `SITE_BRANCH` | `main` | The branch 20i deploys from. |
+| `SITE_GITHUB_TOKEN` | none | Fine grained GitHub token with Contents read and write on the website repo only. |
+| `PUBLISH_DIR` | `DATA_DIR/site` | Without `SITE_REPO`, published pages are saved here to upload by hand. |
+| `SITE_URL` | `https://redcherryit.com` | Used for article links, canonical URLs and the sitemap. |
 
 ## API
 Every endpoint needs `x-api-key`, except `/health`, the editor page with its fonts, logo and check script, and `/public/renders/<id>.png` (Buffer fetches images from there; ids are long random looking hashes that cannot be listed).
@@ -68,7 +71,8 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 * `POST /articles` with `{"topic": "...", "keyword": "...", "audience": "...", "sources": "...", "url": "...", "category": "/guides/stories/"}` has Claude (Sonnet 5.5) draft an article in the case study structure, using only facts from the sources and the page link. It is saved as a draft and returned with its checks.
 * The checks are plain code: word count, required headings, sources present, no `[SOURCE NEEDED]` left in, and no dashes used as punctuation. These must pass before approval. Figures and quotes that do not appear in the sources are listed as warnings to look at. The limits and headings live in the `article` prompt's settings, so they are versioned with it.
 * `GET /articles`, `GET /articles/<id>`, `PUT /articles/<id>` (edit title, summary, slug, body or sources; drafts only), then `POST /articles/<id>/approve`, `/reject`, `/reopen` (back to draft) and `/publish`.
-* Publishing writes `<slug>.md` (with front matter like your example) and `<slug>.html` (the article as an HTML fragment) to `PUBLISH_DIR/<category>/`. Publishing again overwrites the same files. `GET /articles/<id>/download?format=md` or `html` gets either file.
+* Publishing builds the full page from `site/article.html`, a copy of a live story page with slots, so it matches the rest of the guides: short answer box, author line, FAQ schema, breadcrumbs, related reading and call to action. With `SITE_REPO` set it makes one commit to the website repo with the new page, its card at the end of the category's `index.html`, and its line in `sitemap.xml`, and 20i deploys it. Publishing again updates the same page and changes nothing else. If the site's header, footer or styles change, update `site/article.html` to match.
+* `GET /articles/<id>/download?format=html` gets the finished page, `format=md` a Markdown copy with front matter.
 * `POST /articles/<id>/social` with `{"template", "channels", "mode"}` writes a social post for a published article, renders it and adds it to the Buffer approval queue with the article link in the caption. Asking again for the same article and template returns the same posts without calling Claude.
 * The editor's "Articles" panel does all this, with a preview.
 

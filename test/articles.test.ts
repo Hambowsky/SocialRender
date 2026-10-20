@@ -12,6 +12,8 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-articles-'));
 process.env.ANTHROPIC_API_KEY = 'fake';
 process.env.BUFFER_API_KEY = 'fake';
 process.env.PUBLIC_URL = 'https://tool.example.com';
+process.env.SITE_REPO = 'me/site';
+process.env.SITE_GITHUB_TOKEN = 'fake';
 
 // The voice example is a real article in the right structure, so it doubles as Claude's draft and its sources.
 const example = fs.readFileSync(path.join(import.meta.dirname, '..', 'prompts', 'examples', 'financial-services-portal.md'), 'utf8');
@@ -38,18 +40,47 @@ const claude = serve(r => {
 const bufferSent: string[] = [];
 const buffer = serve(({ query }) => (bufferSent.push(query), { data: { createPost: { post: { id: 'b1' } } } }));
 
+// A fake GitHub holding a tiny copy of the website repo.
+const repo: Record<string, string> = {
+  'guides/stories/index.html': '<main>\n      <div class="guide-list">\n        <a class="guide-card" href="older-story">\n        </a>\n      </div>\n</main>',
+  'sitemap.xml': '<urlset>\n  <url><loc>https://redcherryit.com/guides/stories/older-story</loc><lastmod>2026-09-01</lastmod></url>\n  <url><loc>https://redcherryit.com/pricing</loc></url>\n</urlset>',
+};
+const commits: { message: string; files: string[] }[] = [];
+let pending: any;
+const github = http.createServer((req, res) => {
+  let b = '';
+  req.on('data', c => (b += c));
+  req.on('end', () => {
+    const send = (v: unknown, code = 200) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(v)); };
+    const u = decodeURIComponent(req.url!.replace('/repos/me/site', '').split('?')[0]);
+    if (req.headers.authorization !== 'Bearer fake') return send({ message: 'Bad credentials' }, 401);
+    if (u === '/git/ref/heads/main') return send({ object: { sha: `head${commits.length}` } });
+    if (u.startsWith('/contents/')) { const f = repo[u.slice(10)]; return f === undefined ? send({}, 404) : send({ content: Buffer.from(f).toString('base64') }); }
+    if (u.startsWith('/git/commits/')) return send({ tree: { sha: 't' } });
+    if (u === '/git/trees') { pending = JSON.parse(b).tree; return send({ sha: 'nt' }); }
+    if (u === '/git/commits') { const m = JSON.parse(b).message; pending.message = m; return send({ sha: `c${commits.length + 1}` }); }
+    if (u === '/git/refs/heads/main') {
+      for (const f of pending) repo[f.path] = f.content;
+      commits.push({ message: pending.message, files: pending.map((f: any) => f.path) });
+      return send({});
+    }
+    send({ message: 'unexpected ' + u }, 500);
+  });
+});
+
 let app: any, closeBrowser: any;
 before(async () => {
-  for (const s of [claude, buffer]) await new Promise<void>(ok => s.listen(0, '127.0.0.1', () => ok()));
+  for (const s of [claude, buffer, github]) await new Promise<void>(ok => s.listen(0, '127.0.0.1', () => ok()));
   process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(claude.address() as any).port}`;
   process.env.BUFFER_API_URL = `http://127.0.0.1:${(buffer.address() as any).port}`;
+  process.env.GITHUB_API_URL = `http://127.0.0.1:${(github.address() as any).port}`;
   ({ closeBrowser } = await import('../src/render.ts'));
   const { buildApp } = await import('../src/server.ts');
   (await import('../src/templates.ts')).seed();
   (await import('../src/copy.ts')).seed();
   app = buildApp();
 });
-after(async () => { await app.close(); await closeBrowser(); claude.close(); buffer.close(); });
+after(async () => { await app.close(); await closeBrowser(); claude.close(); buffer.close(); github.close(); });
 
 const headers = { 'x-api-key': 'test-key' };
 const call = (method: string, url: string, payload?: unknown) => app.inject({ method, url, headers, payload });
@@ -79,19 +110,26 @@ test('checks catch dashes, missing headings, made up figures and [SOURCE NEEDED]
   assert.equal((await call('PUT', '/articles/1', { body: exampleBody })).statusCode, 200);
 });
 
-test('approve, publish static files, then queue one social post for approval', async () => {
+test('approve, publish to the site repo, then queue one social post for approval', async () => {
   assert.equal((await call('POST', '/articles/1/publish')).statusCode, 409, 'not before approval');
   assert.equal((await call('POST', '/articles/1/approve')).statusCode, 200);
   assert.equal((await call('PUT', '/articles/1', { title: 'Changed' })).statusCode, 409, 'approved text is frozen');
   const pub = (await call('POST', '/articles/1/publish')).json();
-  assert.equal(pub.status, 'published');
-  const dir = path.join(process.env.DATA_DIR!, 'site', 'guides', 'stories');
-  const md = fs.readFileSync(path.join(dir, `${pub.slug}.md`), 'utf8');
-  const html = fs.readFileSync(path.join(dir, `${pub.slug}.html`), 'utf8');
-  assert.match(md, /^---\nCategory: \/guides\/stories\/\nSlug: building/);
+  assert.equal(pub.status, 'published', JSON.stringify(pub));
+  assert.equal(commits.length, 1);
+  const page = `guides/stories/${pub.slug}.html`;
+  assert.deepEqual(commits[0].files.sort(), ['guides/stories/index.html', page, 'sitemap.xml'].sort());
+  const html = repo[page];
+  assert.match(html, /<title>Building an Information Portal for a Financial Services Business \| Red Cherry IT Guides<\/title>/);
+  assert.match(html, /<strong>Short answer:<\/strong> A business in the financial sector/);
   assert.match(html, /<h2>The challenge<\/h2>/);
-  assert.match(html, /<li>Publish articles regularly without needing a developer every time<\/li>/);
-  assert.match(html, /<strong>Logo and branding\.<\/strong>/);
+  assert.match(html, /<h3>Can a business publish its own articles without a developer\?<\/h3>/);
+  assert.match(html, /"@type": "FAQPage"/);
+  assert.doesNotMatch(html, /\{\{\w+\}\}/, 'every slot is filled');
+  assert.match(repo['guides/stories/index.html'], /href="older-story">\n        <\/a>\n        <a class="guide-card" href="building-an-information-portal/);
+  assert.match(repo['sitemap.xml'], /older-story.*\n.*building-an-information-portal-for-a-financial-services-business<\/loc>.*\n.*pricing/);
+  assert.equal((await call('POST', '/articles/1/publish')).statusCode, 200);
+  assert.equal(commits.length, 1, 'publishing the same thing again changes nothing');
 
   const before = claudeCalls.length;
   const social = { template: 'social-post', channels: [{ id: 'li1', name: 'LinkedIn' }], mode: 'queue' };
