@@ -29,6 +29,28 @@ const migrations = [
      posted_at TEXT,                    -- set by the Buffer step in phase 3
      deleted_at TEXT
    );`,
+
+  `ALTER TABLE template_versions RENAME COLUMN template TO name;
+   ALTER TABLE template_versions RENAME COLUMN html TO body;
+
+   CREATE TABLE prompt_versions (
+     id INTEGER PRIMARY KEY,
+     name TEXT NOT NULL,
+     body TEXT NOT NULL,
+     note TEXT NOT NULL DEFAULT '',
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE INDEX prompt_versions_by_name ON prompt_versions (name, id);
+
+   CREATE TABLE claude_usage (         -- one row per Claude call; the spend cap reads this
+     id INTEGER PRIMARY KEY,
+     job TEXT NOT NULL,                -- for example copy:social-post or test:caption
+     model TEXT NOT NULL,
+     input_tokens INTEGER NOT NULL,
+     output_tokens INTEGER NOT NULL,
+     cost_usd REAL NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

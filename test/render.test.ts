@@ -27,7 +27,7 @@ test('there are four templates', () => {
 
 for (const name of names) {
   test(`${name} renders its sample text at 1080 by 1080`, async () => {
-    const fields = sampleOf(current(name).html);
+    const fields = sampleOf(current(name).body);
     const res = await app.inject({ method: 'POST', url: '/render', headers, payload: { template: name, fields } });
     assert.equal(res.statusCode, 200, res.body);
     assert.equal(res.headers['content-type'], 'image/png');
@@ -37,7 +37,7 @@ for (const name of names) {
 }
 
 test('an overlong headline is rejected with the field and how much to cut', async () => {
-  const fields = { ...sampleOf(current('social-post').html), headline: 'Why speed matters. Fast sites explained in plain English for every small business owner' };
+  const fields = { ...sampleOf(current('social-post').body), headline: 'Why speed matters. Fast sites explained in plain English for every small business owner' };
   const res = await app.inject({ method: 'POST', url: '/render', headers, payload: { template: 'social-post', fields } });
   assert.equal(res.statusCode, 422);
   const problem = res.json().problems.find((p: any) => p.field === 'headline');
@@ -46,7 +46,7 @@ test('an overlong headline is rejected with the field and how much to cut', asyn
 });
 
 test('a retry with the same text returns the same render', async () => {
-  const payload = { template: 'tip-card', fields: sampleOf(current('tip-card').html) };
+  const payload = { template: 'tip-card', fields: sampleOf(current('tip-card').body) };
   const a = await app.inject({ method: 'POST', url: '/render?format=json', headers, payload });
   const b = await app.inject({ method: 'POST', url: '/render?format=json', headers, payload });
   assert.equal(a.json().id, b.json().id);
@@ -59,10 +59,10 @@ test('requests without the key are refused, health is open', async () => {
 
 test('saving and rolling back a template keeps versions', async () => {
   const before = current('social-post');
-  const edited = before.html.replace('font-size: 92px', 'font-size: 90px');
+  const edited = before.body.replace('font-size: 92px', 'font-size: 90px');
   const saved = await app.inject({ method: 'PUT', url: '/templates/social-post', headers, payload: { html: edited, note: 'test' } });
   assert.equal(saved.statusCode, 200, saved.body);
   const back = await app.inject({ method: 'POST', url: `/templates/social-post/rollback/${before.id}`, headers });
   assert.equal(back.statusCode, 200, back.body);
-  assert.equal(current('social-post').html, before.html);
+  assert.equal(current('social-post').body, before.body);
 });

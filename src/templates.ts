@@ -1,56 +1,15 @@
-// Templates live in SQLite as versions. The newest version of a name is the live one.
-// The files in templates/ are seeds, loaded into the database on start.
-import fs from 'node:fs';
+// Templates live in SQLite as versions (see versions.ts). The files in templates/ are seeds.
 import path from 'node:path';
-import { db } from './db.ts';
-import { fail, MAX_FIELD_CHARS, ROOT, TEMPLATE_VERSIONS_KEEP } from './config.ts';
+import { fail, MAX_FIELD_CHARS, ROOT } from './config.ts';
+import { versionStore } from './versions.ts';
 
 export type Problem = { field: string | null; message: string; overflow_px?: number; shorten_by_chars?: number };
-type Row = { id: number; html: string };
 
-export const NAME_PATTERN = '^[a-z0-9-]{1,40}$';
-
-export function current(name: string): Row {
-  const row = db.prepare('SELECT id, html FROM template_versions WHERE template = ? ORDER BY id DESC LIMIT 1').get(name) as Row | undefined;
-  return row ?? fail(404, `There is no template called ${name}`);
-}
-
-export function list() {
-  return db.prepare(`SELECT template AS name, MAX(id) AS version, MAX(created_at) AS updated_at
-                     FROM template_versions GROUP BY template ORDER BY template`).all();
-}
-
-export function versions(name: string) {
-  current(name);
-  return db.prepare('SELECT id, note, created_at FROM template_versions WHERE template = ? ORDER BY id DESC').all(name);
-}
-
-export function save(name: string, html: string, note = ''): number {
-  if (!new RegExp(NAME_PATTERN).test(name)) fail(400, 'Template names use lowercase letters, numbers and hyphens only');
+const store = versionStore('template_versions', 'template', html => {
   if (!/class="post"/.test(html)) fail(400, 'A template needs an element with class="post"');
-  const { lastInsertRowid } = db.prepare('INSERT INTO template_versions (template, html, note) VALUES (?, ?, ?)').run(name, html, note);
-  db.prepare(`DELETE FROM template_versions WHERE template = ? AND id NOT IN
-              (SELECT id FROM template_versions WHERE template = ? ORDER BY id DESC LIMIT ?)`).run(name, name, TEMPLATE_VERSIONS_KEEP);
-  return Number(lastInsertRowid);
-}
-
-export function rollback(name: string, id: number): number {
-  const row = db.prepare('SELECT html FROM template_versions WHERE template = ? AND id = ?').get(name, id) as Row | undefined;
-  if (!row) fail(404, `Version ${id} of ${name} no longer exists`);
-  return save(name, row!.html, `Rolled back to version ${id}`);
-}
-
-// A seed file is added as a new version only when its exact HTML is not already in the history,
-// so edits made in the editor survive restarts. Changing a seed file in the repo does replace them
-// (they stay in the history for rollback).
-export function seed() {
-  const dir = path.join(ROOT, 'templates');
-  for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.html'))) {
-    const name = file.slice(0, -5);
-    const html = fs.readFileSync(path.join(dir, file), 'utf8');
-    if (!db.prepare('SELECT 1 FROM template_versions WHERE template = ? AND html = ?').get(name, html)) save(name, html, 'Loaded from templates folder');
-  }
-}
+});
+export const { current, list, versions, save, rollback } = store;
+export const seed = () => store.seed(path.join(ROOT, 'templates'), '.html');
 
 // Fields a caller must send, in template order. highlight_word goes with headline.
 export function fieldsOf(html: string): string[] {

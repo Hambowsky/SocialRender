@@ -3,10 +3,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
-import { API_KEY, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
+import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
 import { closeBrowser, publicFile, render, renderPath } from './render.ts';
-import { current, fieldsOf, fill, list, NAME_PATTERN, rollback, sampleOf, save, seed, versions } from './templates.ts';
+import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, versions } from './templates.ts';
+import { NAME_PATTERN } from './versions.ts';
+import * as prompts from './copy.ts';
+import { monthSpendGbp } from './claude.ts';
 import { startCleanup } from './cleanup.ts';
 
 type Fields = Record<string, string>;
@@ -37,8 +40,8 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || publicFile(p)) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const isRender = p === '/render';
-    if (!allow(isRender ? 'render' : 'other', isRender ? RENDERS_PER_MIN : 600))
+    const group = p === '/render' ? 'render' : p === '/copy' || p.endsWith('/test') ? 'claude' : 'other';
+    if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
 
@@ -60,7 +63,7 @@ export function buildApp() {
 
   app.get<{ Params: { name: string } }>('/templates/:name', { schema: { params: nameParams } }, async req => {
     const t = current(req.params.name);
-    return { name: req.params.name, version: t.id, html: t.html, fields: fieldsOf(t.html), sample: sampleOf(t.html) };
+    return { name: req.params.name, version: t.id, html: t.body, fields: fieldsOf(t.body), sample: sampleOf(t.body) };
   });
 
   app.put<{ Params: { name: string }; Body: { html: string; note?: string } }>('/templates/:name', {
@@ -80,7 +83,7 @@ export function buildApp() {
   app.post<{ Body: { template: string; fields: Fields; html?: string } }>('/preview', {
     schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, html: { type: 'string', maxLength: 60000 } } } },
   }, async (req, reply) => {
-    const html = req.body.html ?? current(req.body.template).html;
+    const html = req.body.html ?? current(req.body.template).body;
     return reply.type('text/html; charset=utf-8').send(fill(html, req.body.fields).html);
   });
 
@@ -105,6 +108,42 @@ export function buildApp() {
     return fs.existsSync(file) ? reply.type('image/png').send(fs.createReadStream(file)) : reply.code(404).send({ error: 'Render not found or already cleaned up' });
   });
 
+  // Claude copywriting. Nothing here posts or queues anything.
+  const text = { type: 'string', maxLength: 2000 };
+  app.post<{ Body: prompts.CopyInput }>('/copy', {
+    schema: { body: { type: 'object', required: ['template', 'topic'], additionalProperties: false,
+      properties: { template: name, topic: text, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
+  }, async req => prompts.writeCopy(req.body));
+
+  app.get('/prompts', async () => prompts.list());
+  app.get<{ Params: { name: string } }>('/prompts/:name', { schema: { params: nameParams } }, async req => {
+    const p = prompts.current(req.params.name);
+    return { name: req.params.name, version: p.id, body: p.body, vars: prompts.varsOf(p.body) };
+  });
+  app.put<{ Params: { name: string }; Body: { body: string; note?: string } }>('/prompts/:name', {
+    schema: { params: nameParams, body: { type: 'object', required: ['body'], properties: { body: { type: 'string', maxLength: 60000 }, note: { type: 'string', maxLength: 200 } } } },
+  }, async req => ({ version: prompts.save(req.params.name, req.body.body, req.body.note) }));
+  app.get<{ Params: { name: string } }>('/prompts/:name/versions', { schema: { params: nameParams } }, async req => prompts.versions(req.params.name));
+  app.post<{ Params: { name: string; version: number } }>('/prompts/:name/rollback/:version', {
+    schema: { params: { type: 'object', properties: { name, version: { type: 'integer' } } } },
+  }, async req => ({ version: prompts.rollback(req.params.name, req.params.version) }));
+
+  // Test run: shows what a prompt (saved or not) writes, without posting or queueing anything.
+  app.post<{ Params: { name: string }; Body: { vars: Fields; body?: string; template?: string } }>('/prompts/:name/test', {
+    schema: { params: nameParams, body: { type: 'object', required: ['vars'],
+      properties: { vars: { type: 'object', additionalProperties: { type: 'string', maxLength: 20000 } }, body: { type: 'string', maxLength: 60000 }, template: name } } },
+  }, async req => {
+    const vars = { ...req.body.vars, ...(req.body.template ? prompts.templateVars(req.body.template) : {}) };
+    const run = await prompts.runPrompt(req.params.name, vars, { body: req.body.body });
+    return { output: run.output, cost_gbp: run.cost_gbp };
+  });
+
+  app.get('/usage', async () => ({
+    month_spend_gbp: monthSpendGbp(),
+    cap_gbp: CLAUDE_MONTHLY_CAP_GBP,
+    recent: db.prepare('SELECT job, model, input_tokens, output_tokens, cost_usd, created_at FROM claude_usage ORDER BY id DESC LIMIT 20').all(),
+  }));
+
   return app;
 }
 
@@ -114,6 +153,7 @@ export async function start() {
     process.exit(1);
   }
   seed();
+  prompts.seed();
   startCleanup();
   const app = buildApp();
   const stop = async () => { await app.close(); await closeBrowser(); process.exit(0); };

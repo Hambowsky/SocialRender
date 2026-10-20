@@ -1,6 +1,7 @@
 # Red Cherry IT social and content tool
 
 Phase 1: the renderer and editor. Fills an HTML template with text and saves it as a 1080 by 1080 PNG.
+Phase 2: Claude copywriting. Writes the text for a template, checks it fits, and writes a caption.
 CLAUDE.md is the full brief. PLAN.md has the data model and the plan for later phases.
 
 ## Run it locally
@@ -23,7 +24,10 @@ All in environment variables, listed in `.env.example`.
 | `PORT`, `HOST` | `3000`, `127.0.0.1` | Where it listens. |
 | `RENDER_RETENTION_DAYS` | `14` | Unposted renders older than this are deleted hourly. |
 | `RENDERS_PER_MIN` | `30` | Render rate limit. Other endpoints allow 600 a minute. |
-| `TEMPLATE_VERSIONS_KEEP` | `50` | Saved versions kept per template. |
+| `TEMPLATE_VERSIONS_KEEP` | `50` | Saved versions kept per template and per prompt. |
+| `ANTHROPIC_API_KEY` | none | Console API key for copywriting. Without it only the copywriting endpoints are off. |
+| `CLAUDE_MONTHLY_CAP_GBP` | `20` | Hard stop on Claude spend each calendar month. |
+| `GBP_PER_USD` | `0.79` | Rate for converting the API's dollar prices. |
 
 ## API
 Every endpoint needs `x-api-key`, except `/health` and the editor page with its fonts, logo and check script.
@@ -35,6 +39,15 @@ Every endpoint needs `x-api-key`, except `/health` and the editor page with its 
 * `GET /health` for the container healthcheck.
 
 A new line in a headline forces a line break. Fields are capped at 300 characters and are always escaped, so no field can change the design.
+
+## Copywriting
+* `POST /copy` with `{"template": "social-post", "topic": "...", "keyword": "...", "audience": "...", "sources": "..."}` returns `fields` ready for `/render`, plus `caption`, `hashtags`, `fits`, `problems` and `cost_gbp`. Nothing is posted or queued.
+* Sonnet 5.5 writes the image text. The app then runs the same layout check as a render, and if the text does not fit it asks Claude once to shorten it, saying what overflowed. Haiku 5.5 writes the caption.
+* Prompts live in `prompts/` as seeds and are versioned in the database like templates: `GET /prompts`, `GET /prompts/<name>`, `PUT /prompts/<name>` with `{body, note}`, `GET /prompts/<name>/versions`, `POST /prompts/<name>/rollback/<version>`.
+* `POST /prompts/<name>/test` with `{vars, body?, template?}` runs a prompt, saved or not, and shows the output.
+* `brand-voice` is added to every call as the system prompt. Its `{examples}` slot is filled with every file in `prompts/examples/`.
+* A prompt can start with settings between `---` lines: `model`, `effort` (low, medium or high) and `max_tokens`.
+* Every Claude call goes through `src/claude.ts`. It refuses any call whose worst case cost would take this month over the cap, and logs tokens and cost to the `claude_usage` table. `GET /usage` shows this month's spend and the last 20 calls.
 
 ## Templates
 `templates/` holds the four starting templates: social post, quote card, stat card and tip card. On start, any template file whose exact HTML is not already in the database is added as a new version. After that, edits made in the editor are the live version, and every save can be rolled back.
