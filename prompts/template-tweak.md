@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5-5
 effort: high
-max_tokens: 16000
+max_tokens: 40000
 ---
 Change this Red Cherry IT template for one post only. The saved template is not changed.
 

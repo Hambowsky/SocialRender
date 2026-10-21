@@ -5,6 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
+import { sendStream } from './sse.ts';
 
 process.env.NODE_ENV = 'test';
 process.env.API_KEY = 'test-key';
@@ -40,11 +41,11 @@ const fake = http.createServer((req, res) => {
       : r.messages.length === 1 // first draft is too long, the rewrite fits
         ? { headline: 'Why speed matters so much more than you think for every small business website in the UK today', highlight_word: 'speed', subtitle: 'Faster pages keep visitors.', tag: 'Marketing Guide', footer_left: 'Free guide' }
         : { headline: 'Why speed matters', highlight_word: 'speed', subtitle: 'Faster pages keep visitors and win more enquiries.', tag: 'Marketing Guide', footer_left: 'Free guide' };
-    res.end(JSON.stringify({
+    sendStream(res, {
       id: 'msg_fake', type: 'message', role: 'assistant', model: r.model, stop_reason: 'end_turn', stop_sequence: null, stop_details: null,
       content: [{ type: 'text', text: JSON.stringify(out) }],
       usage: { input_tokens: 2000, output_tokens: 300 },
-    }));
+    });
   });
 });
 

@@ -6,6 +6,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
+import { sendStream } from './sse.ts';
 
 process.env.NODE_ENV = 'test';
 process.env.API_KEY = 'test-key';
@@ -22,10 +23,14 @@ const exampleBody = example.replace(/^---[\s\S]*?---\n+/, '').replace(/\n---\n[\
 const sources = 'Payments business, news portal. ' + example;
 
 const claudeCalls: string[] = [];
-const serve = (handler: (body: any) => unknown) => http.createServer((req, res) => {
+const serve = (handler: (body: any) => unknown, stream = false) => http.createServer((req, res) => {
   let b = '';
   req.on('data', c => (b += c));
-  req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(handler(JSON.parse(b)))); });
+  req.on('end', () => {
+    const out = handler(JSON.parse(b));
+    if (stream) return sendStream(res, out);
+    res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(out));
+  });
 });
 const researchCalls: any[] = [];
 const claude = serve(r => {
@@ -58,7 +63,7 @@ const claude = serve(r => {
     : { headline: 'Three articles a week', highlight_word: 'Three', subtitle: 'A portal the team runs themselves.', tag: 'Case Study', footer_left: 'Read the story' };
   return { id: 'msg', type: 'message', role: 'assistant', model: r.model, stop_reason: 'end_turn', stop_sequence: null, stop_details: null,
     content: [{ type: 'text', text: JSON.stringify(out) }], usage: { input_tokens: 3000, output_tokens: 1500 } };
-});
+}, true);
 const bufferSent: string[] = [];
 const buffer = serve(({ query }) => (bufferSent.push(query), { data: { createPost: { post: { id: 'b1' } } } }));
 
