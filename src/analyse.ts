@@ -6,7 +6,7 @@ import { db } from './db.ts';
 import { fail, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL, PAGESPEED_URL, RDAP_URL } from './config.ts';
 import { analysing, busy, cached, lead, screenshotPath } from './leads.ts';
 import { screenshotSite } from './render.ts';
-import { findEmail } from './sitecheck.ts';
+import { checkSite, findEmail } from './sitecheck.ts';
 import { runPrompt } from './copy.ts';
 
 type Analysis = {
@@ -65,16 +65,21 @@ export async function analyseLead(id: number) {
       a.errors.push(`${name}: ${(err as Error).message}`);
     }
   };
-  const site = l.website_url && !l.lead_reason.startsWith('Website listed but unreachable') ? l.website_url : '';
-  if (site) {
+  const site = l.website_url;
+  const dead = l.lead_reason.startsWith('Website listed but unreachable');
+  if (site && !dead) {
     await step('PageSpeed', async () => { a.pagespeed = await pageSpeed(site); });
     await step('Domain age', async () => { a.domain = await domainAge(site); });
+  }
+  // Tried even when the campaign run could not reach the site: it may have been down, or turned the check away.
+  if (site) {
     await step('Screenshot', async () => {
       fs.mkdirSync(path.dirname(screenshotPath(id)), { recursive: true });
       const html = await screenshotSite(site, screenshotPath(id));
       a.screenshot = true;
-      // The first check reads the raw page; sites that add their email with JavaScript only show it here.
-      const email = !l.email && findEmail(html);
+      // Look again for an email: the plain check (home and contact pages), then the page as the browser built it,
+      // which catches sites that add their email with JavaScript.
+      const email = !l.email && ((await checkSite(site).catch(() => null))?.email || findEmail(html));
       if (email) {
         db.prepare(`UPDATE leads SET email = ? WHERE id = ? AND email = ''`).run(email, id);
         db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Found ${email} on the website`);
@@ -88,7 +93,7 @@ export async function analyseLead(id: number) {
   await step('Claude', async () => {
     const g = a.gbp;
     const r = await runPrompt('lead-review', {
-      company: l.company_name, industry: l.industry, town: l.town, reason: l.lead_reason, website: site || 'none',
+      company: l.company_name, industry: l.industry, town: l.town, reason: l.lead_reason, website: site && !dead ? site : site ? `${site} (did not load when found)` : 'none',
       website_issues: describe(l.website_issues), seo_issues: describe(l.seo_issues),
       pagespeed: a.pagespeed ? `${a.pagespeed.score}, largest content shows in ${a.pagespeed.lcp}` : 'not checked',
       domain_age: a.domain ? `${a.domain.registered} (${a.domain.years} years ago)` : 'not known',
