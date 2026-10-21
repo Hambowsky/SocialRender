@@ -1,10 +1,11 @@
 // One Chromium for every job, one render at a time.
+import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium, type Browser } from 'playwright';
+import { chromium, type Browser, type Page } from 'playwright';
 import { db } from './db.ts';
-import { RENDERS_DIR, ROOT } from './config.ts';
+import { fail, RENDERS_DIR, ROOT } from './config.ts';
 import { current, fill, type Problem } from './templates.ts';
 
 const TYPES: Record<string, string> = {
@@ -20,7 +21,7 @@ export function publicFile(urlPath: string) {
   return { file, type: TYPES[path.extname(file)] ?? 'application/octet-stream' };
 }
 
-export const renderPath = (id: string) => path.join(RENDERS_DIR, `${id}.png`);
+export const renderPath = (id: string, ext: 'png' | 'mp4' = 'png') => path.join(RENDERS_DIR, `${id}.${ext}`);
 
 let browser: Browser | undefined;
 async function getBrowser() {
@@ -32,9 +33,9 @@ async function getBrowser() {
 }
 export const closeBrowser = () => browser?.close();
 
-// Lays the page out and runs the layout check. Saves a screenshot only when `file` is given and everything fits.
-async function shoot(html: string, file?: string): Promise<Problem[]> {
-  const page = await (await getBrowser()).newPage({ viewport: { width: 1080, height: 1080 } });
+// Opens the page, runs `work` and closes it. The viewport is tall enough for square and upright templates.
+async function withPage<T>(html: string, work: (page: Page) => Promise<T>): Promise<T> {
+  const page = await (await getBrowser()).newPage({ viewport: { width: 1080, height: 1920 } });
   try {
     // No network at all: the page gets its HTML and local files only, so renders are repeatable.
     await page.route('**/*', route => route.abort());
@@ -45,27 +46,78 @@ async function shoot(html: string, file?: string): Promise<Problem[]> {
       return f ? route.fulfill({ path: f.file, contentType: f.type }) : route.fulfill({ status: 404 });
     });
     await page.goto('http://render.local/');
-    const problems: Problem[] = await page.evaluate(() => (window as any).layoutErrors());
-    if (file && !problems.length) await page.locator('.post').screenshot({ path: file });
-    return problems;
+    return await work(page);
   } finally {
     await page.close().catch(() => {});
   }
 }
 
+const layoutErrors = (page: Page): Promise<Problem[]> => page.evaluate(() => (window as any).layoutErrors());
+
+// Runs the layout check. Saves a screenshot only when `file` is given and everything fits.
+// A motion template is shot at its last frame, so the still matches the end of the clip.
+const shoot = (html: string, file?: string) => withPage(html, async page => {
+  const problems = await layoutErrors(page);
+  if (file && !problems.length) {
+    await page.evaluate(() => document.getAnimations().forEach(a => { if (isFinite(a.effect!.getComputedTiming().endTime as number)) a.finish(); }));
+    await page.locator('.post').screenshot({ path: file });
+  }
+  return problems;
+});
+
+const FPS = 30;
+
+// Plays a motion template frame by frame and pipes the frames to ffmpeg. Nothing runs in real time,
+// so a slow server makes a slow render, never a jerky clip.
+const film = (html: string, file: string) => withPage(html, async page => {
+  const problems = await layoutErrors(page);
+  if (problems.length) return problems;
+  const seconds = await page.evaluate(() => Number((document.querySelector('.post') as HTMLElement).dataset.seconds));
+  if (!(seconds > 0 && seconds <= 30)) fail(400, 'This template is not a motion template');
+  const clip = (await page.locator('.post').boundingBox())!;
+  await page.evaluate(() => document.getAnimations().forEach(a => a.pause()));
+
+  const tmp = `${file}.part`;
+  const ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', String(FPS), '-i', '-',
+    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', '-f', 'mp4', tmp], { stdio: ['pipe', 'ignore', 'pipe'] });
+  let stderr = '';
+  ff.stderr.on('data', d => { stderr += d; });
+  const done = new Promise<void>((resolve, reject) => {
+    ff.on('error', err => reject(new Error(`Could not run ffmpeg: ${err.message}`)));
+    ff.on('close', code => code === 0 ? resolve() : reject(new Error(`ffmpeg failed: ${stderr.trim().slice(-500)}`)));
+  });
+  done.catch(() => {}); // awaited below; this only stops an early failure counting as unhandled
+  ff.stdin.on('error', () => {}); // ffmpeg quit early: `done` carries its message
+  try {
+    for (let i = 0; i < seconds * FPS; i++) {
+      await page.evaluate(t => document.getAnimations().forEach(a => { a.currentTime = t; }), i * 1000 / FPS);
+      const frame = await page.screenshot({ clip, type: 'jpeg', quality: 92 });
+      if (!ff.stdin.write(frame)) await Promise.race([new Promise(r => ff.stdin.once('drain', r)), done]);
+    }
+    ff.stdin.end();
+    await done;
+    fs.renameSync(tmp, file);
+  } catch (err) {
+    ff.kill();
+    fs.rmSync(tmp, { force: true });
+    throw err;
+  }
+  return [];
+});
+
 export type RenderResult = { ok: true; id: string; file: string } | { ok: false; problems: Problem[] };
 
-async function renderNow(template: string, fields: Record<string, string>): Promise<RenderResult> {
+async function renderNow(template: string, fields: Record<string, string>, ext: 'png' | 'mp4'): Promise<RenderResult> {
   const tpl = current(template);
-  const id = crypto.createHash('sha256').update(JSON.stringify([template, tpl.body, fields])).digest('hex').slice(0, 20);
-  const file = renderPath(id);
+  const id = crypto.createHash('sha256').update(JSON.stringify(ext === 'png' ? [template, tpl.body, fields] : [ext, template, tpl.body, fields])).digest('hex').slice(0, 20);
+  const file = renderPath(id, ext);
   // Same template and text as an earlier render: hand back that file, never render twice.
   if (fs.existsSync(file)) return { ok: true, id, file };
 
   const filled = fill(tpl.body, fields);
   if (filled.problems.length) return { ok: false, problems: filled.problems };
 
-  const problems = await shootWithRetry(filled.html, file);
+  const problems = ext === 'png' ? await shootWithRetry(filled.html, file) : await film(filled.html, file);
   if (problems.length) return { ok: false, problems };
 
   db.prepare(`INSERT INTO renders (id, template, template_version, fields) VALUES (?, ?, ?, ?)
@@ -90,7 +142,8 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
   return job;
 }
 
-export const render = (template: string, fields: Record<string, string>) => enqueue(() => renderNow(template, fields));
+export const render = (template: string, fields: Record<string, string>) => enqueue(() => renderNow(template, fields, 'png'));
+export const renderVideo = (template: string, fields: Record<string, string>) => enqueue(() => renderNow(template, fields, 'mp4'));
 
 // Does this text fit the template? Same check as a render, without saving an image.
 export const checkFit = (template: string, fields: Record<string, string>) => checkHtml(current(template).body, fields);

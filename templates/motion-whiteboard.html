@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Motion: whiteboard</title>
+<script type="application/json" id="sample">{"headline": "Three steps to a website that works", "highlight_word": "works", "subtitle": "Plan what each page is for, build it to load fast, then launch and keep improving it.", "tag": "Web Design", "footer_left": "Our process", "footer_right": "redcherryit.com"}</script>
+<style>
+  @font-face { font-family: "Archivo"; font-weight: 400; src: url(/fonts/archivo-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 500; src: url(/fonts/archivo-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 900; src: url(/fonts/archivo-latin-900-normal.woff2) format("woff2"); }
+  :root { --red: #b5333f; --ink: #1a1a1a; --grey: #444; --logo-grey: #a89c9c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #e9e9e9; }
+  .post {
+    width: 1080px; height: 1920px; position: relative; overflow: hidden; display: flex; flex-direction: column;
+    padding: 0 88px; color: var(--ink); font-family: "Archivo", "Arial Black", Arial, sans-serif;
+    background: radial-gradient(1200px 900px at 30% 30%, #fff, #f1efec);
+  }
+
+  .logo { position: absolute; left: 88px; top: 96px; width: 340px; height: auto; }
+  .tag { position: absolute; right: 88px; top: 118px; font-weight: 500; font-size: 24px; letter-spacing: 5px; line-height: 1;
+         color: var(--red); text-transform: uppercase; white-space: nowrap; }
+
+  /* marker strokes draw themselves in, one after another */
+  .scene { flex: none; width: 1080px; height: 860px; margin: 230px -88px 0; overflow: visible; }
+  .pen, .marker { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1; stroke-dashoffset: 1;
+                  animation: draw .9s ease-in-out forwards; }
+  .pen { stroke: var(--ink); stroke-width: 7; }
+  .marker { stroke: var(--red); stroke-width: 9; }
+  .word { font: 900 58px Archivo, Arial, sans-serif; letter-spacing: -1px; fill: var(--ink); text-anchor: middle; opacity: 0;
+          animation: fade .5s ease-out forwards; }
+  .scrawl { font: 900 46px Archivo, Arial, sans-serif; fill: var(--red); opacity: 0; animation: fade .5s ease-out forwards; }
+
+  .bar { flex: none; width: 180px; height: 6px; margin-top: 40px; background: var(--red);
+         transform-origin: left; transform: scaleX(0); animation: grow .6s ease-out 5.4s forwards; }
+  h1 { margin-top: 34px; font-weight: 900; font-size: 98px; line-height: 1.08; letter-spacing: -3px;
+       opacity: 0; animation: up .8s ease-out 5.7s forwards; }
+  h1 .hl { color: var(--red); position: relative; white-space: nowrap; }
+  h1 .hl::after { content: ""; position: absolute; left: -4px; right: -4px; bottom: -4px; height: 12px; border-radius: 6px;
+                  background: var(--red); opacity: .85; transform-origin: left; transform: scaleX(0) rotate(-1deg);
+                  animation: underline .6s ease-out 6.7s forwards; }
+  .sub { margin-top: 34px; font-weight: 400; font-size: 40px; line-height: 1.4; color: var(--grey);
+         opacity: 0; animation: up .8s ease-out 6.5s forwards; }
+
+  .rule { position: absolute; left: 88px; right: 88px; top: 1760px; height: 2px; background: #111; }
+  .foot-l { position: absolute; left: 88px; top: 1806px; font-weight: 900; font-size: 30px; white-space: nowrap; }
+  .foot-r { position: absolute; right: 88px; top: 1806px; font-weight: 500; font-size: 30px; color: var(--red); white-space: nowrap; }
+  .logo, .tag, .rule, .foot-l, .foot-r { opacity: 0; animation: fade .8s ease-out .2s forwards; }
+  .rule, .foot-l, .foot-r { animation-delay: 7.2s; }
+
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes fade { to { opacity: 1; } }
+  @keyframes up { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+  @keyframes grow { to { transform: scaleX(1); } }
+  @keyframes underline { to { transform: scaleX(1) rotate(-1deg); } }
+</style>
+</head>
+<body>
+  <div class="post" data-size="1080x1920" data-seconds="12">
+    <img class="logo" src="/assets/logo.png" alt="Red Cherry IT">
+    <div class="tag" data-field="tag">{{tag}}</div>
+
+    <svg class="scene" viewBox="0 0 1080 860">
+      <!-- step 1 -->
+      <path class="pen" pathLength="1" style="animation-delay:.4s" d="M150 128 C 250 120, 360 124, 438 130 C 444 180, 440 230, 436 268 C 330 274, 230 270, 146 266 C 140 220, 144 170, 152 122"/>
+      <text class="word" x="293" y="218" style="animation-delay:1s">Plan</text>
+      <path class="pen" pathLength="1" style="animation-delay:1.3s" d="M448 196 C 560 190, 650 230, 708 318 M708 318 L676 306 M708 318 L712 284"/>
+
+      <!-- step 2 -->
+      <path class="pen" pathLength="1" style="animation-delay:1.9s" d="M622 338 C 720 330, 830 334, 908 340 C 914 390, 910 440, 906 478 C 800 484, 700 480, 616 476 C 610 430, 614 380, 622 332"/>
+      <text class="word" x="763" y="428" style="animation-delay:2.5s">Build</text>
+      <path class="pen" pathLength="1" style="animation-delay:2.8s" d="M612 430 C 520 450, 470 520, 452 588 M452 588 L442 556 M452 588 L476 566"/>
+
+      <!-- step 3 -->
+      <path class="pen" pathLength="1" style="animation-delay:3.4s" d="M150 608 C 250 600, 360 604, 438 610 C 444 660, 440 710, 436 748 C 330 754, 230 750, 146 746 C 140 700, 144 650, 152 602"/>
+      <text class="word" x="293" y="698" style="animation-delay:4s">Launch</text>
+
+      <!-- red marker notes -->
+      <path class="marker" pathLength="1" style="animation-delay:4.4s" d="M96 640 C 96 560, 300 540, 440 566 C 540 590, 530 760, 400 786 C 260 810, 110 790, 92 700 C 84 660, 100 610, 160 584"/>
+      <path class="marker" pathLength="1" style="animation-delay:4.9s" d="M560 660 L605 712 L710 580"/>
+      <text class="scrawl" x="736" y="690" transform="rotate(-6 736 690)" style="animation-delay:5.2s">Go live!</text>
+    </svg>
+
+    <div class="bar"></div>
+    <h1 data-field="headline">{{headline}}</h1>
+    <p class="sub" data-field="subtitle">{{subtitle}}</p>
+
+    <div class="rule"></div>
+    <div class="foot-l" data-field="footer_left">{{footer_left}}</div>
+    <div class="foot-r" data-field="footer_right">{{footer_right}}</div>
+  </div>
+</body>
+</html>

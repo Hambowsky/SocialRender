@@ -13,6 +13,7 @@ export function cleanup(): number {
     .all(`-${RENDER_RETENTION_DAYS} days`) as { id: string }[];
   for (const { id } of rows) {
     fs.rmSync(renderPath(id), { force: true });
+    fs.rmSync(renderPath(id, 'mp4'), { force: true });
     db.prepare(`UPDATE renders SET deleted_at = datetime('now') WHERE id = ?`).run(id);
   }
   return rows.length;

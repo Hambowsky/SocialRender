@@ -90,6 +90,8 @@
   /* Preview */
   .frame { width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: #fff; position: relative; border: 1px solid var(--line); }
   .frame iframe { width: 1080px; height: 1080px; border: 0; transform-origin: 0 0; position: absolute; top: 0; left: 0; }
+  .frame.tall { width: 60%; margin: 0 auto; aspect-ratio: 9 / 16; }
+  .frame.tall iframe { height: 1920px; }
 
   /* Calendar */
   .cal-head { display: flex; align-items: center; gap: 8px; }
@@ -191,10 +193,11 @@
       <label>Template <select id="template"></select></label>
       <div id="fields" class="fields"></div>
       <div class="row"><button style="flex:1">Render</button><button type="button" class="plain" id="download" disabled style="flex:1">Download PNG</button></div>
+      <div class="row" id="videoRow" hidden><button type="button" id="makeVideo" style="flex:1">Make video</button><button type="button" class="plain" id="dlVideo" disabled style="flex:1">Download MP4</button></div>
       <div id="status" class="note" aria-live="polite"></div>
     </form>
     <div class="card" id="previewCard">
-      <div class="card-head"><h2>Preview</h2><span class="muted">1080 × 1080</span></div>
+      <div class="card-head"><h2>Preview</h2><span class="muted" id="size">1080 × 1080</span></div>
       <div class="frame" id="frame"><iframe id="preview" title="Live preview"></iframe></div>
     </div>
     <div class="card" id="write">
@@ -435,6 +438,12 @@
       return `<label>${n.replace('_', ' ').replace(/^\w/, c => c.toUpperCase())} ${input}</label>`;
     }).join('');
     savedHtml = $('html').value = t.html;
+    // Motion templates are upright clips: a tall preview (it plays as you type) and a Make video button.
+    const tall = /data-size="1080x1920"/.test(t.html);
+    $('frame').classList.toggle('tall', tall);
+    $('size').textContent = tall ? '1080 × 1920 · plays as a clip' : '1080 × 1080';
+    $('videoRow').hidden = !/data-seconds=/.test(t.html);
+    fitPreview();
     $('codeName').textContent = t.name;
     $('versions').innerHTML = (await (await api(`/templates/${t.name}/versions`)).json()).map(v =>
       `<li><span>Version ${v.id} · ${esc(v.created_at.slice(0, 16))}${v.note ? '<br><span class="muted">' + esc(v.note) + '</span>' : ''}</span>
@@ -443,7 +452,7 @@
   }
 
   // The last render, reused for posting and downloading until the template or text changes.
-  let lastRender;
+  let lastRender, lastVideo;
   const renderKey = () => JSON.stringify([$('template').value, fieldValues(), savedHtml]);
   const current = () => lastRender?.key === renderKey() ? lastRender : undefined;
   async function renderNow() {
@@ -457,6 +466,7 @@
   let timer;
   function refresh() {
     $('download').disabled = !current();
+    $('dlVideo').disabled = lastVideo?.key !== renderKey();
     clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
@@ -488,6 +498,25 @@
     } catch (err) {
       status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
     }
+  });
+  // Videos are downloaded and posted by hand for now, since Buffer's API does not say it takes video.
+  $('makeVideo').addEventListener('click', async () => {
+    const key = renderKey();
+    $('makeVideo').disabled = true;
+    status('Making the video. It plays every frame, so this takes a minute or so...');
+    try {
+      const r = await (await api('/render/video', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) })).json();
+      lastVideo = { id: r.id, template: $('template').value, key };
+      $('dlVideo').disabled = lastVideo.key !== renderKey();
+      status('Video ready. Download it and post it by hand.', 'good');
+    } catch (err) {
+      status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
+    } finally { $('makeVideo').disabled = false; }
+  });
+  $('dlVideo').addEventListener('click', async () => {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await (await fetch(`/public/renders/${lastVideo.id}.mp4`)).blob()), download: `${lastVideo.template}-${lastVideo.id}.mp4` });
+    a.click();
+    URL.revokeObjectURL(a.href);
   });
   $('download').addEventListener('click', async () => {
     const r = current();

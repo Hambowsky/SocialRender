@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
-import { closeBrowser, publicFile, render, renderPath } from './render.ts';
+import { closeBrowser, publicFile, render, renderPath, renderVideo } from './render.ts';
 import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, versions } from './templates.ts';
 import { NAME_PATTERN } from './versions.ts';
 import * as prompts from './copy.ts';
@@ -43,7 +43,7 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') ? 'claude' : 'other';
+    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -102,6 +102,22 @@ export function buildApp() {
     return reply.type('image/png').header('x-render-id', result.id)
       .header('content-disposition', `inline; filename="${req.body.template}-${result.id}.png"`)
       .send(fs.createReadStream(result.file));
+  });
+
+  // A motion template as an MP4 clip. Slow (it plays every frame), so callers wait on it.
+  app.post<{ Body: { template: string; fields: Fields } }>('/render/video', {
+    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields } } },
+  }, async (req, reply) => {
+    const result = await renderVideo(req.body.template, req.body.fields);
+    if (!result.ok) return reply.code(422).send({ error: 'The text does not fit this template', problems: result.problems });
+    return { id: result.id, url: `/public/renders/${result.id}.mp4` };
+  });
+
+  app.get<{ Params: { id: string } }>('/public/renders/:id.mp4', {
+    schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[a-f0-9]{20}$' } } } },
+  }, async (req, reply) => {
+    const file = renderPath(req.params.id, 'mp4');
+    return fs.existsSync(file) ? reply.type('video/mp4').send(fs.createReadStream(file)) : reply.code(404).send({ error: 'Not found' });
   });
 
   // Buffer fetches images from here, so it needs no key. Render ids are 80 bit random looking hashes,
