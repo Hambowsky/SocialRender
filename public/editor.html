@@ -200,6 +200,7 @@
     <div class="card" id="write">
       <div class="card-head"><h2>Write with Claude</h2></div>
       <p class="muted">Claude writes the text for this template, checks it fits and writes a caption. Nothing is posted.</p>
+      <label>From an article (optional) <select id="fromArticle"><option value="">Pick one of your guides</option></select></label>
       <label>Page link (optional) <input id="url" type="url" placeholder="https://redcherryit.com/..."></label>
       <label>Topic <input id="topic" placeholder="Why website speed matters"></label>
       <div class="cols two">
@@ -515,6 +516,22 @@
       $('spend').textContent = `Claude: £${u.month_spend_gbp.toFixed(2)} of £${u.cap_gbp} this month`;
     } catch {}
   }
+  // Guides load once, the first time the menu is used. Picking one fills the page link.
+  let guidesLoaded = false;
+  $('fromArticle').addEventListener('focus', async () => {
+    if (guidesLoaded) return;
+    guidesLoaded = true;
+    $('fromArticle').innerHTML = '<option value="">Loading your guides...</option>';
+    try {
+      const list = await (await api('/articles/live')).json();
+      const groups = {};
+      for (const a of list) (groups[a.category] ??= []).push(a);
+      $('fromArticle').innerHTML = '<option value="">Pick one of your guides</option>' + Object.entries(groups).map(([c, as]) =>
+        `<optgroup label="${esc(c.split('/')[2].replace(/^./, x => x.toUpperCase()))}">${as.map(a => `<option value="${esc(a.url)}">${esc(a.title)}</option>`).join('')}</optgroup>`).join('');
+    } catch (e) { guidesLoaded = false; $('fromArticle').innerHTML = '<option value="">Could not load your guides</option>'; note('writeOut', esc(e.message), 'bad'); }
+  });
+  $('fromArticle').addEventListener('change', () => { $('url').value = $('fromArticle').value; });
+  $('url').addEventListener('input', () => { $('fromArticle').value = ''; });
   $('writeBtn').addEventListener('click', async () => {
     note('writeOut', $('url').value.trim() ? 'Reading the page and writing...' : 'Writing...');
     try {

@@ -63,6 +63,13 @@ export async function research(category: string, input: { focus?: string; audien
   return { ideas, cost_gbp: r.cost_gbp };
 }
 
+// Every guide that is live, across all categories, for picking one to make a social post from.
+export async function live() {
+  const all = await Promise.all(categories().map(c => inCategory(c.category)));
+  return all.flat().filter((a: any) => a.status === 'published' || a.status === 'on_site')
+    .map((a: any) => ({ title: a.title, category: a.category, url: `${SITE_URL}${a.category}${a.slug}` }));
+}
+
 // Brings a live page into the tool as a published article, so it can be edited and published again.
 // Its own text becomes its sources, so the checks compare edits with what was live.
 export async function importPage(category: string, slug: string) {
