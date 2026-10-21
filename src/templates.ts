@@ -27,9 +27,18 @@ export function sampleOf(html: string): Record<string, string> {
 const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const escRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+// Sizes a template can be laid out at, e.g. ["1080x1920", "1080x1080"]. Empty means its one fixed size.
+export const sizesOf = (html: string) => html.match(/data-sizes="([^"]+)"/)?.[1].split(/\s+/) ?? [];
+
 // Text only: every value is escaped, so a caller can never change the design.
-export function fill(html: string, fields: Record<string, string>): { html: string; problems: Problem[] } {
+// `size` picks one of the template's sizes; its CSS lays itself out from .post's data-size.
+export function fill(html: string, fields: Record<string, string>, size?: string): { html: string; problems: Problem[] } {
   const problems: Problem[] = [];
+  if (size) {
+    const sizes = sizesOf(html);
+    if (!sizes.includes(size)) fail(400, sizes.length ? `This template comes in ${sizes.join(', ')}` : 'This template comes in one size only');
+    html = html.replace(/(<[^>]*class="post"[^>]*data-size=")\d+x\d+"/, `$1${size}"`);
+  }
   let out = html.replace(/\{\{(\w+)\}\}/g, (_, key: string) => {
     const value = String(fields[key] ?? '').trim();
     if (!value) { problems.push({ field: key, message: `${key} is required` }); return ''; }

@@ -45,7 +45,7 @@ Every endpoint needs `x-api-key`, except `/health`, the editor page with its fon
 * `POST /render` with `{"template": "social-post", "fields": {"headline": "...", "highlight_word": "...", "subtitle": "...", "tag": "...", "footer_left": "...", "footer_right": "..."}}` returns the PNG. Add `?format=json` to get `{id, url}` instead. The same template and text always give the same render, so a retry never makes a second image.
 * If the text does not fit you get a 422 with a list of problems, each naming the field, the overflow in pixels and roughly how many characters to cut.
 * `GET /renders/<id>.png` fetches an earlier render.
-* `POST /render/video` with the same body, for a motion template, returns `{id, url}` once the MP4 is made (a minute or so). The file is at `/public/renders/<id>.mp4`.
+* `POST /render/video` with the same body (plus an optional `size`), for a motion template, returns `{id, url}` once the MP4 is made (a minute or so). The file is at `/public/renders/<id>.mp4`.
 * `GET /templates`, `GET /templates/<name>` (HTML, fields and sample text), `PUT /templates/<name>` with `{html, note}` saves a new version, `GET /templates/<name>/versions`, `POST /templates/<name>/rollback/<version>`.
 * `GET /health` for the container healthcheck.
 
@@ -90,6 +90,8 @@ To make a new template, copy one and keep `class="post"` on the 1080 by 1080 box
 
 ### Motion templates
 The four `motion-` templates (blueprint, glow, isometric, whiteboard) are upright 1080 by 1920 clips, silent, 12 seconds at 30 frames a second. They use the same text fields, so Write with Claude works on them as usual. A motion template marks `.post` with `data-size="1080x1920"` and `data-seconds="12"`, and animates with plain CSS animations that end (no endless loops). The layout check and the PNG use the last frame. The video is made by pausing the page, stepping every animation one frame at a time, taking a screenshot of each and piping them to ffmpeg, so a slow server makes a slow render but never a jerky clip. Buffer's API does not mention video, so download the MP4 and post it by hand.
+
+Each motion template also comes in portrait 1080 by 1350 and square 1080 by 1080: pick a Size on the Social page, or send `"size": "1080x1080"` to `/render`, `/render/video` or `/copy`. A template lists its sizes in `data-sizes` on `.post`, and its CSS lays each one out with `.post[data-size="..."]` rules (the scene shrinks with `zoom`, the text gets a little smaller).
 
 The logo is `assets/logo.png`. Replace that file (same name) and every template picks it up. An SVG version would stay sharper if you have one.
 
