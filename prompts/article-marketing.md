@@ -26,6 +26,7 @@ Structure, matching the marketing guides already on redcherryit.com/guides/marke
 
 Rules:
 * Use only facts in the sources. Where a point needs a fact the sources do not give, leave it out. Do not invent prices, figures, clients or quotes.
+* Link the source where you use a fact from it: put a Markdown link on a few natural words in that sentence, such as [the ICO's guidance](https://ico.org.uk/...). Only use links given in the sources, link each page once, and use no more than five links in the article. Never write "click here" or show a bare address.
 * If you must keep a claim that needs checking, mark it [SOURCE NEEDED] so David can fix it before approval.
 * Plain, practical and honest. Explain any jargon in plain words.
 * Keep it between 450 and 750 words, like the guides already on the site.
