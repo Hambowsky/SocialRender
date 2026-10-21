@@ -124,7 +124,7 @@ test('a campaign finds businesses with no website or a dead one, once each', asy
   assert.equal(jones.email, 'info@jonesheating.co.uk');
   assert.equal(jones.phone, '0114 496 0123');
   assert.equal(jones.source, 'yell.com');
-  assert.equal(leads.find((l: any) => l.company_name === 'Dead Site Plumbers').lead_reason, 'Website listed but unreachable');
+  assert.match(leads.find((l: any) => l.company_name === 'Dead Site Plumbers').lead_reason, /^Website listed but unreachable\. /);
   assert.equal(done.last_run_summary.added, 3);
   assert.deepEqual([done.last_run_summary.google_searches, done.last_run_summary.google_cost_gbp, done.last_run_summary.firecrawl_searches, done.last_run_summary.firecrawl_credits], [1, 0, 8, 16]);
 
@@ -177,7 +177,7 @@ test('analysing a lead adds its Business Profile and Claude\'s priority, note an
   const c = (await app.inject({ method: 'GET', url: `/campaigns/${smith.campaign_id}`, headers })).json();
   assert.equal(c.analysed, 3);
   const dead = (await app.inject({ method: 'GET', url: '/leads?q=Dead', headers })).json()[0];
-  assert.match((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors.join(), /^Screenshot: /);
+  assert.match((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors.join(), /^Screenshot: .*Website check: /);
   assert.equal((await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse`, headers })).statusCode, 400, 'nothing left to analyse');
 });
 

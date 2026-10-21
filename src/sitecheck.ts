@@ -22,9 +22,12 @@ async function load(url: string) {
   try {
     const { url: final, res } = await fetchPage(url);
     const html = (await res.text()).slice(0, 2_000_000);
-    return { ok: res.ok, status: res.status, url: final.href, html };
-  } catch { return null; }
+    return { ok: res.ok, status: res.status, url: final.href, html, error: '' };
+  } catch (err) { return { ok: false, status: 0, url, html: '', error: (err as Error).message.replace(/^Could not load that page: /, '') }; }
 }
+// Why a page would not load, in words David can act on.
+const why = (msg: string) => /timeout|aborted/i.test(msg) ? 'It took over 15 seconds to answer'
+  : /could not find|ENOTFOUND/i.test(msg) ? 'Its address does not exist' : /cert|ssl|tls/i.test(msg) ? 'Its security certificate is broken' : `Error: ${msg}`;
 
 // Cloudflare hides emails as hex, XORed with the first byte.
 const cfDecode = (hex: string) => { const k = parseInt(hex.slice(0, 2), 16); let out = '';
@@ -94,12 +97,12 @@ export function analyse(html: string, url: string, year = new Date().getFullYear
 
 export async function checkSite(raw: string): Promise<SiteCheck> {
   const bare = raw.replace(/^https?:\/\//i, '').replace(/\/$/, '');
-  let page = await load(`https://${bare}`);
-  if (!page?.ok) page = await load(`http://${bare}`);
-  if (!page) return { reachable: false, url: raw, issues: {}, seo: {}, email: null, social: {} };
+  const secure = await load(`https://${bare}`);
+  const page = secure.ok ? secure : await load(`http://${bare}`);
+  if (page.error) return { reachable: false, url: raw, issues: {}, seo: {}, email: null, social: {}, note: why(secure.error || page.error) };
   // A site behind bot protection is up, but its content cannot be judged from here.
   if (isChallenge(page.html) || page.status === 403) return { reachable: true, url: page.url, issues: {}, seo: {}, email: null, social: {}, note: 'Site blocks automatic checks' };
-  if (!page.ok) return { reachable: false, url: page.url, issues: {}, seo: {}, email: null, social: {} };
+  if (!page.ok) return { reachable: false, url: page.url, issues: {}, seo: {}, email: null, social: {}, note: `It answered with error ${page.status}` };
 
   const found = analyse(page.html, page.url);
   if (!found.email) {
