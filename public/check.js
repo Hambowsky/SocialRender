@@ -7,9 +7,18 @@ window.layoutErrors = async function () {
   const problems = [...(window.fillProblems || [])];
   const postEl = document.querySelector('.post');
   if (!postEl) return [{ field: null, message: 'Template has no .post element' }];
+  // Motion templates animate in, so measure the last frame, then put the animation back where it was.
+  const anims = document.getAnimations().filter(a => isFinite(a.effect.getComputedTiming().endTime)).map(a => [a, a.currentTime, a.playState]);
+  for (const [a] of anims) { a.pause(); a.currentTime = a.effect.getComputedTiming().endTime; }
+  try { return measure(postEl, problems, GAP); }
+  finally { for (const [a, t, state] of anims) { a.currentTime = t; if (state === 'running') a.play(); } }
+};
+
+function measure(postEl, problems, GAP) {
   const post = postEl.getBoundingClientRect();
-  if (Math.round(post.width) !== 1080 || Math.round(post.height) !== 1080)
-    problems.push({ field: null, message: `.post must be 1080 by 1080, it is ${Math.round(post.width)} by ${Math.round(post.height)}` });
+  const [w, h] = (postEl.dataset.size || '1080x1080').split('x').map(Number);
+  if (Math.round(post.width) !== w || Math.round(post.height) !== h)
+    problems.push({ field: null, message: `.post must be ${w} by ${h}, it is ${Math.round(post.width)} by ${Math.round(post.height)}` });
   // Nothing has a size to measure, so every block would look like it overlaps every other one.
   if (!post.width || !post.height) return problems;
 
@@ -58,4 +67,4 @@ window.layoutErrors = async function () {
     report(culprit, axis === 'y' ? y : x, axis, `${y <= x ? 'overlaps' : 'runs into'} ${name(other)}`);
   }
   return problems;
-};
+}

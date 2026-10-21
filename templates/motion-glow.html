@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Motion: glowing diagram</title>
+<script type="application/json" id="sample">{"headline": "Every channel should lead back to your website", "highlight_word": "website", "subtitle": "Search, social and email all work harder when they point people to one fast, clear site.", "tag": "Marketing Guide", "footer_left": "Joined up marketing", "footer_right": "redcherryit.com"}</script>
+<style>
+  @font-face { font-family: "Archivo"; font-weight: 400; src: url(/fonts/archivo-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 500; src: url(/fonts/archivo-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 900; src: url(/fonts/archivo-latin-900-normal.woff2) format("woff2"); }
+  /* --glow is the brand red lifted so it reads on a dark background */
+  :root { --red: #b5333f; --glow: #e44b58; --ink: #1a1a1a; --logo-grey: #a89c9c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #e9e9e9; }
+  .post {
+    width: 1080px; height: 1920px; position: relative; overflow: hidden; display: flex; flex-direction: column;
+    padding: 0 88px; color: #fff; font-family: "Archivo", "Arial Black", Arial, sans-serif;
+    background: radial-gradient(900px 700px at 50% 520px, #3a1219 0%, rgba(58, 18, 25, 0) 70%),
+                radial-gradient(#ffffff14 1.5px, transparent 1.5px) 0 0 / 40px 40px, #121012;
+  }
+
+  .logo { position: absolute; left: 88px; top: 92px; background: #fff; border-radius: 999px; padding: 20px 30px; line-height: 0; }
+  .logo img { width: 300px; height: auto; }
+  .tag { position: absolute; right: 88px; top: 124px; font-weight: 500; font-size: 24px; letter-spacing: 5px; line-height: 1;
+         color: var(--logo-grey); text-transform: uppercase; white-space: nowrap; }
+  .tag::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--glow);
+                 margin-right: 14px; vertical-align: 2px; box-shadow: 0 0 14px var(--glow); }
+
+  /* the diagram: an SVG for lines and nodes, HTML dots that travel the same paths */
+  .scene { position: relative; flex: none; width: 1080px; height: 860px; margin: 230px -88px 0; }
+  .scene svg { position: absolute; inset: 0; overflow: visible; }
+  .trail { fill: none; stroke: var(--glow); stroke-width: 4; stroke-linecap: round; opacity: .55;
+           stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.1s ease-out forwards; }
+  .node { opacity: 0; transform-box: fill-box; transform-origin: center; animation: pop .6s cubic-bezier(.3, 1.6, .5, 1) forwards; }
+  .ring { fill: #1d1316; stroke: var(--glow); stroke-width: 4; filter: drop-shadow(0 0 18px #e44b58aa); }
+  .icon { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
+  .label { fill: #d8d0d0; font: 500 26px Archivo, Arial, sans-serif; letter-spacing: 3px; text-anchor: middle; text-transform: uppercase; }
+  .dot { position: absolute; left: 0; top: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: #fff;
+         box-shadow: 0 0 10px #fff, 0 0 26px var(--glow), 0 0 44px var(--glow); opacity: 0;
+         offset-rotate: 0deg; animation: travel 2.2s ease-in-out 4; }
+  .card { position: absolute; left: 640px; top: 660px; width: 340px; padding: 26px 30px 22px; border-radius: 22px;
+          background: #1d1517e6; border: 2px solid #e44b5866; box-shadow: 0 0 40px #e44b5833; opacity: 0;
+          animation: rise .7s ease-out 3s forwards; }
+  .card b { display: block; font-weight: 500; font-size: 22px; letter-spacing: 4px; color: var(--logo-grey); text-transform: uppercase; }
+  .card svg { position: static; display: block; margin-top: 14px; width: 280px; height: 90px; }
+  .spark { fill: none; stroke: var(--glow); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round;
+           stroke-dasharray: 1; stroke-dashoffset: 1; animation: draw 1.4s ease-out 3.5s forwards; filter: drop-shadow(0 0 8px var(--glow)); }
+
+  .bar { flex: none; width: 180px; height: 6px; margin-top: 40px; background: var(--glow); box-shadow: 0 0 16px var(--glow);
+         transform-origin: left; transform: scaleX(0); animation: grow .6s ease-out 4.6s forwards; }
+  h1 { margin-top: 34px; font-weight: 900; font-size: 98px; line-height: 1.04; letter-spacing: -3px;
+       opacity: 0; animation: rise .8s ease-out 4.9s forwards; }
+  h1 .hl { background: linear-gradient(90deg, var(--red), #ff7a85); -webkit-background-clip: text; background-clip: text; color: transparent;
+           filter: drop-shadow(0 0 18px #e44b5866); }
+  .sub { margin-top: 30px; font-weight: 400; font-size: 40px; line-height: 1.4; color: #cfc6c6;
+         opacity: 0; animation: rise .8s ease-out 5.8s forwards; }
+
+  .rule { position: absolute; left: 88px; right: 88px; top: 1760px; height: 2px; background: #ffffff55; }
+  .foot-l { position: absolute; left: 88px; top: 1806px; font-weight: 900; font-size: 30px; white-space: nowrap; }
+  .foot-r { position: absolute; right: 88px; top: 1806px; font-weight: 500; font-size: 30px; color: var(--glow); white-space: nowrap; }
+  .logo, .tag, .rule, .foot-l, .foot-r { opacity: 0; animation: fade .8s ease-out .2s forwards; }
+  .rule, .foot-l, .foot-r { animation-delay: 6.6s; }
+
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  @keyframes pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
+  @keyframes rise { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+  @keyframes fade { to { opacity: 1; } }
+  @keyframes grow { to { transform: scaleX(1); } }
+  @keyframes travel { 0% { offset-distance: 0%; opacity: 0; } 15%, 85% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+</style>
+</head>
+<body>
+  <div class="post" data-size="1080x1920" data-seconds="12">
+    <div class="logo"><img src="/assets/logo.png" alt="Red Cherry IT"></div>
+    <div class="tag" data-field="tag">{{tag}}</div>
+
+    <div class="scene">
+      <svg viewBox="0 0 1080 860">
+        <path class="trail" pathLength="1" style="animation-delay:1.4s" d="M220 210 C 330 210, 420 300, 470 380"/>
+        <path class="trail" pathLength="1" style="animation-delay:1.7s" d="M860 210 C 750 210, 660 300, 610 380"/>
+        <path class="trail" pathLength="1" style="animation-delay:2s" d="M220 650 C 330 650, 420 560, 470 480"/>
+
+        <g class="node" style="animation-delay:.6s">
+          <circle class="ring" cx="540" cy="430" r="118"/>
+          <rect class="icon" x="478" y="384" width="124" height="82" rx="8"/><path class="icon" d="M520 494 h40 M540 466 v28"/>
+        </g>
+        <text class="label node" x="540" y="606" style="animation-delay:.9s">Your website</text>
+
+        <g class="node" style="animation-delay:1s">
+          <circle class="ring" cx="220" cy="210" r="80"/>
+          <circle class="icon" cx="212" cy="202" r="28"/><path class="icon" d="M232 222 l22 22"/>
+        </g>
+        <text class="label node" x="220" y="338" style="animation-delay:1.1s">Search</text>
+
+        <g class="node" style="animation-delay:1.2s">
+          <circle class="ring" cx="860" cy="210" r="80"/>
+          <path class="icon" d="M822 186 h76 a10 10 0 0 1 10 10 v34 a10 10 0 0 1 -10 10 h-46 l-18 18 v-18 h-12 a10 10 0 0 1 -10 -10 v-34 a10 10 0 0 1 10 -10 z"/>
+        </g>
+        <text class="label node" x="860" y="338" style="animation-delay:1.3s">Social</text>
+
+        <g class="node" style="animation-delay:1.4s">
+          <circle class="ring" cx="220" cy="650" r="80"/>
+          <rect class="icon" x="182" y="626" width="76" height="50" rx="6"/><path class="icon" d="M184 630 l36 26 l36 -26"/>
+        </g>
+        <text class="label node" x="220" y="778" style="animation-delay:1.5s">Email</text>
+      </svg>
+      <i class="dot" style="offset-path: path('M220 210 C 330 210, 420 300, 470 380'); animation-delay:2.6s"></i>
+      <i class="dot" style="offset-path: path('M860 210 C 750 210, 660 300, 610 380'); animation-delay:3.1s"></i>
+      <i class="dot" style="offset-path: path('M220 650 C 330 650, 420 560, 470 480'); animation-delay:3.6s"></i>
+      <div class="card">
+        <b>Enquiries</b>
+        <svg viewBox="0 0 280 90"><path class="spark" pathLength="1" d="M6 80 L50 66 L92 72 L134 48 L176 54 L218 26 L272 10"/></svg>
+      </div>
+    </div>
+
+    <div class="bar"></div>
+    <h1 data-field="headline">{{headline}}</h1>
+    <p class="sub" data-field="subtitle">{{subtitle}}</p>
+
+    <div class="rule"></div>
+    <div class="foot-l" data-field="footer_left">{{footer_left}}</div>
+    <div class="foot-r" data-field="footer_right">{{footer_right}}</div>
+  </div>
+</body>
+</html>

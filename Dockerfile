@@ -1,6 +1,9 @@
 # Official Playwright image: Chromium and its system libraries already installed, Node 22.
 FROM mcr.microsoft.com/playwright:v1.56.1-noble
 
+# ffmpeg turns motion template frames into MP4 clips.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 ENV NODE_ENV=production DATA_DIR=/data HOST=0.0.0.0 PORT=3000
 
