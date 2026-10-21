@@ -29,6 +29,11 @@ const fake = http.createServer((req, res) => {
         { id: 'p3', displayName: { text: 'Closed Plumbing' }, businessStatus: 'CLOSED_PERMANENTLY' },
       ] }));
     }
+    if (req.url === '/v1/places:autocomplete') {
+      calls.places++;
+      assert.deepEqual(JSON.parse(body).includedRegionCodes, ['gb']);
+      return res.end(JSON.stringify({ suggestions: [{ placePrediction: { structuredFormat: { mainText: { text: 'Newcastle upon Tyne' }, secondaryText: { text: 'UK' } } } }, { queryPrediction: {} }] }));
+    }
     if (req.url === '/v2/search') {
       calls.firecrawl++;
       const { query } = JSON.parse(body);
@@ -74,6 +79,15 @@ test('the HTML checks find old, insecure and unfriendly sites and their contact 
   assert.equal(findEmail('logo@2x.png and test@example.com then hi@real.co.uk'), 'hi@real.co.uk');
 });
 
+test('town suggestions come from Google without the comma, and are cached', async () => {
+  const get = async (q: string) => (await app.inject({ method: 'GET', url: `/campaigns/towns?q=${q}`, headers })).json();
+  assert.deepEqual(await get('Newc'), [{ name: 'Newcastle upon Tyne', area: 'UK' }]);
+  const n = calls.places;
+  assert.deepEqual(await get('newc'), [{ name: 'Newcastle upon Tyne', area: 'UK' }]);
+  assert.equal(calls.places, n, 'second ask comes from the cache');
+  assert.deepEqual(await get('N'), [], 'too short to ask');
+});
+
 test('a campaign finds businesses with no website or a dead one, once each', async () => {
   const bad = await app.inject({ method: 'POST', url: '/campaigns', headers, payload: { name: 'x', industries: 'a,b,c,d,e,f', towns: '1,2,3,4,5', lead_type: 'both', max_leads: 10, sources: ['places'] } });
   assert.equal(bad.statusCode, 400, 'too many searches in one campaign');
@@ -93,6 +107,7 @@ test('a campaign finds businesses with no website or a dead one, once each', asy
 
   // Running again finds the same businesses but adds none, and the searches come from the cache at no cost.
   const before = { ...calls };
+
   const again = await runToEnd(c.id);
   assert.equal(again.last_run_summary.added, 0);
   assert.deepEqual(calls, before);

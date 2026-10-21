@@ -91,6 +91,7 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 ## Sales
 A campaign is industries, towns, what you are looking for (no website, an outdated one, or either), the most leads per run and where to search. Run finds businesses on Google Maps and in UK directories, checks each website it finds, and keeps the ones that fit as leads. A run works in the background, one at a time, and the Campaigns page shows its progress.
 
+* The industries box suggests common UK business types as you type, and the towns box suggests real UK towns and cities from Google (`GET /campaigns/towns?q=`, cached a day, at most 5,000 a month, inside Google's 10,000 free). Picking one adds it to the list.
 * A website is outdated when it has no SSL, no mobile viewport, or a copyright year two or more years old. A site that does not load counts as no website. SEO gaps (title, description, headings, alt text, canonical, structured data, social tags) are listed on the lead but do not decide it. Sites behind bot protection are kept with a note.
 * The same business is never added twice, across all campaigns: name and town make the key. Running a campaign again only adds new businesses, and its searches come from a one day cache at no cost.
 * Deleting a campaign deletes its leads that are still New. Leads you have worked on stay.

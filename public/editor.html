@@ -172,6 +172,11 @@
   .activity { display: grid; gap: 8px; font-size: 13px; max-height: 220px; overflow-y: auto; }
   .activity div { padding: 8px 10px; border-radius: 10px; background: var(--field); }
   #leadDialog { width: min(720px, 94vw); }
+  .suggest { position: relative; }
+  .suggest ul { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); max-height: 260px; overflow-y: auto; }
+  .suggest li { padding: 8px 10px; border-radius: 7px; font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer; }
+  .suggest li small { color: var(--muted); margin-left: 6px; }
+  .suggest li.on, .suggest li:hover { background: var(--red-soft); }
 </style>
 </head>
 <body>
@@ -384,8 +389,8 @@
       <p class="muted">Every industry is searched in every town. Businesses already in your leads are skipped, so running a campaign again only adds new ones.</p>
       <div class="fields">
         <label>Name <input id="cName" maxlength="120" placeholder="Trades in Sheffield"></label>
-        <label>Industries, separated by commas <input id="cIndustries" placeholder="plumber, electrician, roofer"></label>
-        <label>Towns, separated by commas <input id="cTowns" placeholder="Sheffield, Rotherham"></label>
+        <label>Industries, separated by commas <span class="suggest"><input id="cIndustries" placeholder="Plumbers, Electricians, Roofers" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"></span></label>
+        <label>Towns, separated by commas <span class="suggest"><input id="cTowns" placeholder="Sheffield, Rotherham" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"></span></label>
         <div class="cols two">
           <label>Looking for <select id="cType">
             <option value="no_website">No website</option>
@@ -529,6 +534,64 @@
   $('lStatus').innerHTML += Object.entries(STATUSES).map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
   let campList = [], editing = null, poll = null;
 
+  // Suggestions as you type, for the last name in a comma separated box. Picking one fills it in and adds a comma for the next.
+  function suggest(input, find) {
+    const list = document.createElement('ul');
+    list.setAttribute('role', 'listbox');
+    list.hidden = true;
+    input.after(list);
+    let items = [], at = -1, timer, asked = 0;
+    const close = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); at = -1; };
+    const draw = () => {
+      list.innerHTML = items.map((it, i) => `<li role="option" data-i="${i}" class="${i === at ? 'on' : ''}">${esc(it.name)}${it.area ? `<small>${esc(it.area)}</small>` : ''}</li>`).join('');
+      list.hidden = !items.length;
+      input.setAttribute('aria-expanded', String(!!items.length));
+    };
+    const pick = it => {
+      const done = input.value.split(',').slice(0, -1).map(x => x.trim()).filter(Boolean);
+      input.value = [...done, it.name].join(', ') + ', ';
+      close();
+      input.focus();
+    };
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      const q = input.value.split(',').pop().trim();
+      if (q.length < 2) return close();
+      const ask = ++asked;
+      timer = setTimeout(async () => {
+        const found = await find(q).catch(() => []);
+        if (ask !== asked) return; // a newer keystroke won
+        const chosen = input.value.toLowerCase().split(',').map(x => x.trim());
+        items = found.filter(it => !chosen.includes(it.name.toLowerCase())).slice(0, 8);
+        at = -1;
+        draw();
+      }, 200);
+    });
+    input.addEventListener('keydown', e => {
+      if (list.hidden) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); at = (at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; draw(); }
+      else if (e.key === 'Enter' && at >= 0) { e.preventDefault(); pick(items[at]); }
+      else if (e.key === 'Escape') close();
+    });
+    list.addEventListener('mousedown', e => { const li = e.target.closest('li'); if (li) { e.preventDefault(); pick(items[li.dataset.i]); } });
+    input.addEventListener('blur', close);
+  }
+  // Common UK local business types. There is no Google list for this, so it is a plain list filtered as you type.
+  const INDUSTRIES = ['Plumbers', 'Electricians', 'Roofers', 'Builders', 'Painters and Decorators', 'Carpenters and Joiners', 'Plasterers',
+    'Bricklayers', 'Tilers', 'Locksmiths', 'Glaziers', 'Handyman Services', 'Landscape Gardeners', 'Tree Surgeons', 'Fencing Contractors',
+    'Driveway and Paving Contractors', 'Damp Proofing Specialists', 'Kitchen Fitters', 'Bathroom Fitters', 'Loft Conversion Specialists',
+    'Extension Builders', 'Scaffolding Companies', 'Skip Hire', 'Waste Removal', 'Removal Companies', 'Man and Van', 'Cleaning Services',
+    'Window Cleaners', 'Carpet Cleaners', 'Pest Control', 'Car Mechanics', 'Garages', 'MOT Centres', 'Car Valeting', 'Taxi Firms',
+    'Driving Instructors', 'Hairdressers', 'Barbers', 'Beauty Salons', 'Nail Salons', 'Tanning Salons', 'Tattoo Studios', 'Massage Therapists',
+    'Personal Trainers', 'Gyms', 'Dentists', 'Opticians', 'Physiotherapists', 'Chiropractors', 'Vets', 'Dog Groomers', 'Cafes',
+    'Restaurants', 'Takeaways', 'Bakeries', 'Caterers', 'Florists', 'Photographers', 'Wedding Planners', 'Estate Agents', 'Letting Agents',
+    'Solicitors', 'Accountants', 'Insurance Brokers', 'Financial Advisers', 'IT Support', 'Print Shops', 'Sign Makers',
+    'Recruitment Agencies', 'Childminders', 'Nurseries', 'Tutors', 'Music Teachers', 'Heating Engineers', 'Gas Engineers', 'Boiler Repairs',
+    'Plumbing and Heating', 'Joiners', 'Garden Maintenance', 'Dog Walkers', 'Funeral Directors', 'Mortgage Advisers', 'Care Homes',
+    'Pubs', 'Hotels', 'Bed and Breakfasts', 'Wedding Venues', 'Event Hire', 'Mobile Hairdressers', 'Aesthetics Clinics', 'Podiatrists'];
+  suggest($('cIndustries'), async q => INDUSTRIES.filter(n => n.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => b.toLowerCase().startsWith(q.toLowerCase()) - a.toLowerCase().startsWith(q.toLowerCase())).map(name => ({ name })));
+  suggest($('cTowns'), async q => (await api(`/campaigns/towns?q=${encodeURIComponent(q)}`)).json());
   const campBody = () => ({ name: $('cName').value, industries: $('cIndustries').value, towns: $('cTowns').value, lead_type: $('cType').value,
     max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value) });
   function editCampaign(c) {
