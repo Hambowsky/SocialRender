@@ -2,8 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Fastify from 'fastify';
-import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
+import Fastify, { type FastifyReply } from 'fastify';
+import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
 import { closeBrowser, publicFile, render, renderPath, renderVideo } from './render.ts';
 import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, sizesOf, versions } from './templates.ts';
@@ -158,15 +158,33 @@ export function buildApp() {
       properties: { template: name, size, topic: text, url: { type: 'string', maxLength: 2000 }, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
   }, async req => prompts.writeCopy(req.body));
 
+  // Template work can keep Claude busy for minutes, longer than a proxy will hold a request open.
+  // These answer 202 with a job id at once; GET /jobs/<id> gives the result when it is ready.
+  const jobs = new Map<string, { done: boolean; result?: unknown; error?: { statusCode: number; message: string } }>();
+  const background = (reply: FastifyReply, work: () => Promise<unknown>) => {
+    const id = crypto.randomUUID();
+    const job: { done: boolean; result?: unknown; error?: { statusCode: number; message: string } } = { done: false };
+    jobs.set(id, job);
+    work().then(r => { job.result = r; }, (err: any) => { job.error = { statusCode: err.statusCode ?? 500, message: err.message }; })
+      .finally(() => { job.done = true; setTimeout(() => jobs.delete(id), 30 * 60_000).unref(); });
+    return reply.code(202).send({ job: id });
+  };
+  app.get<{ Params: { id: string } }>('/jobs/:id', async (req, reply) => {
+    const job = jobs.get(req.params.id) ?? fail(404, 'That job has finished and expired, or never existed');
+    if (!job.done) return { done: false };
+    if (job.error) return reply.code(job.error.statusCode).send({ error: job.error.message, message: job.error.message, statusCode: job.error.statusCode });
+    return { done: true, result: job.result };
+  });
+
   app.post<{ Body: { template: string; change: string; fields: Fields; size?: string } }>('/templates/tweak', {
     schema: { body: { type: 'object', required: ['template', 'change', 'fields'], additionalProperties: false,
       properties: { template: name, change: { type: 'string', minLength: 3, maxLength: 2000 }, fields, size } } },
-  }, async req => prompts.tweakTemplate(req.body));
+  }, async (req, reply) => background(reply, () => prompts.tweakTemplate(req.body)));
 
   app.post<{ Body: { description: string; base: string } }>('/templates/design', {
     schema: { body: { type: 'object', required: ['description', 'base'], additionalProperties: false,
       properties: { description: { type: 'string', minLength: 3, maxLength: 4000 }, base: name } } },
-  }, async req => prompts.designTemplate(req.body));
+  }, async (req, reply) => background(reply, () => prompts.designTemplate(req.body)));
 
   app.get('/prompts', async () => prompts.list());
   app.get<{ Params: { name: string } }>('/prompts/:name', { schema: { params: nameParams } }, async req => {
