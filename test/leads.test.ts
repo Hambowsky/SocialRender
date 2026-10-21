@@ -66,7 +66,7 @@ before(async () => {
   app = (await import('../src/server.ts')).buildApp();
   (await import('../src/copy.ts')).seed();
 });
-after(async () => { await app.close(); fake.close(); });
+after(async () => { await app.close(); fake.close(); await (await import('../src/render.ts')).closeBrowser(); });
 
 async function runToEnd(id: number) {
   assert.equal((await app.inject({ method: 'POST', url: `/campaigns/${id}/run`, headers })).statusCode, 202);
@@ -170,14 +170,14 @@ test('analysing a lead adds its Business Profile and Claude\'s priority, note an
   assert.match(prompt, /Website: none/);
   assert.equal((await app.inject({ method: 'GET', url: '/leads?priority=hot', headers })).json().length, 1);
 
-  // The rest of the campaign in the background. The dead site is not tested, since it does not load.
+  // The rest of the campaign in the background. The dead site is tried once more for a screenshot and email, and still does not load.
   const camp = (await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse`, headers })).json();
   assert.equal(camp.total, 2);
   for (let i = 0; i < 100 && (await app.inject({ method: 'GET', url: `/campaigns/${smith.campaign_id}`, headers })).json().analysis_progress; i++) await new Promise(r => setTimeout(r, 50));
   const c = (await app.inject({ method: 'GET', url: `/campaigns/${smith.campaign_id}`, headers })).json();
   assert.equal(c.analysed, 3);
   const dead = (await app.inject({ method: 'GET', url: '/leads?q=Dead', headers })).json()[0];
-  assert.deepEqual((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors, []);
+  assert.match((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors.join(), /^Screenshot: /);
   assert.equal((await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse`, headers })).statusCode, 400, 'nothing left to analyse');
 });
 
