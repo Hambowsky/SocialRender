@@ -14,6 +14,7 @@ import { startCleanup } from './cleanup.ts';
 import * as buffer from './buffer.ts';
 import * as posts from './posts.ts';
 import * as articles from './articles.ts';
+import * as leads from './leads.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -250,6 +251,31 @@ export function buildApp() {
       channels: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', required: ['id'], properties: { id: { type: 'string', maxLength: 100 }, name: { type: 'string', maxLength: 200 } } } },
     } } },
   }, async req => articles.social(req.params.id, req.body));
+
+  // Sales
+  const id = { type: 'object', properties: { id: { type: 'integer', minimum: 1 } } };
+  const campaignBody = { type: 'object', additionalProperties: false, required: ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], properties: {
+    name: { type: 'string', minLength: 1, maxLength: 120 }, industries: { type: 'string', minLength: 1, maxLength: 1000 }, towns: { type: 'string', minLength: 1, maxLength: 1000 },
+    lead_type: { enum: leads.LEAD_TYPES }, max_leads: { type: 'integer', minimum: 1, maximum: 100 },
+    sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } } } };
+  app.get('/campaigns', async () => leads.campaigns());
+  app.post<{ Body: leads.CampaignInput }>('/campaigns', { schema: { body: campaignBody } }, async (req, reply) => reply.code(201).send(leads.createCampaign(req.body)));
+  app.get<{ Params: { id: number } }>('/campaigns/:id', { schema: { params: id } }, async req => leads.campaign(req.params.id));
+  app.put<{ Params: { id: number }; Body: leads.CampaignInput }>('/campaigns/:id', { schema: { params: id, body: campaignBody } }, async req => leads.updateCampaign(req.params.id, req.body));
+  app.delete<{ Params: { id: number } }>('/campaigns/:id', { schema: { params: id } }, async req => leads.deleteCampaign(req.params.id));
+  app.post<{ Params: { id: number } }>('/campaigns/:id/run', { schema: { params: id } }, async (req, reply) => reply.code(202).send(leads.run(req.params.id)));
+
+  app.get<{ Querystring: { campaign?: number; status?: string; q?: string; has_email?: boolean } }>('/leads', { schema: { querystring: { type: 'object', properties: {
+    campaign: { type: 'integer' }, status: { enum: leads.STATUSES }, q: { type: 'string', maxLength: 100 }, has_email: { type: 'boolean' } } } } },
+  async req => leads.leads({ ...req.query, search: req.query.q }));
+  app.get<{ Params: { id: number } }>('/leads/:id', { schema: { params: id } }, async req => leads.lead(req.params.id));
+  const str = (max: number) => ({ type: 'string', maxLength: max });
+  app.put<{ Params: { id: number }; Body: leads.LeadChange }>('/leads/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false, properties: {
+    company_name: { type: 'string', minLength: 1, maxLength: 200 }, contact_name: str(200), phone: str(40), email: str(200), website_url: str(500),
+    status: { enum: leads.STATUSES }, follow_up_date: { anyOf: [{ type: 'string', format: 'date' }, { type: 'null' }] } } } } },
+  async req => leads.updateLead(req.params.id, req.body));
+  app.post<{ Params: { id: number }; Body: { text: string } }>('/leads/:id/notes', { schema: { params: id, body: { type: 'object', required: ['text'],
+    additionalProperties: false, properties: { text: { type: 'string', minLength: 1, maxLength: 5000 } } } } }, async req => leads.addNote(req.params.id, req.body.text));
 
   app.get('/usage', async () => ({
     month_spend_gbp: monthSpendGbp(),

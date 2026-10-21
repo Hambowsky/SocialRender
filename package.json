@@ -7,7 +7,7 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.ts",
-    "test": "node --disable-warning=ExperimentalWarning --test test/render.test.ts test/copy.test.ts test/buffer.test.ts test/articles.test.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test test/render.test.ts test/copy.test.ts test/buffer.test.ts test/articles.test.ts test/leads.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
