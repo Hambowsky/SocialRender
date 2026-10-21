@@ -18,6 +18,7 @@ import * as articles from './articles.ts';
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
 const fields = { type: 'object', maxProperties: 20, additionalProperties: { type: 'string', maxLength: MAX_FIELD_CHARS } };
+const oneOff = { type: 'string', maxLength: 60000 };
 const size = { type: 'string', pattern: '^\\d{3,4}x\\d{3,4}$' };
 const nameParams = { type: 'object', properties: { name } };
 
@@ -44,7 +45,7 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') ? 'claude' : 'other';
+    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -91,13 +92,14 @@ export function buildApp() {
     return reply.type('text/html; charset=utf-8').send(fill(html, req.body.fields, req.body.size).html);
   });
 
-  app.post<{ Body: { template: string; fields: Fields; size?: string }; Querystring: { format?: string } }>('/render', {
+  // `html` (optional) is a one off version of the template for this post, from /templates/tweak.
+  app.post<{ Body: { template: string; fields: Fields; size?: string; html?: string }; Querystring: { format?: string } }>('/render', {
     schema: {
-      body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, size } },
+      body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, size, html: oneOff } },
       querystring: { type: 'object', properties: { format: { enum: ['png', 'json'] } } },
     },
   }, async (req, reply) => {
-    const result = await render(req.body.template, req.body.fields, req.body.size);
+    const result = await render(req.body.template, req.body.fields, req.body.size, req.body.html);
     if (!result.ok) return reply.code(422).send({ error: 'The text does not fit this template', problems: result.problems });
     const [width, height] = (req.body.size ?? current(req.body.template).body.match(/data-size="(\d+x\d+)"/)?.[1] ?? '1080x1080').split('x').map(Number);
     if (req.query.format === 'json') return { id: result.id, url: `/renders/${result.id}.png`, width, height };
@@ -107,10 +109,10 @@ export function buildApp() {
   });
 
   // A motion template as an MP4 clip. Slow (it plays every frame), so callers wait on it.
-  app.post<{ Body: { template: string; fields: Fields; size?: string } }>('/render/video', {
-    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, size } } },
+  app.post<{ Body: { template: string; fields: Fields; size?: string; html?: string } }>('/render/video', {
+    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, size, html: oneOff } } },
   }, async (req, reply) => {
-    const result = await renderVideo(req.body.template, req.body.fields, req.body.size);
+    const result = await renderVideo(req.body.template, req.body.fields, req.body.size, req.body.html);
     if (!result.ok) return reply.code(422).send({ error: 'The text does not fit this template', problems: result.problems });
     return { id: result.id, url: `/public/renders/${result.id}.mp4` };
   });
@@ -144,6 +146,11 @@ export function buildApp() {
     schema: { body: { type: 'object', required: ['template'], additionalProperties: false,
       properties: { template: name, size, topic: text, url: { type: 'string', maxLength: 2000 }, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
   }, async req => prompts.writeCopy(req.body));
+
+  app.post<{ Body: { template: string; change: string; fields: Fields; size?: string } }>('/templates/tweak', {
+    schema: { body: { type: 'object', required: ['template', 'change', 'fields'], additionalProperties: false,
+      properties: { template: name, change: { type: 'string', minLength: 3, maxLength: 2000 }, fields, size } } },
+  }, async req => prompts.tweakTemplate(req.body));
 
   app.post<{ Body: { description: string; base: string } }>('/templates/design', {
     schema: { body: { type: 'object', required: ['description', 'base'], additionalProperties: false,

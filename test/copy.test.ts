@@ -22,7 +22,10 @@ const fake = http.createServer((req, res) => {
     const prompt = JSON.stringify(r.messages);
     const design = prompt.includes('Design a new 1080');
     const good = fs.readFileSync(path.join(import.meta.dirname, '..', 'templates', 'tip-card.html'), 'utf8').replace('<title>Tip card', '<title>Event card');
-    const out = design
+    const snow = fs.readFileSync(path.join(import.meta.dirname, '..', 'templates', 'social-post.html'), 'utf8')
+      .replace('<div class="rule">', '<div data-decor aria-hidden="true" style="position:absolute;inset:0;pointer-events:none;background:radial-gradient(#fff 3px,transparent 4px) 0 0/60px 60px"></div>\n    <div class="rule">');
+    const out = prompt.includes('for one post only') ? { html: snow }
+      : design
       ? (r.messages.length === 1 ? { name: 'event-card', html: good.replace('</style>', '</style><link href="https://fonts.googleapis.com/x">') } : { name: 'event-card', html: good })
       : prompt.includes('Write the caption')
       ? { caption: 'Slow pages cost you enquiries. Get in touch for a fixed price quote.', hashtags: ['#WebDesign', '#SmallBusiness', '#SEO'] }
@@ -125,4 +128,20 @@ test('a page link is turned into plain text, and private addresses are refused',
     assert.equal(res.statusCode, 400, url);
   }
   assert.equal((await app.inject({ method: 'POST', url: '/copy', headers, payload: { template: 'social-post' } })).statusCode, 400);
+});
+
+test('a one off change makes a changed copy for one post and leaves the saved template alone', async () => {
+  const { sampleOf, current } = await import('../src/templates.ts');
+  const before = current('social-post').body;
+  const fields = sampleOf(before);
+  const res = await app.inject({ method: 'POST', url: '/templates/tweak', headers, payload: { template: 'social-post', change: 'Add snow', fields } });
+  assert.equal(res.statusCode, 200, res.body);
+  const t = res.json();
+  assert.equal(t.ok, true, res.body);
+  assert.match(t.html, /data-decor/, 'snow covering other blocks passes the layout check');
+  assert.equal(current('social-post').body, before, 'saved template unchanged');
+  const plain = await app.inject({ method: 'POST', url: '/render?format=json', headers, payload: { template: 'social-post', fields } });
+  const snowy = await app.inject({ method: 'POST', url: '/render?format=json', headers, payload: { template: 'social-post', fields, html: t.html } });
+  assert.equal(snowy.statusCode, 200, snowy.body);
+  assert.notEqual(snowy.json().id, plain.json().id);
 });

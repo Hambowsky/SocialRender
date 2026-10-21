@@ -191,6 +191,9 @@
       <label>Template <select id="template"></select></label>
       <label id="sizeWrap" hidden>Size <select id="sizePick"></select></label>
       <div id="fields" class="fields"></div>
+      <label>Change this post only <textarea id="tweak" rows="2" placeholder="Add gently falling snow for Christmas"></textarea></label>
+      <div class="row"><button type="button" class="plain" id="tweakGo" style="flex:1">Change it with Claude</button><button type="button" class="plain" id="tweakClear" hidden style="flex:1">Back to the normal template</button></div>
+      <div id="tweakOut"></div>
       <div class="row"><button style="flex:1">Render</button><button type="button" class="plain" id="download" disabled style="flex:1">Download PNG</button></div>
       <div class="row" id="videoRow" hidden><button type="button" id="makeVideo" style="flex:1">Make video</button><button type="button" class="plain" id="dlVideo" disabled style="flex:1">Download MP4</button></div>
       <div id="status" class="note" aria-live="polite"></div>
@@ -395,6 +398,7 @@
   let checkPending = false;
   function show() {
     const view = location.hash.slice(1) || 'social';
+    if (oneOff) refresh(); // the one off change shows on Social only, the saved template under Templates
     const ok = !!$('key').value;
     $('welcome').hidden = ok;
     for (const s of document.querySelectorAll('.view')) s.hidden = !ok || s.dataset.view !== view;
@@ -444,6 +448,7 @@
   }
 
   async function loadTemplate(keepValues = false) {
+    if (oneOff?.template !== $('template').value) clearOneOff();
     const t = await (await api('/templates/' + $('template').value)).json();
     const old = fieldValues();
     $('fields').innerHTML = t.fields.map(n => {
@@ -469,12 +474,13 @@
   }
 
   // The last render, reused for posting and downloading until the template or text changes.
-  let lastRender, lastVideo;
-  const renderKey = () => JSON.stringify([$('template').value, fieldValues(), savedHtml, sizeBody()]);
+  let lastRender, lastVideo, oneOff;
+  const oneOffBody = () => oneOff ? { html: oneOff.html } : {};
+  const renderKey = () => JSON.stringify([$('template').value, fieldValues(), savedHtml, sizeBody(), oneOff?.html]);
   const current = () => lastRender?.key === renderKey() ? lastRender : undefined;
   async function renderNow() {
     const key = renderKey();
-    const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody() }) })).json();
+    const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody(), ...oneOffBody() }) })).json();
     lastRender = { id: r.id, template: $('template').value, key };
     $('download').disabled = false;
     return lastRender;
@@ -487,7 +493,7 @@
     clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
-        const res = await api('/preview', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), html: $('html').value, ...sizeBody() }) });
+        const res = await api('/preview', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), html: oneOff && location.hash !== '#templates' ? oneOff.html : $('html').value, ...sizeBody() }) });
         $('preview').srcdoc = await res.text();
       } catch (e) { status(esc(e.message), 'bad'); }
     }, 250);
@@ -522,13 +528,33 @@
       status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
     }
   });
+  // A one off change to the template for this post only (snow for Christmas). Claude changes a copy of the
+  // template; the copy goes with this post's preview, render and video, and the saved template is untouched.
+  function clearOneOff() { oneOff = undefined; $('tweakClear').hidden = true; note('tweakOut', ''); }
+  $('tweakGo').addEventListener('click', async () => {
+    const change = $('tweak').value.trim();
+    if (change.length < 3) return note('tweakOut', 'Say what to change first.', 'bad');
+    $('tweakGo').disabled = true;
+    note('tweakOut', 'Claude is changing the design for this post...');
+    try {
+      const r = await (await api('/templates/tweak', { method: 'POST', body: JSON.stringify({ template: $('template').value, change, fields: fieldValues(), ...sizeBody() }) })).json();
+      if (!r.ok) return note('tweakOut', `That change did not fit, so nothing changed:<br>${problemList(r.problems)}<br>Cost £${r.cost_gbp.toFixed(4)}`, 'bad');
+      oneOff = { template: $('template').value, html: r.html };
+      $('tweakClear').hidden = false;
+      note('tweakOut', `Done. This post now has: ${esc(change)}. The saved template is unchanged. Cost £${r.cost_gbp.toFixed(4)}`, 'good');
+      refresh();
+    } catch (err) { note('tweakOut', esc(err.message), 'bad'); }
+    finally { $('tweakGo').disabled = false; }
+  });
+  $('tweakClear').addEventListener('click', () => { clearOneOff(); refresh(); });
+
   // Videos are downloaded and posted by hand for now, since Buffer's API does not say it takes video.
   $('makeVideo').addEventListener('click', async () => {
     const key = renderKey();
     $('makeVideo').disabled = true;
     status('Making the video. It plays every frame, so this takes a minute or so...');
     try {
-      const r = await (await api('/render/video', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody() }) })).json();
+      const r = await (await api('/render/video', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody(), ...oneOffBody() }) })).json();
       lastVideo = { id: r.id, template: $('template').value, key };
       $('dlVideo').disabled = lastVideo.key !== renderKey();
       status('Video ready. Download it and post it by hand.', 'good');
