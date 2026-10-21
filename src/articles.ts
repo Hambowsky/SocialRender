@@ -63,6 +63,27 @@ export async function research(category: string, input: { focus?: string; audien
   return { ideas, cost_gbp: r.cost_gbp };
 }
 
+const FACTS = {
+  type: 'object', additionalProperties: false, required: ['facts'],
+  properties: { facts: { type: 'array', items: { type: 'object', additionalProperties: false,
+    required: ['fact', 'source_title', 'url', 'date'], properties: { fact: str, source_title: str, url: str, date: str } } } },
+};
+
+// Facts for one topic, each with the page it came from, from Claude searching the web. The text goes
+// straight into the draft's sources, so a fact without a web link is dropped rather than passed on.
+export async function findSources(category: string, input: { topic: string; keyword?: string; audience?: string }) {
+  checkCategory(category);
+  const p = parsePrompt(currentPrompt('sources').body);
+  const vars = { category, section: sectionName(category), topic: input.topic, keyword: input.keyword ?? '', audience: input.audience || 'UK business owners' };
+  const r = await ask({ job: 'article:sources', model: p.model, effort: p.effort, maxTokens: p.maxTokens, system: systemPrompt(),
+    messages: [{ role: 'user', content: fillPromptVars(p.text, vars) }], schema: FACTS, webSearches: Math.min(Number(p.settings.web_searches || 6), 10) });
+  if (!Array.isArray(r.output?.facts)) fail(502, 'Claude did not return any sources. Try again');
+  const facts = r.output.facts.filter((f: any) => f?.fact && /^https?:\/\//.test(f.url));
+  if (!facts.length) fail(502, 'Claude could not find sources it could link to. Try a more specific topic');
+  const text = facts.map((f: any) => `* ${f.fact} (${f.source_title}${f.date ? `, ${f.date}` : ''}: ${f.url})`).join('\n');
+  return { facts, text, cost_gbp: r.cost_gbp };
+}
+
 // Every guide that is live, across all categories, for picking one to make a social post from.
 export async function live() {
   const all = await Promise.all(categories().map(c => inCategory(c.category)));

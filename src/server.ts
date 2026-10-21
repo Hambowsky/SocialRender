@@ -43,7 +43,7 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') ? 'claude' : 'other';
+    const group = p === '/render' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -188,6 +188,9 @@ export function buildApp() {
   app.post<{ Body: { category: string; focus?: string; audience?: string } }>('/articles/research', { schema: { body: { type: 'object', additionalProperties: false, required: ['category'],
     properties: { category: { type: 'string', maxLength: 100 }, focus: { type: 'string', maxLength: 1000 }, audience: { type: 'string', maxLength: 200 } } } } },
     async req => articles.research(req.body.category, req.body));
+  app.post<{ Body: { category: string; topic: string; keyword?: string; audience?: string } }>('/articles/sources', { schema: { body: { type: 'object', additionalProperties: false, required: ['category', 'topic'],
+    properties: { category: { type: 'string', maxLength: 100 }, topic: { type: 'string', minLength: 3, maxLength: 1000 }, keyword: { type: 'string', maxLength: 200 }, audience: { type: 'string', maxLength: 200 } } } } },
+    async req => articles.findSources(req.body.category, req.body));
   app.get<{ Querystring: { category: string } }>('/articles/in-category', { schema: { querystring: { type: 'object', required: ['category'], properties: { category: { type: 'string', maxLength: 100 } } } } },
     async req => articles.inCategory(req.query.category));
   app.post<{ Body: { category: string; slug: string } }>('/articles/import', { schema: { body: { type: 'object', additionalProperties: false, required: ['category', 'slug'],

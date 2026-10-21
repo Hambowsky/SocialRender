@@ -29,6 +29,13 @@ const serve = (handler: (body: any) => unknown) => http.createServer((req, res) 
 const researchCalls: any[] = [];
 const claude = serve(r => {
   const prompt = JSON.stringify(r.messages);
+  if (prompt.includes('Find sources for a Red Cherry IT guide')) {
+    researchCalls.push(r);
+    const facts = [{ fact: 'Most brochure sites take four to six weeks.', source_title: 'Timelines', url: 'https://example.co.uk/timelines', date: '2026' },
+      { fact: 'A made up figure with no page.', source_title: 'Nowhere', url: '', date: '' }];
+    return { id: 'msg', type: 'message', role: 'assistant', model: r.model, stop_reason: 'end_turn', stop_sequence: null, stop_details: null,
+      content: [{ type: 'text', text: JSON.stringify({ facts }) }], usage: { input_tokens: 4000, output_tokens: 500, server_tool_use: { web_search_requests: 3 } } };
+  }
   if (prompt.includes('Suggest article ideas')) {
     researchCalls.push(r);
     const base = { id: 'msg', type: 'message', role: 'assistant', model: r.model, stop_sequence: null, stop_details: null };
@@ -231,4 +238,13 @@ test('research suggests ideas from a web search, skips pages already there, and 
   assert.equal(rows.length, 2);
   assert.ok(Math.abs(rows.reduce((t, r) => t + r.cost_usd, 0) - tokensOnly - 0.03) < 1e-9, 'three searches at a cent each are counted');
   assert.equal((await call('POST', '/articles/research', { category: '/guides/nope/' })).statusCode, 400);
+});
+
+test('find sources keeps only facts with a link and writes them ready for the draft', async () => {
+  const res = await call('POST', '/articles/sources', { category: '/guides/learn/', topic: 'How long does a website take to build?' });
+  assert.equal(res.statusCode, 200, res.body);
+  const r = res.json();
+  assert.equal(r.facts.length, 1);
+  assert.equal(r.text, '* Most brochure sites take four to six weeks. (Timelines, 2026: https://example.co.uk/timelines)');
+  assert.equal(researchCalls.at(-1).tools[0].max_uses, 6);
 });

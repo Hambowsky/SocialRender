@@ -288,7 +288,8 @@
       </div>
       <div class="fields">
         <label>Sources: notes, facts, results and quotes. The article only uses what is here. <textarea id="aSources" rows="8"></textarea></label>
-        <div class="row"><button id="aDraft" type="button">Draft the article</button><div id="aDraftOut"></div></div>
+        <div class="row"><button id="aFind" type="button" class="plain">Find sources</button><button id="aDraft" type="button">Draft the article</button></div>
+        <div id="aDraftOut"></div>
       </div>
     </div>
   </div>
@@ -813,9 +814,24 @@
     $('aTopic').value = i.title;
     $('aKeyword').value = i.keyword;
     $('aAudience').value = i.audience;
-    $('aSources').value = `${i.notes}\n\nSources:\n${i.sources.map(s => `${s.title}: ${s.url}`).join('\n')}\n\nAdd your own experience, prices and examples here.`;
+    $('aSources').value = `${i.notes}\n\nSources:\n${i.sources.map(s => `${s.title}: ${s.url}`).join('\n')}`;
     $('newArticle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    findSources();
   });
+  // Claude searches the web for facts on the topic and adds them, with their links, to Sources.
+  async function findSources() {
+    if (!$('aTopic').value.trim()) return note('aDraftOut', 'Add a topic first', 'bad');
+    $('aFind').disabled = true;
+    note('aDraftOut', 'Finding sources on the web. This can take a minute or two...');
+    try {
+      const r = await (await api('/articles/sources', { method: 'POST', body: JSON.stringify({ category: $('aCategory').value, topic: $('aTopic').value, keyword: $('aKeyword').value, audience: $('aAudience').value }) })).json();
+      $('aSources').value = [$('aSources').value.trim(), `Found by Claude, check before you rely on them:\n${r.text}`, 'Add your own experience, prices and examples here.'].filter(Boolean).join('\n\n');
+      note('aDraftOut', `Added ${r.facts.length} facts with their links. Cost £${r.cost_gbp.toFixed(4)}. Add your own experience, then draft.`, 'good');
+    } catch (e) { note('aDraftOut', esc(e.message), 'bad'); }
+    $('aFind').disabled = false;
+    loadSpend();
+  }
+  $('aFind').addEventListener('click', findSources);
   $('aDraft').addEventListener('click', async () => {
     note('aDraftOut', 'Drafting. This can take a minute or two...');
     try {
