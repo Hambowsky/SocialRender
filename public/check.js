@@ -10,6 +10,8 @@ window.layoutErrors = async function () {
   const post = postEl.getBoundingClientRect();
   if (Math.round(post.width) !== 1080 || Math.round(post.height) !== 1080)
     problems.push({ field: null, message: `.post must be 1080 by 1080, it is ${Math.round(post.width)} by ${Math.round(post.height)}` });
+  // Nothing has a size to measure, so every block would look like it overlaps every other one.
+  if (!post.width || !post.height) return problems;
 
   const blocks = [...postEl.children].filter(el => getComputedStyle(el).display !== 'none' && el.tagName !== 'SCRIPT');
   const name = el => el.dataset.field || el.className || el.tagName.toLowerCase();
