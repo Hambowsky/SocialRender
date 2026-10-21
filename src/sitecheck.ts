@@ -26,7 +26,21 @@ async function load(url: string) {
   } catch { return null; }
 }
 
-export function findEmail(html: string) {
+// Cloudflare hides emails as hex, XORed with the first byte.
+const cfDecode = (hex: string) => { const k = parseInt(hex.slice(0, 2), 16); let out = '';
+  for (let i = 2; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ k); return out; };
+
+// Undoes the usual ways sites hide an address from bots: Cloudflare protection, &#64; style entities, %40, and "name [at] site [dot] com".
+function unhide(html: string) {
+  return html
+    .replace(/data-cfemail=["']([0-9a-f]+)["']|\/cdn-cgi\/l\/email-protection#([0-9a-f]+)/gi, (_, a, b) => ` ${cfDecode(a ?? b)} `)
+    .replace(/&#(x?)([0-9a-f]+);/gi, (m, x, n) => { const c = parseInt(n, x ? 16 : 10); return c < 128 ? String.fromCharCode(c) : m; })
+    .replace(/%40/g, '@')
+    .replace(/\s*[\[({]\s*at\s*[\])}]\s*/gi, '@').replace(/\s*[\[({]\s*dot\s*[\])}]\s*/gi, '.');
+}
+
+export function findEmail(raw: string) {
+  const html = unhide(raw);
   const mailto = html.match(/mailto:([^"'?&\s<>]+)/i)?.[1];
   if (mailto) {
     try { const e = decodeURIComponent(mailto).toLowerCase(); if (/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/.test(e)) return e; } catch { /* bad escape, try the text */ }
@@ -89,9 +103,14 @@ export async function checkSite(raw: string): Promise<SiteCheck> {
 
   const found = analyse(page.html, page.url);
   if (!found.email) {
-    const contact = links(page.html, page.url).find(l => new URL(l.href).host === new URL(page.url).host && /contact/i.test(l.href + ' ' + l.text));
-    const c = contact && await load(contact.href);
-    if (c?.ok) found.email = findEmail(c.html);
+    // The contact page linked from the home page, or the usual addresses if none is linked.
+    const host = new URL(page.url).host;
+    const linked = links(page.html, page.url).filter(l => new URL(l.href).host === host && /contact|get-in-touch|about/i.test(l.href + ' ' + l.text)).map(l => l.href);
+    const tries = [...new Set(linked.length ? linked : ['/contact', '/contact-us'].map(p => new URL(p, page.url).href))].slice(0, 3);
+    for (const href of tries) {
+      const c = await load(href);
+      if (c?.ok && (found.email = findEmail(c.html))) break;
+    }
   }
   return { reachable: true, url: page.url, ...found };
 }

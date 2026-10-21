@@ -91,6 +91,11 @@ test('the HTML checks find old, insecure and unfriendly sites and their contact 
   const good = analyse(`<head><title>A</title><meta name="viewport" content="width=device-width"></head><p>© 2025</p>`, 'https://a.example', 2026);
   assert.deepEqual(good.issues, {});
   assert.equal(findEmail('logo@2x.png and test@example.com then hi@real.co.uk'), 'hi@real.co.uk');
+  const cf = (e: string) => '42' + [...e].map(c => (c.charCodeAt(0) ^ 0x42).toString(16).padStart(2, '0')).join('');
+  assert.equal(findEmail(`<a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="${cf('jo@plumb.co.uk')}">[email&#160;protected]</a>`), 'jo@plumb.co.uk');
+  assert.equal(findEmail(`<a href="/cdn-cgi/l/email-protection#${cf('a@b.com')}">Email us</a>`), 'a@b.com');
+  assert.equal(findEmail('Email: sales&#64;roofs&#46;co&#46;uk'), 'sales@roofs.co.uk');
+  assert.equal(findEmail('office [at] smith-joinery [dot] co [dot] uk'), 'office@smith-joinery.co.uk');
 });
 
 test('town suggestions come from Google without the comma, and are cached', async () => {
