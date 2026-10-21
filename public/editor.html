@@ -128,6 +128,14 @@
   .badge.bad { background: var(--red-soft); color: var(--red); }
   .badge.draft { background: var(--blue-soft); color: var(--blue); }
 
+  /* Research ideas */
+  .ideas { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-top: 14px; }
+  .idea { display: grid; gap: 8px; align-content: start; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
+  .idea h3 { font-size: 15px; line-height: 1.3; }
+  .idea p { font-size: 13px; color: var(--body); }
+  .idea ul { margin: 0; padding-left: 18px; font-size: 12px; }
+  .idea a { color: var(--red); word-break: break-word; }
+
   dialog { border: 0; border-radius: var(--radius); padding: 0; width: min(560px, 92vw); box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
   dialog::backdrop { background: rgba(26, 26, 26, .4); }
   dialog .card { box-shadow: none; border: 0; }
@@ -257,10 +265,19 @@
 <!-- Articles -->
 <section class="view" data-view="articles" hidden>
   <div class="card">
-    <div class="card-head"><h2>New article</h2><span class="muted">Claude drafts it from your sources in the structure for its category. Nothing goes on the website until you press Publish.</span></div>
+    <div class="card-head"><h2>Research ideas</h2><span class="muted">Claude searches the web for what people are asking about this category and suggests articles you have not written yet. About 10p a run.</span></div>
+    <div class="row">
+      <label>Category <select id="aCategory"><option value="/guides/stories/">Stories</option></select></label>
+      <label style="flex:1;min-width:220px">Focus (optional) <input id="rFocus" placeholder="Anything to steer it, such as accessibility rules or spring offers"></label>
+      <button id="rGo" type="button" style="align-self:end">Find ideas</button>
+    </div>
+    <div id="rOut"></div>
+    <div id="rIdeas" class="ideas"></div>
+  </div>
+  <div class="card" id="newArticle">
+    <div class="card-head"><h2>New article</h2><span class="muted">For the category picked above. Claude drafts it from your sources in the structure for its category. Nothing goes on the website until you press Publish.</span></div>
     <div class="cols two">
       <div class="fields">
-        <label>Category <select id="aCategory"><option value="/guides/stories/">Stories</option></select></label>
         <label>Topic <input id="aTopic" placeholder="The payments portal we built"></label>
         <div class="cols two">
           <label>Keyword <input id="aKeyword"></label>
@@ -754,7 +771,34 @@
     $('aPreview').srcdoc = page.replace('<head>', `<head><base href="${esc(article.url)}">`);
   }
   $('aList').addEventListener('change', () => showArticle());
-  $('aCategory').addEventListener('change', () => loadArticles());
+  $('aCategory').addEventListener('change', () => { $('rIdeas').innerHTML = ''; note('rOut', ''); loadArticles(); });
+  let ideas = [];
+  $('rGo').addEventListener('click', async () => {
+    note('rOut', 'Searching the web and thinking. This can take a minute or two...');
+    $('rIdeas').innerHTML = '';
+    try {
+      const r = await (await api('/articles/research', { method: 'POST', body: JSON.stringify({ category: $('aCategory').value, focus: $('rFocus').value, audience: $('aAudience').value }) })).json();
+      ideas = r.ideas;
+      note('rOut', `${ideas.length} ideas. Cost £${r.cost_gbp.toFixed(4)}. Check the sources before you rely on them.`, 'good');
+      $('rIdeas').innerHTML = ideas.map((i, n) => `<div class="idea">
+        <h3>${esc(i.title)}</h3>
+        <div class="muted">Keyword: ${esc(i.keyword)}</div>
+        <p>${esc(i.angle)}</p>
+        ${i.sources.length ? `<ul>${i.sources.map(s => `<li><a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.title || s.url)}</a></li>`).join('')}</ul>` : '<span class="badge bad">No source found. Check before using</span>'}
+        <button type="button" class="plain small" data-idea="${n}">Use this idea</button>
+      </div>`).join('');
+    } catch (e) { note('rOut', esc(e.message), 'bad'); }
+    loadSpend();
+  });
+  $('rIdeas').addEventListener('click', e => {
+    const i = ideas[e.target.dataset?.idea];
+    if (!i) return;
+    $('aTopic').value = i.title;
+    $('aKeyword').value = i.keyword;
+    $('aAudience').value = i.audience;
+    $('aSources').value = `${i.notes}\n\nSources:\n${i.sources.map(s => `${s.title}: ${s.url}`).join('\n')}\n\nAdd your own experience, prices and examples here.`;
+    $('newArticle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
   $('aDraft').addEventListener('click', async () => {
     note('aDraftOut', 'Drafting. This can take a minute or two...');
     try {

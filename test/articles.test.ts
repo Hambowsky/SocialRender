@@ -26,8 +26,21 @@ const serve = (handler: (body: any) => unknown) => http.createServer((req, res) 
   req.on('data', c => (b += c));
   req.on('end', () => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(handler(JSON.parse(b)))); });
 });
+const researchCalls: any[] = [];
 const claude = serve(r => {
   const prompt = JSON.stringify(r.messages);
+  if (prompt.includes('Suggest article ideas')) {
+    researchCalls.push(r);
+    const base = { id: 'msg', type: 'message', role: 'assistant', model: r.model, stop_sequence: null, stop_details: null };
+    // The first round pauses mid search, as the API can, so the tool has to send it back to carry on.
+    if (!r.messages.some((m: any) => m.role === 'assistant')) return { ...base, stop_reason: 'pause_turn',
+      content: [{ type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'uk website questions 2026' } }],
+      usage: { input_tokens: 2000, output_tokens: 100, server_tool_use: { web_search_requests: 1 } } };
+    const ideas = [{ title: 'How long does a website take to build?', keyword: 'website build time', angle: 'Owners ask this before they budget.', audience: 'UK business owners',
+      notes: 'Most brochure sites take four to six weeks (https://example.co.uk/timelines)', sources: [{ title: 'Timelines', url: 'https://example.co.uk/timelines' }] }];
+    return { ...base, stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here you go.\n' + JSON.stringify({ ideas }) }],
+      usage: { input_tokens: 5000, output_tokens: 800, server_tool_use: { web_search_requests: 2 } } };
+  }
   if (prompt.includes('Red Cherry IT explainer')) claudeCalls.push('learn');
   claudeCalls.push(prompt.includes('Red Cherry IT article') ? 'article' : prompt.includes('Write the caption') ? 'caption' : 'post');
   const out = /Red Cherry IT (article|explainer)/.test(prompt)
@@ -193,4 +206,24 @@ test('a page already on the site can be opened, edited and published again, keep
   assert.match(html, /More Learn Guides/, 'related cards kept');
   assert.match(html, /<p>No jargon\. No stress\.<\/p>/);
   assert.match(html, /"datePublished": "2026-08-10"/);
+});
+
+test('research suggests ideas from a web search, skips pages already there, and counts searches in the spend', async () => {
+  const { db } = await import('../src/db.ts');
+  const res = await call('POST', '/articles/research', { category: '/guides/stories/', focus: 'build times' });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.json().ideas[0].keyword, 'website build time');
+  assert.equal(researchCalls.length, 2, 'resumed after the pause');
+  const first = researchCalls[0];
+  assert.equal(first.tools[0].type, 'web_search_20260209');
+  assert.equal(first.output_config?.format, undefined, 'no structured output alongside search');
+  const asked = JSON.stringify(first.messages);
+  assert.match(asked, /\* Building an Information Portal/, 'lists what is already there');
+  assert.match(asked, /build times/);
+  assert.equal(researchCalls[1].messages.at(-1).role, 'assistant');
+  const rows = db.prepare(`SELECT cost_usd FROM claude_usage WHERE job = 'article:research'`).all() as { cost_usd: number }[];
+  const tokensOnly = (7000 * 2 + 900 * 10) / 1e6;
+  assert.equal(rows.length, 2);
+  assert.ok(Math.abs(rows.reduce((t, r) => t + r.cost_usd, 0) - tokensOnly - 0.03) < 1e-9, 'three searches at a cent each are counted');
+  assert.equal((await call('POST', '/articles/research', { category: '/guides/nope/' })).statusCode, 400);
 });

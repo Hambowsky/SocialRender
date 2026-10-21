@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.ts';
 import { fail, ROOT, SITE_URL } from './config.ts';
-import { current as currentPrompt, list as listPrompts, parsePrompt, runPrompt, writeCopy } from './copy.ts';
+import { current as currentPrompt, fillPromptVars, list as listPrompts, parsePrompt, runPrompt, systemPrompt, writeCopy } from './copy.ts';
+import { ask } from './claude.ts';
 import { readPage } from './page.ts';
 import { esc, fromHtml, inline, toHtml, unesc } from './markdown.ts';
 import { render } from './render.ts';
@@ -24,7 +25,7 @@ export const show = (id: number) => withChecks(get(id));
 // One category: the tool's own articles, then pages already on the site that have not been opened here yet.
 export async function inCategory(category: string) {
   checkCategory(category);
-  const mine = db.prepare(`SELECT id, slug, category, title, status FROM articles WHERE category = ? ORDER BY id DESC`).all(category) as { slug: string }[];
+  const mine = db.prepare(`SELECT id, slug, category, title, status FROM articles WHERE category = ? ORDER BY id DESC`).all(category) as { slug: string; title: string }[];
   const known = new Set((db.prepare('SELECT slug FROM articles').all() as { slug: string }[]).map(a => a.slug));
   const site = (await sitePages(category)).filter(s => !known.has(s))
     .map(slug => ({ slug, category, title: slug.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase()), status: 'on_site' }));
@@ -36,6 +37,31 @@ const between = (html: string, from: RegExp, to: string) => {
   return m ? html.slice(m.index + m[0].length, html.indexOf(to, m.index + m[0].length)) : '';
 };
 const textOf = (h: string) => unesc(h.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+
+const str = { type: 'string' };
+const IDEAS = {
+  type: 'object', additionalProperties: false, required: ['ideas'],
+  properties: { ideas: { type: 'array', items: { type: 'object', additionalProperties: false,
+    required: ['title', 'keyword', 'angle', 'audience', 'notes', 'sources'],
+    properties: { title: str, keyword: str, angle: str, audience: str, notes: str,
+      sources: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['title', 'url'], properties: { title: str, url: str } } } } } } },
+};
+
+// Article ideas for a category, from Claude searching the web. It sees the section's structure and
+// what is already there, so it does not repeat them. Nothing is saved; picking an idea fills the draft form.
+export async function research(category: string, input: { focus?: string; audience?: string }) {
+  checkCategory(category);
+  const p = parsePrompt(currentPrompt('research').body);
+  const existing = (await inCategory(category)).map(a => `* ${a.title}`).join('\n');
+  const structure = parsePrompt(currentPrompt(promptFor(category)).body).text.match(/^.*structure[\s\S]*?(?=\n\n)/mi)?.[0] ?? '';
+  const vars = { category, section: sectionName(category), structure, existing, focus: input.focus ?? '', audience: input.audience || 'UK business owners' };
+  const r = await ask({ job: 'article:research', model: p.model, effort: p.effort, maxTokens: p.maxTokens, system: systemPrompt(),
+    messages: [{ role: 'user', content: fillPromptVars(p.text, vars) }], schema: IDEAS, webSearches: Math.min(Number(p.settings.web_searches || 5), 10) });
+  if (!Array.isArray(r.output?.ideas)) fail(502, 'Claude did not return any ideas. Try again');
+  // Only web links count as sources; an idea left with none is shown flagged.
+  const ideas = r.output.ideas.map((i: any) => ({ ...i, sources: (i.sources ?? []).filter((s: any) => /^https?:\/\//.test(s?.url)) }));
+  return { ideas, cost_gbp: r.cost_gbp };
+}
 
 // Brings a live page into the tool as a published article, so it can be edited and published again.
 // Its own text becomes its sources, so the checks compare edits with what was live.
