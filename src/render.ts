@@ -107,14 +107,15 @@ const film = (html: string, file: string) => withPage(html, async page => {
 
 export type RenderResult = { ok: true; id: string; file: string } | { ok: false; problems: Problem[] };
 
-async function renderNow(template: string, fields: Record<string, string>, ext: 'png' | 'mp4'): Promise<RenderResult> {
+async function renderNow(template: string, fields: Record<string, string>, ext: 'png' | 'mp4', size?: string): Promise<RenderResult> {
   const tpl = current(template);
-  const id = crypto.createHash('sha256').update(JSON.stringify(ext === 'png' ? [template, tpl.body, fields] : [ext, template, tpl.body, fields])).digest('hex').slice(0, 20);
+  const key = [...(ext === 'png' ? [] : [ext]), template, tpl.body, fields, ...(size ? [size] : [])];
+  const id = crypto.createHash('sha256').update(JSON.stringify(key)).digest('hex').slice(0, 20);
   const file = renderPath(id, ext);
   // Same template and text as an earlier render: hand back that file, never render twice.
   if (fs.existsSync(file)) return { ok: true, id, file };
 
-  const filled = fill(tpl.body, fields);
+  const filled = fill(tpl.body, fields, size);
   if (filled.problems.length) return { ok: false, problems: filled.problems };
 
   const problems = ext === 'png' ? await shootWithRetry(filled.html, file) : await film(filled.html, file);
@@ -142,14 +143,14 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
   return job;
 }
 
-export const render = (template: string, fields: Record<string, string>) => enqueue(() => renderNow(template, fields, 'png'));
-export const renderVideo = (template: string, fields: Record<string, string>) => enqueue(() => renderNow(template, fields, 'mp4'));
+export const render = (template: string, fields: Record<string, string>, size?: string) => enqueue(() => renderNow(template, fields, 'png', size));
+export const renderVideo = (template: string, fields: Record<string, string>, size?: string) => enqueue(() => renderNow(template, fields, 'mp4', size));
 
 // Does this text fit the template? Same check as a render, without saving an image.
-export const checkFit = (template: string, fields: Record<string, string>) => checkHtml(current(template).body, fields);
+export const checkFit = (template: string, fields: Record<string, string>, size?: string) => checkHtml(current(template).body, fields, size);
 
 // The same check for template HTML that is not saved yet.
-export const checkHtml = (html: string, fields: Record<string, string>) => enqueue(async () => {
-  const filled = fill(html, fields);
+export const checkHtml = (html: string, fields: Record<string, string>, size?: string) => enqueue(async () => {
+  const filled = fill(html, fields, size);
   return filled.problems.length ? filled.problems : shootWithRetry(filled.html);
 });

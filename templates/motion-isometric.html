@@ -59,10 +59,26 @@
   @keyframes up { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
   @keyframes fade { to { opacity: 1; } }
   @keyframes grow { to { transform: scaleX(1); } }
+  /* Other sizes: the same design with the scene shrunk and the text a little smaller.
+     The renderer sets data-size on .post. Zoom scales the scene's margins too, so they are divided by it. */
+  .post[data-size="1080x1350"] { height: 1350px; }
+  .post[data-size="1080x1350"] .scene { zoom: .55; margin: 382px auto 0; }
+  .post[data-size="1080x1350"] .bar { margin-top: 28px; }
+  .post[data-size="1080x1350"] h1 { margin-top: 26px; font-size: 82px; }
+  .post[data-size="1080x1350"] .sub { margin-top: 24px; font-size: 34px; }
+  .post[data-size="1080x1350"] .rule { top: 1190px; }
+  .post[data-size="1080x1350"] :is(.foot-l, .foot-r) { top: 1236px; font-size: 28px; }
+  .post[data-size="1080x1080"] { height: 1080px; }
+  .post[data-size="1080x1080"] .scene { zoom: .4; margin: 512px auto 0; }
+  .post[data-size="1080x1080"] .bar { margin-top: 24px; }
+  .post[data-size="1080x1080"] h1 { margin-top: 22px; font-size: 66px; letter-spacing: -2px; }
+  .post[data-size="1080x1080"] .sub { margin-top: 18px; font-size: 28px; }
+  .post[data-size="1080x1080"] .rule { top: 920px; }
+  .post[data-size="1080x1080"] :is(.foot-l, .foot-r) { top: 958px; font-size: 26px; }
 </style>
 </head>
 <body>
-  <div class="post" data-size="1080x1920" data-seconds="12">
+  <div class="post" data-size="1080x1920" data-sizes="1080x1920 1080x1350 1080x1080" data-seconds="12">
     <img class="logo" src="/assets/logo.png" alt="Red Cherry IT">
     <div class="tag" data-field="tag">{{tag}}</div>
 

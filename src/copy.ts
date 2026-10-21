@@ -100,7 +100,7 @@ export function templateVars(template: string) {
   };
 }
 
-export type CopyInput = { template: string; topic?: string; url?: string; keyword?: string; audience?: string; sources?: string };
+export type CopyInput = { template: string; size?: string; topic?: string; url?: string; keyword?: string; audience?: string; sources?: string };
 
 export function guideTag(url: string) {
   const folder = url.startsWith(SITE_URL + '/guides/') ? url.slice(SITE_URL.length).split('/')[2] : '';
@@ -128,7 +128,7 @@ export async function writeCopy(input: CopyInput) {
   let run = await runPrompt('social-post', vars, { job: 'copy:social-post' });
   cost += run.cost_gbp;
   let fields: Record<string, string> = { ...run.output, ...(tag && { tag }), footer_right: t.footer_right };
-  let problems: Problem[] = await checkFit(input.template, fields);
+  let problems: Problem[] = await checkFit(input.template, fields, input.size);
 
   // One rewrite if it does not fit, telling Claude exactly what to shorten.
   if (problems.length) {
@@ -137,7 +137,7 @@ export async function writeCopy(input: CopyInput) {
     run = await runPrompt('social-post', {}, { job: 'copy:social-post:retry', followUp: { history, note } });
     cost += run.cost_gbp;
     fields = { ...run.output, ...(tag && { tag }), footer_right: t.footer_right };
-    problems = await checkFit(input.template, fields);
+    problems = await checkFit(input.template, fields, input.size);
   }
 
   const cap = await runPrompt('caption', { ...vars, ...fields }, { job: 'copy:caption' });

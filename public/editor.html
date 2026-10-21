@@ -90,8 +90,6 @@
   /* Preview */
   .frame { width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: #fff; position: relative; border: 1px solid var(--line); }
   .frame iframe { width: 1080px; height: 1080px; border: 0; transform-origin: 0 0; position: absolute; top: 0; left: 0; }
-  .frame.tall { width: 60%; margin: 0 auto; aspect-ratio: 9 / 16; }
-  .frame.tall iframe { height: 1920px; }
 
   /* Calendar */
   .cal-head { display: flex; align-items: center; gap: 8px; }
@@ -191,6 +189,7 @@
     <form class="card" id="f">
       <div class="card-head"><h2>Image</h2></div>
       <label>Template <select id="template"></select></label>
+      <label id="sizeWrap" hidden>Size <select id="sizePick"></select></label>
       <div id="fields" class="fields"></div>
       <div class="row"><button style="flex:1">Render</button><button type="button" class="plain" id="download" disabled style="flex:1">Download PNG</button></div>
       <div class="row" id="videoRow" hidden><button type="button" id="makeVideo" style="flex:1">Make video</button><button type="button" class="plain" id="dlVideo" disabled style="flex:1">Download MP4</button></div>
@@ -409,6 +408,20 @@
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
+  // Sizes for feeds and full screen video. The preview frame takes the chosen shape.
+  const SIZE_NAMES = { '1080x1920': 'Upright 1080 × 1920 (Reels, Stories)', '1080x1350': 'Portrait 1080 × 1350 (feeds)', '1080x1080': 'Square 1080 × 1080' };
+  let defaultSize = '1080x1080';
+  const sizeBody = () => $('sizeWrap').hidden ? {} : { size: $('sizePick').value };
+  function applySize() {
+    const [w, h] = (sizeBody().size ?? defaultSize).split('x').map(Number);
+    $('frame').style.aspectRatio = `${w} / ${h}`;
+    $('frame').style.width = `${Math.min(100, 60 * 1920 / h)}%`;
+    $('frame').style.margin = '0 auto';
+    $('preview').style.height = `${h}px`;
+    $('size').textContent = `${w} × ${h}${$('videoRow').hidden ? '' : ' · plays as a clip'}`;
+    fitPreview();
+  }
+  $('sizePick').addEventListener('change', () => { applySize(); refresh(); });
   function fitPreview() { const w = $('frame').clientWidth; if (w) $('preview').style.transform = `scale(${w / 1080})`; }
   new ResizeObserver(fitPreview).observe($('frame'));
 
@@ -438,12 +451,14 @@
       return `<label>${n.replace('_', ' ').replace(/^\w/, c => c.toUpperCase())} ${input}</label>`;
     }).join('');
     savedHtml = $('html').value = t.html;
-    // Motion templates are upright clips: a tall preview (it plays as you type) and a Make video button.
-    const tall = /data-size="1080x1920"/.test(t.html);
-    $('frame').classList.toggle('tall', tall);
-    $('size').textContent = tall ? '1080 × 1920 · plays as a clip' : '1080 × 1080';
+    // Motion templates play in the preview, have a Make video button and come in several sizes.
+    const keepSize = $('sizePick').value;
+    $('sizePick').innerHTML = t.sizes.map(z => `<option value="${z}">${SIZE_NAMES[z] ?? z.replace('x', ' × ')}</option>`).join('');
+    if (t.sizes.includes(keepSize)) $('sizePick').value = keepSize;
+    $('sizeWrap').hidden = !t.sizes.length;
     $('videoRow').hidden = !/data-seconds=/.test(t.html);
-    fitPreview();
+    defaultSize = t.html.match(/class="post"[^>]*data-size="(\d+x\d+)"/)?.[1] ?? '1080x1080';
+    applySize();
     $('codeName').textContent = t.name;
     $('versions').innerHTML = (await (await api(`/templates/${t.name}/versions`)).json()).map(v =>
       `<li><span>Version ${v.id} · ${esc(v.created_at.slice(0, 16))}${v.note ? '<br><span class="muted">' + esc(v.note) + '</span>' : ''}</span>
@@ -453,11 +468,11 @@
 
   // The last render, reused for posting and downloading until the template or text changes.
   let lastRender, lastVideo;
-  const renderKey = () => JSON.stringify([$('template').value, fieldValues(), savedHtml]);
+  const renderKey = () => JSON.stringify([$('template').value, fieldValues(), savedHtml, sizeBody()]);
   const current = () => lastRender?.key === renderKey() ? lastRender : undefined;
   async function renderNow() {
     const key = renderKey();
-    const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) })).json();
+    const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody() }) })).json();
     lastRender = { id: r.id, template: $('template').value, key };
     $('download').disabled = false;
     return lastRender;
@@ -470,7 +485,7 @@
     clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
-        const res = await api('/preview', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), html: $('html').value }) });
+        const res = await api('/preview', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), html: $('html').value, ...sizeBody() }) });
         $('preview').srcdoc = await res.text();
       } catch (e) { status(esc(e.message), 'bad'); }
     }, 250);
@@ -505,7 +520,7 @@
     $('makeVideo').disabled = true;
     status('Making the video. It plays every frame, so this takes a minute or so...');
     try {
-      const r = await (await api('/render/video', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) })).json();
+      const r = await (await api('/render/video', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody() }) })).json();
       lastVideo = { id: r.id, template: $('template').value, key };
       $('dlVideo').disabled = lastVideo.key !== renderKey();
       status('Video ready. Download it and post it by hand.', 'good');
@@ -570,7 +585,7 @@
   $('writeBtn').addEventListener('click', async () => {
     note('writeOut', $('url').value.trim() ? 'Reading the page and writing...' : 'Writing...');
     try {
-      const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...writeVars(), ...($('url').value.trim() ? { url: $('url').value.trim() } : {}) }) })).json();
+      const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...sizeBody(), ...writeVars(), ...($('url').value.trim() ? { url: $('url').value.trim() } : {}) }) })).json();
       for (const [k, v] of Object.entries(r.fields)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
       refresh();
       $('postText').value = [r.caption, r.page?.url, r.hashtags.join(' ')].filter(Boolean).join('\n\n');

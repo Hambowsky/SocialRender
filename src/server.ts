@@ -6,7 +6,7 @@ import Fastify from 'fastify';
 import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
 import { closeBrowser, publicFile, render, renderPath, renderVideo } from './render.ts';
-import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, versions } from './templates.ts';
+import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, sizesOf, versions } from './templates.ts';
 import { NAME_PATTERN } from './versions.ts';
 import * as prompts from './copy.ts';
 import { monthSpendGbp } from './claude.ts';
@@ -18,6 +18,7 @@ import * as articles from './articles.ts';
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
 const fields = { type: 'object', maxProperties: 20, additionalProperties: { type: 'string', maxLength: MAX_FIELD_CHARS } };
+const size = { type: 'string', pattern: '^\\d{3,4}x\\d{3,4}$' };
 const nameParams = { type: 'object', properties: { name } };
 
 // ponytail: one fixed one-minute window per route group, in memory. Fine for a single process and a single key.
@@ -66,7 +67,7 @@ export function buildApp() {
 
   app.get<{ Params: { name: string } }>('/templates/:name', { schema: { params: nameParams } }, async req => {
     const t = current(req.params.name);
-    return { name: req.params.name, version: t.id, html: t.body, fields: fieldsOf(t.body), sample: sampleOf(t.body) };
+    return { name: req.params.name, version: t.id, html: t.body, fields: fieldsOf(t.body), sample: sampleOf(t.body), sizes: sizesOf(t.body) };
   });
 
   app.put<{ Params: { name: string }; Body: { html: string; note?: string } }>('/templates/:name', {
@@ -83,32 +84,33 @@ export function buildApp() {
   }, async req => ({ version: rollback(req.params.name, req.params.version) }));
 
   // Filled HTML for the editor's live preview. `html` previews unsaved template code.
-  app.post<{ Body: { template: string; fields: Fields; html?: string } }>('/preview', {
-    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, html: { type: 'string', maxLength: 60000 } } } },
+  app.post<{ Body: { template: string; fields: Fields; html?: string; size?: string } }>('/preview', {
+    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, size, html: { type: 'string', maxLength: 60000 } } } },
   }, async (req, reply) => {
     const html = req.body.html ?? current(req.body.template).body;
-    return reply.type('text/html; charset=utf-8').send(fill(html, req.body.fields).html);
+    return reply.type('text/html; charset=utf-8').send(fill(html, req.body.fields, req.body.size).html);
   });
 
-  app.post<{ Body: { template: string; fields: Fields }; Querystring: { format?: string } }>('/render', {
+  app.post<{ Body: { template: string; fields: Fields; size?: string }; Querystring: { format?: string } }>('/render', {
     schema: {
-      body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields } },
+      body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, size } },
       querystring: { type: 'object', properties: { format: { enum: ['png', 'json'] } } },
     },
   }, async (req, reply) => {
-    const result = await render(req.body.template, req.body.fields);
+    const result = await render(req.body.template, req.body.fields, req.body.size);
     if (!result.ok) return reply.code(422).send({ error: 'The text does not fit this template', problems: result.problems });
-    if (req.query.format === 'json') return { id: result.id, url: `/renders/${result.id}.png`, width: 1080, height: 1080 };
+    const [width, height] = (req.body.size ?? current(req.body.template).body.match(/data-size="(\d+x\d+)"/)?.[1] ?? '1080x1080').split('x').map(Number);
+    if (req.query.format === 'json') return { id: result.id, url: `/renders/${result.id}.png`, width, height };
     return reply.type('image/png').header('x-render-id', result.id)
       .header('content-disposition', `inline; filename="${req.body.template}-${result.id}.png"`)
       .send(fs.createReadStream(result.file));
   });
 
   // A motion template as an MP4 clip. Slow (it plays every frame), so callers wait on it.
-  app.post<{ Body: { template: string; fields: Fields } }>('/render/video', {
-    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields } } },
+  app.post<{ Body: { template: string; fields: Fields; size?: string } }>('/render/video', {
+    schema: { body: { type: 'object', required: ['template', 'fields'], properties: { template: name, fields, size } } },
   }, async (req, reply) => {
-    const result = await renderVideo(req.body.template, req.body.fields);
+    const result = await renderVideo(req.body.template, req.body.fields, req.body.size);
     if (!result.ok) return reply.code(422).send({ error: 'The text does not fit this template', problems: result.problems });
     return { id: result.id, url: `/public/renders/${result.id}.mp4` };
   });
@@ -140,7 +142,7 @@ export function buildApp() {
   const text = { type: 'string', maxLength: 2000 };
   app.post<{ Body: prompts.CopyInput }>('/copy', {
     schema: { body: { type: 'object', required: ['template'], additionalProperties: false,
-      properties: { template: name, topic: text, url: { type: 'string', maxLength: 2000 }, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
+      properties: { template: name, size, topic: text, url: { type: 'string', maxLength: 2000 }, keyword: text, audience: text, sources: { type: 'string', maxLength: 20000 } } } },
   }, async req => prompts.writeCopy(req.body));
 
   app.post<{ Body: { description: string; base: string } }>('/templates/design', {

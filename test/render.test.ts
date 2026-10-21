@@ -57,6 +57,19 @@ test('a motion template makes a 12 second upright MP4, once', async () => {
   assert.equal(b.json().id, a.json().id);
 });
 
+test('a motion template renders at each of its sizes, and refuses others', async () => {
+  const fields = sampleOf(current('motion-whiteboard').body);
+  for (const size of ['1080x1350', '1080x1080']) {
+    const res = await app.inject({ method: 'POST', url: '/render', headers, payload: { template: 'motion-whiteboard', fields, size } });
+    assert.equal(res.statusCode, 200, res.body);
+    const [width, height] = size.split('x').map(Number);
+    assert.deepEqual(pngSize(res.rawPayload), { width, height });
+    if (OUT) fs.writeFileSync(path.join(OUT, `motion-whiteboard-${size}.png`), res.rawPayload);
+  }
+  const bad = await app.inject({ method: 'POST', url: '/render', headers, payload: { template: 'tip-card', fields: sampleOf(current('tip-card').body), size: '1080x1920' } });
+  assert.equal(bad.statusCode, 400, bad.body);
+});
+
 test('an image template cannot be made into a video', async () => {
   const res = await app.inject({ method: 'POST', url: '/render/video', headers, payload: { template: 'tip-card', fields: sampleOf(current('tip-card').body) } });
   assert.equal(res.statusCode, 400, res.body);
