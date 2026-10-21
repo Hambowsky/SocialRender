@@ -23,7 +23,7 @@ const fake = http.createServer((req, res) => {
       assert.match(String(req.headers['x-goog-fieldmask']), /places\.websiteUri/);
       return res.end(JSON.stringify({ places: [
         { id: 'p1', displayName: { text: 'Smith Plumbing Ltd' }, nationalPhoneNumber: '0114 496 0000', businessStatus: 'OPERATIONAL', rating: 4.8, userRatingCount: 31,
-          formattedAddress: '1 High St, Sheffield S1 2AB', addressComponents: [{ longText: 'S1 2AB', types: ['postal_code'] }, { longText: 'Sheffield', types: ['postal_town'] }] },
+          formattedAddress: '1 High St, Sheffield S1 2AB', addressComponents: [{ longText: 'No types here' }, { longText: 'S1 2AB', types: ['postal_code'] }, { longText: 'Sheffield', types: ['postal_town'] }] },
         // A private address is refused by the checker, so it reads as a site that does not load.
         { id: 'p2', displayName: { text: 'Dead Site Plumbers' }, websiteUri: 'http://127.0.0.1:9/', businessStatus: 'OPERATIONAL' },
         { id: 'p3', displayName: { text: 'Closed Plumbing' }, businessStatus: 'CLOSED_PERMANENTLY' },

@@ -86,7 +86,7 @@ async function cached<T>(api: Api, request: unknown, call: () => Promise<T>): Pr
 }
 
 type Place = { id: string; displayName?: { text: string }; formattedAddress?: string; nationalPhoneNumber?: string; websiteUri?: string;
-  businessStatus?: string; rating?: number; userRatingCount?: number; addressComponents?: { longText: string; types: string[] }[] };
+  businessStatus?: string; rating?: number; userRatingCount?: number; addressComponents?: { longText?: string; types?: string[] }[] };
 const PLACE_FIELDS = ['id', 'displayName', 'formattedAddress', 'addressComponents', 'nationalPhoneNumber', 'websiteUri', 'businessStatus', 'rating', 'userRatingCount']
   .map(f => `places.${f}`).concat('nextPageToken').join(',');
 
@@ -104,7 +104,7 @@ async function places(industry: string, town: string, want: number): Promise<Fou
     });
     for (const p of data.places ?? []) {
       if (p.businessStatus && p.businessStatus !== 'OPERATIONAL') continue;
-      const part = (t: string) => p.addressComponents?.find(c => c.types.includes(t))?.longText ?? '';
+      const part = (t: string) => p.addressComponents?.find(c => c.types?.includes(t))?.longText ?? '';
       out.push({ company_name: p.displayName?.text ?? '', phone: p.nationalPhoneNumber ?? '', email: '', website_url: p.websiteUri ?? '',
         address: p.formattedAddress ?? '', postcode: part('postal_code'), town: part('postal_town') || part('locality') || town, industry,
         source: 'places', source_ref: p.id, rating: p.rating ?? null, reviews: p.userRatingCount ?? null });
