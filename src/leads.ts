@@ -115,24 +115,23 @@ async function places(industry: string, town: string, want: number): Promise<Fou
   return out;
 }
 
-// UK towns and cities as you type, so a campaign searches a real place. Suggestions are a nicety: any problem gives none.
+// UK towns and cities as you type, so a campaign searches a real place. Google's error is passed on so a bad key is easy to spot.
 export async function towns(q: string): Promise<{ name: string; area: string }[]> {
   if (!GOOGLE_PLACES_API_KEY || q.trim().length < 2) return [];
   const req = { input: q.trim().toLowerCase(), includedRegionCodes: ['gb'], includedPrimaryTypes: ['locality', 'postal_town'] };
   type Prediction = { placePrediction?: { structuredFormat?: { mainText?: { text: string }; secondaryText?: { text: string } } } };
-  try {
-    const data = await cached('towns', req, async () => {
-      const res = await fetch(`${GOOGLE_PLACES_URL}/v1/places:autocomplete`, { method: 'POST', signal: AbortSignal.timeout(8_000),
-        headers: { 'content-type': 'application/json', 'x-goog-api-key': GOOGLE_PLACES_API_KEY }, body: JSON.stringify(req) });
-      if (!res.ok) fail(502, `Google said ${res.status}`);
-      return await res.json() as { suggestions?: Prediction[] };
-    });
-    // The main text never has a comma, which matters because towns are stored as a comma separated list.
-    return (data.suggestions ?? []).flatMap(s => {
-      const f = s.placePrediction?.structuredFormat;
-      return f?.mainText?.text ? [{ name: f.mainText.text, area: f.secondaryText?.text ?? '' }] : [];
-    });
-  } catch { return []; }
+  const data = await cached('towns', req, async () => {
+    const res = await fetch(`${GOOGLE_PLACES_URL}/v1/places:autocomplete`, { method: 'POST', signal: AbortSignal.timeout(8_000),
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': GOOGLE_PLACES_API_KEY }, body: JSON.stringify(req) });
+    const json = await res.json().catch(() => ({})) as { suggestions?: Prediction[]; error?: { message: string } };
+    if (!res.ok) fail(502, `Google said: ${json.error?.message ?? res.status}`);
+    return json;
+  });
+  // The main text never has a comma, which matters because towns are stored as a comma separated list.
+  return (data.suggestions ?? []).flatMap(s => {
+    const f = s.placePrediction?.structuredFormat;
+    return f?.mainText?.text ? [{ name: f.mainText.text, area: f.secondaryText?.text ?? '' }] : [];
+  });
 }
 
 // Directory listings are businesses that advertise somewhere other than their own site: a strong no website signal.

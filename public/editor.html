@@ -559,8 +559,11 @@
       if (q.length < 2) return close();
       const ask = ++asked;
       timer = setTimeout(async () => {
-        const found = await find(q).catch(() => []);
+        let found, problem = '';
+        try { found = await find(q); } catch (e) { found = []; problem = e.message; }
         if (ask !== asked) return; // a newer keystroke won
+        // Show why there are no suggestions, such as a Google key problem, rather than nothing at all.
+        if (problem) { list.innerHTML = `<li class="bad" aria-disabled="true">${esc(problem)}</li>`; list.hidden = false; items = []; return; }
         const chosen = input.value.toLowerCase().split(',').map(x => x.trim());
         items = found.filter(it => !chosen.includes(it.name.toLowerCase())).slice(0, 8);
         at = -1;
@@ -568,12 +571,12 @@
       }, 200);
     });
     input.addEventListener('keydown', e => {
-      if (list.hidden) return;
+      if (list.hidden || !items.length) return;
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); at = (at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length; draw(); }
       else if (e.key === 'Enter' && at >= 0) { e.preventDefault(); pick(items[at]); }
       else if (e.key === 'Escape') close();
     });
-    list.addEventListener('mousedown', e => { const li = e.target.closest('li'); if (li) { e.preventDefault(); pick(items[li.dataset.i]); } });
+    list.addEventListener('mousedown', e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pick(items[li.dataset.i]); } });
     input.addEventListener('blur', close);
   }
   // Common UK local business types. There is no Google list for this, so it is a plain list filtered as you type.
