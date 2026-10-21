@@ -64,7 +64,8 @@ async function askNow(a: Ask) {
   // A long search can pause the turn; sending it back resumes it. Three rounds at most.
   for (let round = 0; ; round++) {
     try {
-      res = await client.messages.create({
+      // Streamed, since the API refuses long outputs without it; finalMessage() gives the same result as create().
+      res = await client.messages.stream({
         model: a.model,
         max_tokens: a.maxTokens,
         system,
@@ -72,7 +73,7 @@ async function askNow(a: Ask) {
         ...(searches
           ? { tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: searches, user_location: { type: 'approximate', country: 'GB' } }], output_config: { effort: a.effort } }
           : { output_config: { effort: a.effort, format: { type: 'json_schema', schema: a.schema } } }),
-      } as Anthropic.MessageCreateParamsNonStreaming);
+      } as Anthropic.MessageCreateParamsNonStreaming).finalMessage();
     } catch (err) {
       // The SDK has already retried twice. An outage or overload goes to OpenAI; anything else is a real problem to show.
       if (!OPENAI_API_KEY || searches || round > 0 || !outage(err)) throw err;

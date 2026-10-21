@@ -1,7 +1,7 @@
 ---
 model: claude-sonnet-5-5
 effort: high
-max_tokens: 16000
+max_tokens: 40000
 ---
 Design a new 1080 by 1080 social media image template for Red Cherry IT.
 

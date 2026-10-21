@@ -5,6 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
+import { sendStream } from './sse.ts';
 
 process.env.NODE_ENV = 'test';
 process.env.API_KEY = 'test-key';
@@ -43,9 +44,9 @@ const fake = http.createServer((req, res) => {
     }
     if (req.url === '/v1/messages') {
       claude.push(JSON.parse(body));
-      return res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', stop_sequence: null,
+      return sendStream(res, { id: 'm', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', stop_sequence: null,
         content: [{ type: 'text', text: JSON.stringify({ priority: 'hot', notes: 'Great reviews and no website.', pitch: 'Your 31 reviews deserve a website to send people to.' }) }],
-        usage: { input_tokens: 3000, output_tokens: 100 } }));
+        usage: { input_tokens: 3000, output_tokens: 100 } });
     }
     if (req.url === '/v2/search') {
       calls.firecrawl++;

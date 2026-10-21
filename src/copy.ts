@@ -27,8 +27,7 @@ export function parsePrompt(body: string) {
     return [l.slice(0, i).trim(), l.slice(i + 1).trim()];
   }));
   if (settings.effort && !['low', 'medium', 'high'].includes(settings.effort)) fail(400, 'effort must be low, medium or high');
-  // ponytail: calls are not streamed, which caps max_tokens at 16000. Stream in claude.ts if a prompt ever needs more.
-  if (settings.max_tokens && !(Number(settings.max_tokens) > 0 && Number(settings.max_tokens) <= 16000)) fail(400, 'max_tokens must be between 1 and 16000');
+  if (settings.max_tokens && !(Number(settings.max_tokens) > 0 && Number(settings.max_tokens) <= 64000)) fail(400, 'max_tokens must be between 1 and 64000');
   return {
     model: settings.model || 'claude-sonnet-5-5',
     effort: (settings.effort || 'medium') as Ask['effort'],
