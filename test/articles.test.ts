@@ -208,6 +208,11 @@ test('a page already on the site can be opened, edited and published again, keep
   assert.match(html, /"datePublished": "2026-08-10"/);
 });
 
+test('the Social page can list every live guide to write a post from', async () => {
+  const live = (await call('GET', '/articles/live')).json();
+  assert.ok(live.some((a: any) => a.url === 'https://redcherryit.com/guides/stories/building-an-information-portal-for-a-financial-services-business'), JSON.stringify(live));
+});
+
 test('research suggests ideas from a web search, skips pages already there, and counts searches in the spend', async () => {
   const { db } = await import('../src/db.ts');
   const res = await call('POST', '/articles/research', { category: '/guides/stories/', focus: 'build times' });

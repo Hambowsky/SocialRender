@@ -184,6 +184,7 @@ export function buildApp() {
   }, async req => articles.draft(req.body));
   app.get('/articles', async () => articles.list());
   app.get('/articles/categories', async () => articles.categories());
+  app.get('/articles/live', async () => articles.live());
   app.post<{ Body: { category: string; focus?: string; audience?: string } }>('/articles/research', { schema: { body: { type: 'object', additionalProperties: false, required: ['category'],
     properties: { category: { type: 'string', maxLength: 100 }, focus: { type: 'string', maxLength: 1000 }, audience: { type: 'string', maxLength: 200 } } } } },
     async req => articles.research(req.body.category, req.body));

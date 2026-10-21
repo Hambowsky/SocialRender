@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type Anthropic from '@anthropic-ai/sdk';
-import { fail, ROOT } from './config.ts';
+import { fail, ROOT, SITE_URL } from './config.ts';
 import { versionStore } from './versions.ts';
 import { ask, type Ask } from './claude.ts';
 import { checkFit, checkHtml } from './render.ts';
@@ -101,21 +101,29 @@ export function templateVars(template: string) {
 
 export type CopyInput = { template: string; topic?: string; url?: string; keyword?: string; audience?: string; sources?: string };
 
+export function guideTag(url: string) {
+  const folder = url.startsWith(SITE_URL + '/guides/') ? url.slice(SITE_URL.length).split('/')[2] : '';
+  return folder ? folder[0].toUpperCase() + folder.slice(1).replace(/-/g, ' ') : undefined;
+}
+
 export async function writeCopy(input: CopyInput) {
   const t = templateVars(input.template);
   if (!input.topic?.trim() && !input.url) fail(400, 'Give a topic or a page link');
   // A page link is read here and handed to Claude as a source, so its facts can be used and quoted.
   const page = input.url ? await readPage(input.url) : undefined;
   const vars = { ...input, ...t } as Record<string, string>;
+  // One of our guides: its category is the tag, and the headline is a fresh hook rather than the title.
+  const tag = page && guideTag(page.url);
   if (page) {
     vars.topic = input.topic?.trim() || `The page "${page.title || page.url}". Write a post that makes people want to read it.`;
+    if (tag) vars.topic += ` The tag must be "${tag}". Do not reuse the article's title as the headline: take its main point and make a shorter, fresh hook.`;
     vars.sources = [input.sources, `From ${page.url}\nTitle: ${page.title}\n${page.description}\n\n${page.text}`].filter(Boolean).join('\n\n');
   }
   let cost = 0;
 
   let run = await runPrompt('social-post', vars, { job: 'copy:social-post' });
   cost += run.cost_gbp;
-  let fields: Record<string, string> = { ...run.output, footer_right: t.footer_right };
+  let fields: Record<string, string> = { ...run.output, ...(tag && { tag }), footer_right: t.footer_right };
   let problems: Problem[] = await checkFit(input.template, fields);
 
   // One rewrite if it does not fit, telling Claude exactly what to shorten.
@@ -124,7 +132,7 @@ export async function writeCopy(input: CopyInput) {
     const note = `That text does not fit the template:\n${problems.map(p => `* ${p.message}`).join('\n')}\nRewrite it shorter so it fits. Keep highlight_word copied exactly from the headline.`;
     run = await runPrompt('social-post', {}, { job: 'copy:social-post:retry', followUp: { history, note } });
     cost += run.cost_gbp;
-    fields = { ...run.output, footer_right: t.footer_right };
+    fields = { ...run.output, ...(tag && { tag }), footer_right: t.footer_right };
     problems = await checkFit(input.template, fields);
   }
 

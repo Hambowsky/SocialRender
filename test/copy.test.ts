@@ -110,6 +110,10 @@ test('Claude designs a template, gets one fix up round, and nothing is saved unt
 });
 
 test('a page link is turned into plain text, and private addresses are refused', async () => {
+  const { guideTag } = await import('../src/copy.ts');
+  assert.equal(guideTag('https://redcherryit.com/guides/learn/how-much-does-a-website-cost-uk'), 'Learn');
+  assert.equal(guideTag('https://example.com/guides/learn/x'), undefined);
+  assert.equal(guideTag('https://redcherryit.com/pricing'), undefined);
   const { pageText } = await import('../src/page.ts');
   const p = pageText(`<html><head><title>Speed &amp; SEO</title><meta name="description" content="Why it matters"></head>
     <body><nav>Menu</nav><script>evil()</script><h1>Fast sites</h1><p>Pages that load in 2&nbsp;seconds keep visitors.</p><footer>Copyright</footer></body></html>`);
