@@ -65,6 +65,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     required: ['headline', 'highlight_word', 'subtitle', 'tag', 'footer_left'],
     properties: { headline: str, highlight_word: str, subtitle: str, tag: str, footer_left: str },
   },
+  'template-tweak': {
+    type: 'object', additionalProperties: false,
+    required: ['html'],
+    properties: { html: str },
+  },
   'template-design': {
     type: 'object', additionalProperties: false,
     required: ['name', 'html'],
@@ -160,10 +165,10 @@ export async function writeCopy(input: CopyInput) {
 const ALLOWED_FIELDS = ['headline', 'highlight_word', 'subtitle', 'tag', 'footer_left', 'footer_right'];
 
 // Rule checks that need no browser. The layout check runs after these.
-function designProblems(name: string, html: string): Problem[] {
+function designProblems(name: string | undefined, html: string): Problem[] {
   const out: string[] = [];
-  if (!new RegExp(NAME_PATTERN).test(name)) out.push('name must use lowercase letters, numbers and hyphens only');
-  if ((listTemplates() as { name: string }[]).some(t => t.name === name)) out.push(`a template called ${name} already exists, pick another name`);
+  if (name !== undefined && !new RegExp(NAME_PATTERN).test(name)) out.push('name must use lowercase letters, numbers and hyphens only');
+  if (name !== undefined && (listTemplates() as { name: string }[]).some(t => t.name === name)) out.push(`a template called ${name} already exists, pick another name`);
   if (!/class="post"/.test(html)) out.push('there is no element with class="post"');
   const fields = fieldsOf(html);
   if (!fields.includes('headline')) out.push('there is no {{headline}} placeholder');
@@ -176,6 +181,26 @@ function designProblems(name: string, html: string): Problem[] {
   const missing = fields.filter(f => f !== 'highlight_word' && !String(sample[f] ?? '').trim());
   if (missing.length) out.push(`the sample text is missing: ${missing.join(', ')}`);
   return out.map(message => ({ field: null, message }));
+}
+
+// Claude changes a template for one post (snow for Christmas, say). Nothing is saved: the editor keeps the
+// changed HTML and sends it with that post's preview and renders, and the saved template stays as it was.
+export async function tweakTemplate(input: { template: string; change: string; fields: Record<string, string>; size?: string }) {
+  let run = await runPrompt('template-tweak', { change: input.change, html: currentTemplate(input.template).body }, { job: 'tweak:template' });
+  let cost = run.cost_gbp;
+  const check = async (html: string) => {
+    const rules = designProblems(undefined, html);
+    return rules.length ? rules : checkHtml(html, input.fields, input.size);
+  };
+  let problems = await check(run.output.html);
+  if (problems.length) {
+    const history: Anthropic.MessageParam[] = [...run.messages, { role: 'assistant', content: run.content }];
+    const note = `That cannot be used yet:\n${problems.map(p => `* ${p.message}`).join('\n')}\nFix these and return the whole template again.`;
+    run = await runPrompt('template-tweak', {}, { job: 'tweak:template:retry', followUp: { history, note } });
+    cost += run.cost_gbp;
+    problems = await check(run.output.html);
+  }
+  return { html: run.output.html, ok: problems.length === 0, problems, cost_gbp: cost };
 }
 
 // Claude designs a new template. Nothing is saved: the editor loads it for David to preview and save.

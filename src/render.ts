@@ -107,15 +107,17 @@ const film = (html: string, file: string) => withPage(html, async page => {
 
 export type RenderResult = { ok: true; id: string; file: string } | { ok: false; problems: Problem[] };
 
-async function renderNow(template: string, fields: Record<string, string>, ext: 'png' | 'mp4', size?: string): Promise<RenderResult> {
+// `html` is a one off version of the template for a single post; the saved template is not touched.
+async function renderNow(template: string, fields: Record<string, string>, ext: 'png' | 'mp4', size?: string, html?: string): Promise<RenderResult> {
   const tpl = current(template);
-  const key = [...(ext === 'png' ? [] : [ext]), template, tpl.body, fields, ...(size ? [size] : [])];
+  const body = html ?? tpl.body;
+  const key = [...(ext === 'png' ? [] : [ext]), template, body, fields, ...(size ? [size] : [])];
   const id = crypto.createHash('sha256').update(JSON.stringify(key)).digest('hex').slice(0, 20);
   const file = renderPath(id, ext);
   // Same template and text as an earlier render: hand back that file, never render twice.
   if (fs.existsSync(file)) return { ok: true, id, file };
 
-  const filled = fill(tpl.body, fields, size);
+  const filled = fill(body, fields, size);
   if (filled.problems.length) return { ok: false, problems: filled.problems };
 
   const problems = ext === 'png' ? await shootWithRetry(filled.html, file) : await film(filled.html, file);
@@ -143,8 +145,8 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
   return job;
 }
 
-export const render = (template: string, fields: Record<string, string>, size?: string) => enqueue(() => renderNow(template, fields, 'png', size));
-export const renderVideo = (template: string, fields: Record<string, string>, size?: string) => enqueue(() => renderNow(template, fields, 'mp4', size));
+export const render = (template: string, fields: Record<string, string>, size?: string, html?: string) => enqueue(() => renderNow(template, fields, 'png', size, html));
+export const renderVideo = (template: string, fields: Record<string, string>, size?: string, html?: string) => enqueue(() => renderNow(template, fields, 'mp4', size, html));
 
 // Does this text fit the template? Same check as a render, without saving an image.
 export const checkFit = (template: string, fields: Record<string, string>, size?: string) => checkHtml(current(template).body, fields, size);

@@ -88,6 +88,9 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 
 To make a new template, copy one and keep `class="post"` on the 1080 by 1080 box, `data-field="<name>"` on each text block, and `{{name}}` where the text goes. Blocks must be direct children of `.post` so the overflow check can measure them.
 
+### One off changes
+On the Social page, "Change this post only" asks Claude to change a copy of the template for one post, for example snow for a Christmas article. The copy goes with that post's preview, PNG and video (`html` in `/render` and `/render/video`, made by `POST /templates/tweak` with `{template, change, fields, size}`); the saved template never changes. Decorations carry `data-decor`, which the layout check skips, so they can sit over or behind the text. The prompt is `template-tweak` in the Prompts section.
+
 ### Motion templates
 The four `motion-` templates (blueprint, glow, isometric, whiteboard) are upright 1080 by 1920 clips, silent, 12 seconds at 30 frames a second. They use the same text fields, so Write with Claude works on them as usual. A motion template marks `.post` with `data-size="1080x1920"` and `data-seconds="12"`, and animates with plain CSS animations that end (no endless loops). The layout check and the PNG use the last frame. The video is made by pausing the page, stepping every animation one frame at a time, taking a screenshot of each and piping them to ffmpeg, so a slow server makes a slow render but never a jerky clip. Buffer's API does not mention video, so download the MP4 and post it by hand.
 

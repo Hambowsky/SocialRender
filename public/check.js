@@ -22,7 +22,8 @@ function measure(postEl, problems, GAP) {
   // Nothing has a size to measure, so every block would look like it overlaps every other one.
   if (!post.width || !post.height) return problems;
 
-  const blocks = [...postEl.children].filter(el => getComputedStyle(el).display !== 'none' && el.tagName !== 'SCRIPT');
+  // data-decor marks decoration (snow, confetti) that may sit over or behind other blocks on purpose.
+  const blocks = [...postEl.children].filter(el => getComputedStyle(el).display !== 'none' && el.tagName !== 'SCRIPT' && !('decor' in el.dataset));
   const name = el => el.dataset.field || el.className || el.tagName.toLowerCase();
 
   // Rough characters to cut so `px` of overflow goes away, based on this box's own text.
