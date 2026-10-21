@@ -121,7 +121,7 @@
   /* Approval list */
   .queue { display: grid; gap: 10px; }
   .item { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
-  .item img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: var(--grey-soft); }
+  .item :is(img, video) { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: var(--grey-soft); }
   .item p { font-size: 13px; color: var(--body); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--grey-soft); color: var(--body); }
   .badge.pending { background: var(--amber-soft); color: var(--amber); }
@@ -141,6 +141,7 @@
   dialog::backdrop { background: rgba(26, 26, 26, .4); }
   dialog .card { box-shadow: none; border: 0; }
   dialog img.big { width: 100%; border-radius: 10px; background: var(--grey-soft); aspect-ratio: 1; object-fit: cover; }
+  dialog video.big { width: 100%; max-height: 60vh; border-radius: 10px; background: #000; }
 
   /* Articles and versions */
   .preview-page { width: 100%; height: 820px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
@@ -220,7 +221,7 @@
   </div>
 
   <div class="card" id="buffer">
-    <div class="card-head"><h2>Post to Buffer</h2><span class="muted">Uses the image above. Nothing reaches Buffer until you approve it.</span></div>
+    <div class="card-head"><h2>Post to Buffer</h2><span class="muted">Uses the image or video above. Nothing reaches Buffer until you approve it.</span></div>
     <div class="cols two">
       <div class="fields">
         <label>Channels</label>
@@ -235,6 +236,7 @@
         <label id="dueWrap" hidden>Date and time <input id="dueAt" type="datetime-local"></label>
       </div>
       <div class="fields">
+        <label id="mediaWrap" hidden>Attach <select id="postMedia"><option value="image">The image</option><option value="video">The video (made first if needed)</option></select></label>
         <label>Caption <textarea id="postText" rows="6" maxlength="5000"></textarea></label>
         <div class="row"><button id="postBtn" type="button">Send for approval</button><div id="postOut"></div></div>
       </div>
@@ -385,6 +387,8 @@
 
   async function api(path, opts = {}) {
     const res = await fetch(path, { ...opts, headers: { 'x-api-key': $('key').value, ...(opts.body ? { 'content-type': 'application/json' } : {}) } });
+    // Any change may have called Claude (even a failed one), so the cost pill refreshes after each.
+    if (opts.method && opts.method !== 'GET') loadSpend();
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw Object.assign(new Error(body.message || body.error || res.statusText), { body });
@@ -463,7 +467,7 @@
     $('sizePick').innerHTML = t.sizes.map(z => `<option value="${z}">${SIZE_NAMES[z] ?? z.replace('x', ' × ')}</option>`).join('');
     if (t.sizes.includes(keepSize)) $('sizePick').value = keepSize;
     $('sizeWrap').hidden = !t.sizes.length;
-    $('videoRow').hidden = !/data-seconds=/.test(t.html);
+    $('videoRow').hidden = $('mediaWrap').hidden = !/data-seconds=/.test(t.html);
     defaultSize = t.html.match(/class="post"[^>]*data-size="(\d+x\d+)"/)?.[1] ?? '1080x1080';
     applySize();
     $('codeName').textContent = t.name;
@@ -564,20 +568,26 @@
   $('tweakClear').addEventListener('click', () => { clearOneOff(); refresh(); });
 
   // Videos are downloaded and posted by hand for now, since Buffer's API does not say it takes video.
-  $('makeVideo').addEventListener('click', async () => {
+  // The video for the current text and size, made once and reused for downloading and posting.
+  async function videoNow(show) {
+    if (lastVideo?.key === renderKey()) return lastVideo;
     const key = renderKey();
     $('makeVideo').disabled = true;
-    const stop = busy(m => status(m), 'Making the video. It records every frame, one at a time.', 60);
+    const stop = busy(show, 'Making the video. It records every frame, one at a time.', 60);
     try {
       const r = await (await api('/render/video', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody(), ...oneOffBody() }) })).json();
-      stop();
       lastVideo = { id: r.id, template: $('template').value, key };
       $('dlVideo').disabled = lastVideo.key !== renderKey();
-      status('Video ready. Download it and post it by hand.', 'good');
-    } catch (err) {
-      stop();
-      status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
+      return lastVideo;
     } finally { stop(); $('makeVideo').disabled = false; }
+  }
+  $('makeVideo').addEventListener('click', async () => {
+    try {
+      await videoNow(m => status(m));
+      status('Video ready. Download it, or post it to Buffer below with Attach set to the video.', 'good');
+    } catch (err) {
+      status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
+    }
   });
   $('dlVideo').addEventListener('click', async () => {
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await (await fetch(`/public/renders/${lastVideo.id}.mp4`)).blob()), download: `${lastVideo.template}-${lastVideo.id}.mp4` });
@@ -643,7 +653,6 @@
       $('postText').value = [r.caption, r.page?.url, r.hashtags.join(' ')].filter(Boolean).join('\n\n');
       note('writeOut', `${r.fits ? 'Done. The text is in the image and the caption is in Post to Buffer.' : 'Still too long after one rewrite. Shorten it by hand.'}${r.page ? `<br>Read: ${esc(r.page.title || r.page.url)}` : ''}<br>Cost £${r.cost_gbp.toFixed(4)}`, r.fits ? 'good' : 'bad');
     } catch (e) { stop(); note('writeOut', esc(e.message), 'bad'); }
-    loadSpend();
   });
 
   let savedPrompt = '';
@@ -670,7 +679,6 @@
         body: JSON.stringify({ vars: { ...writeVars(), ...fieldValues() }, body: $('promptBody').value, template: $('template').value }) })).json();
       $('promptOut').textContent = JSON.stringify(r.output, null, 2) + `\n\nCost £${r.cost_gbp.toFixed(4)}`;
     } catch (e) { $('promptOut').textContent = e.message; }
-    loadSpend();
   });
   $('promptSave').addEventListener('click', async () => {
     try {
@@ -699,7 +707,6 @@
       $('designSave').disabled = !r.ok;
       note('designOut', (r.ok ? 'Ready. Check the preview, edit the code below if you like, then save it.' : `Still has problems after one fix up round:<br>${problemList(r.problems)}`) + `<br>Cost £${r.cost_gbp.toFixed(4)}`, r.ok ? 'good' : 'bad');
     } catch (e) { note('designOut', esc(e.message), 'bad'); }
-    loadSpend();
   });
   $('designSave').addEventListener('click', async () => {
     const name = $('designName').value.trim();
@@ -726,7 +733,9 @@
   // Channel names are saved as "Name (service)"; show "Service · Name".
   const chan = p => { const m = (p.channel_name || p.channel_id).match(/^(.*) \((\w+)\)$/); return m ? `${service(m[2])} · ${m[1]}` : p.channel_name || p.channel_id; };
   const chanShort = p => { const m = (p.channel_name || '').match(/\((\w+)\)$/); return m ? service(m[1]) : p.channel_name || p.channel_id; };
-  const thumb = p => `<img src="/public/renders/${encodeURIComponent(p.render_id)}.png" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`;
+  const thumb = p => p.video
+    ? `<video src="/public/renders/${encodeURIComponent(p.render_id)}.mp4#t=11" muted preload="metadata"></video>`
+    : `<img src="/public/renders/${encodeURIComponent(p.render_id)}.png" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`;
   let postList = [];
 
   async function loadChannels() {
@@ -756,7 +765,7 @@
     const p = postList.find(x => x.id === Number(id));
     if (!p) return;
     $('postDetail').innerHTML = `<div class="card-head"><h2>${esc(chan(p))}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
-      <img class="big" src="/public/renders/${encodeURIComponent(p.render_id)}.png" alt="" onerror="this.hidden=true">
+      ${p.video ? `<video class="big" src="/public/renders/${encodeURIComponent(p.render_id)}.mp4" controls muted preload="metadata"></video>` : `<img class="big" src="/public/renders/${encodeURIComponent(p.render_id)}.png" alt="" onerror="this.hidden=true">`}
       <div class="row"><span class="badge ${tone(p)}">${esc(STATUS[p.status] || p.status)}</span><span class="muted">${esc(whenText(p))}</span></div>
       ${p.error ? `<div class="note bad">${esc(p.error)}</div>` : ''}
       <pre>${esc(p.text)}</pre><div class="row">${actions(p)}</div>`;
@@ -790,9 +799,10 @@
     if (!channels.length) return note('postOut', 'Pick at least one channel.', 'bad');
     const mode = $('postMode').value;
     if (mode === 'scheduled' && !$('dueAt').value) return note('postOut', 'Pick a date and time.', 'bad');
+    const video = !$('mediaWrap').hidden && $('postMedia').value === 'video';
     note('postOut', 'Rendering...');
     try {
-      const r = current() ?? await renderNow();
+      const r = video ? await videoNow(m => note('postOut', m)) : current() ?? await renderNow();
       const body = { render_id: r.id, channels, text: $('postText').value, mode };
       if (mode === 'scheduled') body.due_at = new Date($('dueAt').value).toISOString();
       await api('/posts', { method: 'POST', body: JSON.stringify(body) });
@@ -907,7 +917,6 @@
         <button type="button" class="plain small" data-idea="${n}">Use this idea</button>
       </div>`).join('');
     } catch (e) { note('rOut', esc(e.message), 'bad'); }
-    loadSpend();
   });
   $('rIdeas').addEventListener('click', e => {
     const i = ideas[e.target.dataset?.idea];
@@ -930,7 +939,6 @@
       note('aDraftOut', `Added ${r.facts.length} facts with their links. Cost £${r.cost_gbp.toFixed(4)}. Add your own experience, then draft.`, 'good');
     } catch (e) { note('aDraftOut', esc(e.message), 'bad'); }
     $('aFind').disabled = false;
-    loadSpend();
   }
   $('aFind').addEventListener('click', findSources);
   $('aDraft').addEventListener('click', async () => {
@@ -942,7 +950,6 @@
       note('aDraftOut', `Drafted. Cost £${a.cost_gbp.toFixed(4)}`, 'good');
       await loadArticles(a.id);
     } catch (e) { note('aDraftOut', esc(e.message), 'bad'); }
-    loadSpend();
   });
   $('aButtons').addEventListener('click', async e => {
     const act = e.target.dataset?.act;

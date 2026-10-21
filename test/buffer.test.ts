@@ -21,7 +21,7 @@ const fake = http.createServer((req, res) => {
     const { query } = JSON.parse(body);
     const send = (data: unknown) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data })); };
     if (query.includes('organizations')) return send({ account: { organizations: [{ id: 'org1', name: 'Red Cherry IT' }] } });
-    if (query.includes('channels')) return send({ channels: [{ id: 'li1', name: 'rc', displayName: 'Red Cherry IT', service: 'linkedin' }, { id: 'fb1', name: 'rc', displayName: 'Red Cherry IT', service: 'facebook' }] });
+    if (query.includes('channels')) return send({ channels: [{ id: 'li1', name: 'rc', displayName: 'Red Cherry IT', service: 'linkedin' }, { id: 'fb1', name: 'rc', displayName: 'Red Cherry IT', service: 'facebook' }, { id: 'ig1', name: 'rc', displayName: 'Red Cherry IT', service: 'instagram' }] });
     if (next === 'down') { res.statusCode = 502; return res.end('bad gateway'); }
     if (next === 'error') return send({ createPost: { message: 'Channel is disconnected' } });
     created.push(query);
@@ -47,7 +47,8 @@ let renderId = '';
 test('channels come from every Buffer organisation', async () => {
   const res = await app.inject({ method: 'GET', url: '/buffer/channels', headers });
   assert.deepEqual(res.json(), [{ id: 'li1', name: 'Red Cherry IT', service: 'linkedin', organization: 'Red Cherry IT' },
-    { id: 'fb1', name: 'Red Cherry IT', service: 'facebook', organization: 'Red Cherry IT' }]);
+    { id: 'fb1', name: 'Red Cherry IT', service: 'facebook', organization: 'Red Cherry IT' },
+    { id: 'ig1', name: 'Red Cherry IT', service: 'instagram', organization: 'Red Cherry IT' }]);
 });
 
 test('a post waits for approval, then goes to Buffer exactly once with a public image', async () => {
@@ -103,4 +104,26 @@ test('a Facebook post tells Buffer it is a post, and other networks send no meta
   assert.equal(sent.status, 'sent', JSON.stringify(sent));
   assert.match(created.at(-1)!, /metadata: \{ facebook: \{ type: post \} \}/);
   assert.ok(!created.some(q => q.includes('li1') && q.includes('metadata')));
+});
+
+test('a video goes to Buffer as a public MP4, and Instagram gets it as a reel', async () => {
+  const { renderPath } = await import('../src/render.ts');
+  const id = 'a'.repeat(20);
+  const { db } = await import('../src/db.ts');
+  db.prepare(`INSERT INTO renders (id, template, template_version, fields) VALUES (?, 'motion-glow', 1, '{}')`).run(id);
+  fs.writeFileSync(renderPath(id, 'mp4'), 'fake mp4');
+  const post = { render_id: id, channels: [{ id: 'ig1' }, { id: 'fb1' }], text: 'Watch this.', mode: 'queue' };
+  const ps = (await app.inject({ method: 'POST', url: '/posts', headers, payload: post })).json();
+  for (const p of ps) assert.equal((await app.inject({ method: 'POST', url: `/posts/${p.id}/approve`, headers })).json().status, 'sent');
+  const [ig, fb] = created.slice(-2);
+  assert.match(ig, new RegExp(`video: \\{ url: "https://tool.example.com/public/renders/${id}.mp4"`));
+  assert.match(ig, /instagram: \{ type: reel, shouldShareToFeed: true \}/);
+  assert.match(fb, /facebook: \{ type: post \}/);
+  assert.equal((await app.inject({ method: 'GET', url: `/public/renders/${id}.mp4` })).statusCode, 200);
+  const part = await app.inject({ method: 'GET', url: `/public/renders/${id}.mp4`, headers: { range: 'bytes=0-3' } });
+  assert.equal(part.statusCode, 206, 'Safari needs range requests');
+  assert.equal(part.body, 'fake');
+  assert.equal(part.headers['content-range'], 'bytes 0-3/8');
+  const listed = (await app.inject({ method: 'GET', url: '/posts', headers })).json();
+  assert.ok(listed.find((p: any) => p.render_id === id).video, 'the queue shows it as a video');
 });
