@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.ts';
 import { fail, ROOT, SITE_URL } from './config.ts';
-import { current as currentPrompt, parsePrompt, runPrompt, writeCopy } from './copy.ts';
+import { current as currentPrompt, list as listPrompts, parsePrompt, runPrompt, writeCopy } from './copy.ts';
 import { readPage } from './page.ts';
 import { esc, inline, toHtml } from './markdown.ts';
 import { render } from './render.ts';
@@ -30,9 +30,21 @@ function freeSlug(base: string) {
 }
 const CATEGORY = /^\/([a-z0-9-]+\/)+$/;
 
+// Each category has its own structure prompt, article-<last folder>, e.g. article-learn for /guides/learn/.
+// Adding a prompt with that name in the Prompts section adds the category.
+const promptFor = (category: string) => `article-${category.split('/').filter(Boolean).at(-1)}`;
+export const categories = () => (listPrompts() as { name: string }[])
+  .filter(p => p.name.startsWith('article-'))
+  .map(p => p.name.slice(8))
+  .map(c => ({ category: `/guides/${c}/`, label: c.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }));
+function checkCategory(category: string) {
+  if (!CATEGORY.test(category)) fail(400, 'category must look like /guides/stories/');
+  if (!categories().some(c => c.category === category)) fail(400, `There is no ${promptFor(category)} prompt, so ${category} has no article structure yet`);
+}
+
 // Plain rule checks, no AI. Errors stop approval; warnings are for David to look at.
-export function checks(a: Pick<Article, 'body' | 'sources'>) {
-  const rules = parsePrompt(currentPrompt('article').body).settings;
+export function checks(a: Pick<Article, 'body' | 'sources' | 'category'>) {
+  const rules = parsePrompt(currentPrompt(promptFor(a.category)).body).settings;
   const errors: string[] = [], warnings: string[] = [];
   const words = a.body.replace(/[#*_>\[\]()]/g, ' ').split(/\s+/).filter(Boolean).length;
   const min = Number(rules.min_words || 0), max = Number(rules.max_words || Infinity);
@@ -57,11 +69,11 @@ export function checks(a: Pick<Article, 'body' | 'sources'>) {
 
 export async function draft(input: DraftInput) {
   const category = input.category || '/guides/stories/';
-  if (!CATEGORY.test(category)) fail(400, 'category must look like /guides/stories/');
+  checkCategory(category);
   const page = input.url ? await readPage(input.url) : undefined;
   const sources = [input.sources?.trim(), page && `From ${page.url}\nTitle: ${page.title}\n\n${page.text}`].filter(Boolean).join('\n\n');
   if (!sources) fail(400, 'Give some sources or a page link. Articles only use facts from their sources.');
-  const run = await runPrompt('article', { ...input, sources } as Record<string, string>, { job: 'article:draft' });
+  const run = await runPrompt(promptFor(category), { ...input, sources } as Record<string, string>, { job: 'article:draft' });
   const o = run.output as { title: string; summary: string; body: string };
   const r = db.prepare(`INSERT INTO articles (slug, category, title, summary, body, topic, keyword, sources, status)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`)
@@ -73,7 +85,7 @@ export async function draft(input: DraftInput) {
 export function update(id: number, e: { title?: string; summary?: string; body?: string; slug?: string; category?: string; sources?: string }) {
   const a = get(id);
   if (a.status !== 'draft') fail(409, `Only a draft can be edited. This one is ${a.status}.`);
-  if (e.category && !CATEGORY.test(e.category)) fail(400, 'category must look like /guides/stories/');
+  if (e.category) checkCategory(e.category);
   if (e.slug !== undefined && (slugify(e.slug) !== e.slug || db.prepare('SELECT 1 FROM articles WHERE slug = ? AND id != ?').get(e.slug, id)))
     fail(400, 'slug must be lowercase words joined by hyphens, and not used by another article');
   db.prepare(`UPDATE articles SET title = ?, summary = ?, body = ?, slug = ?, category = ?, sources = ?, updated_at = datetime('now') WHERE id = ?`)

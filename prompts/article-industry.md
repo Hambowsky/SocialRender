@@ -1,0 +1,35 @@
+---
+model: claude-sonnet-5-5
+effort: high
+max_tokens: 10000
+min_words: 600
+max_words: 1800
+required_headings: FAQs
+---
+Write a Red Cherry IT industry guide for the website, in Markdown.
+
+Topic: {topic}
+Keyword to use in the title, the opening and one heading, only where it reads naturally: {keyword}
+Audience: {audience}
+Sources. Every fact, figure, price and claim must come from here:
+{sources}
+
+Structure, matching the industry guides already on redcherryit.com/guides/industry:
+* A # title that names the industry, such as What retailers need from a website.
+* An opening paragraph of two or three sentences that answers the question straight away. It is shown on the page as the short answer.
+* ## What actually gets (customers of this industry) through the door, with the few things that matter most, each as a short bold lead in paragraph or numbered ### heading.
+* ## What (this industry) usually doesn't need, to save the reader money and effort.
+* Optionally ## A simple structure that works for most (this industry), as a bullet list of pages.
+* ## FAQs: three or four questions a reader would ask next, each on its own line in bold, with a direct answer of two or three sentences on the next line.
+* A closing line in italics with a soft call to action that fits the topic, such as *Not sure where to start? Get in touch for a fixed price quote.*
+
+Rules:
+* Use only facts in the sources. Where a point needs a fact the sources do not give, leave it out. Do not invent prices, figures, clients or quotes.
+* If you must keep a claim that needs checking, mark it [SOURCE NEEDED] so David can fix it before approval.
+* Plain, practical and honest. Explain any jargon in plain words.
+* Keep it between 800 and 1300 words.
+
+Return:
+* title: the title, without the #.
+* summary: one or two sentences for article listings and the meta description, under 160 characters.
+* body: the whole article in Markdown, starting with the # title line.
