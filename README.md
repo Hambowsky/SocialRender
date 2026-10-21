@@ -1,6 +1,6 @@
 # Red Cherry IT social and content tool
 
-The studio page has four sections, picked from the top bar: Social (image, Write with Claude, Post to Buffer, calendar), Articles, Templates (code, versions and the designer) and Prompts.
+The studio page has two areas, picked from the top bar. Marketing has Social (image, Write with Claude, Post to Buffer, calendar), Articles, Templates (code, versions and the designer) and Prompts. Sales has Leads, where the leads tool is moving in one part at a time. Each page lists its area with `data-section` on its nav link.
 
 Phase 1: the renderer and editor. Fills an HTML template with text and saves it as a 1080 by 1080 PNG.
 Phase 2: Claude copywriting. Writes the text for a template, checks it fits, and writes a caption.

@@ -31,6 +31,10 @@
   nav a { padding: 8px 14px; border-radius: 999px; text-decoration: none; color: var(--body); font-weight: 600; white-space: nowrap; }
   nav a:hover { background: var(--grey-soft); }
   nav a.on { background: var(--red-soft); color: var(--red); }
+  /* Marketing or Sales: picks which pages the nav shows */
+  .sections { display: flex; padding: 3px; border: 1px solid var(--line); border-radius: 999px; background: var(--grey-soft); }
+  .sections a { padding: 6px 14px; border-radius: 999px; text-decoration: none; color: var(--body); font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .sections a.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
   .pill { font-size: 13px; color: var(--body); background: var(--grey-soft); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
   .keybox { position: relative; }
   .keybox .pop { position: absolute; right: 0; top: 46px; width: 300px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; display: grid; gap: 8px; }
@@ -49,7 +53,7 @@
   @media (max-width: 1180px) { .social-top { grid-template-columns: 1fr 1fr; } .social-top > :nth-child(2) { grid-row: 1 / 3; grid-column: 2; } }
   @media (max-width: 820px) {
     .social-top, .two, .wide-left { grid-template-columns: 1fr; } .social-top > :nth-child(2) { grid-row: auto; grid-column: auto; }
-    .bar { gap: 6px 14px; padding: 10px 16px 6px; height: auto; flex-wrap: wrap; } .bar > a { flex: 1; } nav { order: 3; flex-basis: 100%; }
+    .bar { gap: 6px 14px; padding: 10px 16px 6px; height: auto; flex-wrap: wrap; } .bar > a { flex: 1; } .sections { order: 3; } nav { order: 4; flex: 1 1 0; min-width: 0; }
     main { padding: 16px; } .pill { display: none; }
   }
 
@@ -160,11 +164,16 @@
 <header>
   <div class="bar">
     <a href="#social"><img src="/assets/logo.png" alt="Red Cherry IT" width="159" height="30"></a>
-    <nav aria-label="Sections">
-      <a href="#social" data-view="social">Social</a>
-      <a href="#articles" data-view="articles">Articles</a>
-      <a href="#templates" data-view="templates">Templates</a>
-      <a href="#prompts" data-view="prompts">Prompts</a>
+    <div class="sections" role="group" aria-label="Area">
+      <a href="#social" data-section="marketing">Marketing</a>
+      <a href="#leads" data-section="sales">Sales</a>
+    </div>
+    <nav aria-label="Pages">
+      <a href="#social" data-view="social" data-section="marketing">Social</a>
+      <a href="#articles" data-view="articles" data-section="marketing">Articles</a>
+      <a href="#templates" data-view="templates" data-section="marketing">Templates</a>
+      <a href="#prompts" data-view="prompts" data-section="marketing">Prompts</a>
+      <a href="#leads" data-view="leads" data-section="sales">Leads</a>
     </nav>
     <span class="pill" id="spend">Claude spend</span>
     <div class="keybox">
@@ -352,6 +361,14 @@
 </section>
 
 <!-- Prompts -->
+<!-- Sales: the leads tool moves in here, one part at a time -->
+<section class="view" data-view="leads" hidden>
+  <div class="card">
+    <h2>Leads</h2>
+    <p class="muted">Campaigns, finding businesses and website checks come here next. Your current leads tool keeps working until everything in it is here.</p>
+  </div>
+</section>
+
 <section class="view" data-view="prompts" hidden>
   <div class="cols wide-left">
     <div class="card" id="prompts">
@@ -399,10 +416,17 @@
   const problemList = ps => ps.map(p => esc(p.message)).join('<br>');
 
   // Views. The preview card moves to whichever view needs it.
+  // Each page belongs to an area (Marketing or Sales); the nav shows the current area's pages only.
   const loaded = {};
   let checkPending = false;
   function show() {
-    const view = location.hash.slice(1) || 'social';
+    const link = document.querySelector(`nav a[data-view="${CSS.escape(location.hash.slice(1))}"]`) ?? document.querySelector('nav a');
+    const view = link.dataset.view, area = link.dataset.section;
+    for (const a of document.querySelectorAll('nav a')) a.hidden = a.dataset.section !== area;
+    for (const a of document.querySelectorAll('.sections a')) {
+      a.classList.toggle('on', a.dataset.section === area);
+      if (a.dataset.section === area) a.href = `#${view}`; // the area link goes back to the last page used in it
+    }
     if (oneOff) refresh(); // the one off change shows on Social only, the saved template under Templates
     const ok = !!$('key').value;
     $('welcome').hidden = ok;
@@ -448,6 +472,7 @@
       const keep = $('template').value;
       $('template').innerHTML = $('tplPick').innerHTML = list.map(t => `<option>${esc(t.name)}</option>`).join('');
       if (keep && list.some(t => t.name === keep)) $('template').value = keep;
+      else if (list.some(t => t.name === 'social-post')) $('template').value = 'social-post'; // not the article header, which sorts first
       await loadTemplate($('template').value === keep);
     } catch (e) { status(esc(e.message), 'bad'); }
   }
