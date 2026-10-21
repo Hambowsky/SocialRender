@@ -389,6 +389,7 @@
 
   // Views. The preview card moves to whichever view needs it.
   const loaded = {};
+  let checkPending = false;
   function show() {
     const view = location.hash.slice(1) || 'social';
     const ok = !!$('key').value;
@@ -399,6 +400,7 @@
     if (view === 'templates' && card.parentElement !== $('previewSlot')) $('previewSlot').append(card);
     if (view === 'social' && card.parentElement === $('previewSlot')) $('f').after(card);
     fitPreview();
+    if (checkPending && $('preview').offsetParent) $('preview').onload();
     if (!ok) return;
     if (view === 'articles' && !loaded.articles) { loaded.articles = true; loadArticles(); }
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
@@ -463,9 +465,12 @@
       } catch (e) { status(esc(e.message), 'bad'); }
     }, 250);
   }
+  // A preview in a hidden section has no size, so its check waits until the section is shown.
   $('preview').onload = async () => {
     const check = $('preview').contentWindow.layoutErrors;
     if (!check) return;
+    if (!$('preview').offsetParent) return checkPending = true;
+    checkPending = false;
     const problems = await check();
     problems.length ? status(problemList(problems), 'bad') : status($('html').value === savedHtml ? 'Everything fits.' : 'Everything fits. Template edits are not saved yet.', 'good');
   };
