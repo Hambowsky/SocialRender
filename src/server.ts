@@ -184,6 +184,10 @@ export function buildApp() {
   }, async req => articles.draft(req.body));
   app.get('/articles', async () => articles.list());
   app.get('/articles/categories', async () => articles.categories());
+  app.get<{ Querystring: { category: string } }>('/articles/in-category', { schema: { querystring: { type: 'object', required: ['category'], properties: { category: { type: 'string', maxLength: 100 } } } } },
+    async req => articles.inCategory(req.query.category));
+  app.post<{ Body: { category: string; slug: string } }>('/articles/import', { schema: { body: { type: 'object', additionalProperties: false, required: ['category', 'slug'],
+    properties: { category: { type: 'string', maxLength: 100 }, slug: { type: 'string', maxLength: 120 } } } } }, async req => articles.importPage(req.body.category, req.body.slug));
   app.get<{ Params: { id: number } }>('/articles/:id', { schema: { params: articleId } }, async req => articles.show(req.params.id));
   app.put<{ Params: { id: number }; Body: Parameters<typeof articles.update>[1] }>('/articles/:id', {
     schema: { params: articleId, body: { type: 'object', additionalProperties: false, properties: {

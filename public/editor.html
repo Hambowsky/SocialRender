@@ -398,16 +398,29 @@
   const A_STATUS = { draft: 'Draft', approved: 'Approved, ready to publish', published: 'Published', rejected: 'Rejected' };
   async function loadArticles(select) {
     try {
-      const [list, cats] = await Promise.all([api('/articles').then(r => r.json()), api('/articles/categories').then(r => r.json())]);
-      const pick = $('aCategory').value;
-      $('aCategory').innerHTML = cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('');
-      if (cats.some(c => c.category === pick)) $('aCategory').value = pick;
-      $('aList').innerHTML = '<option value="">Pick an article</option>' + list.map(a => `<option value="${a.id}">${esc(a.title)} (${esc(A_STATUS[a.status] || a.status)})</option>`).join('');
+      if ($('aCategory').options.length < 2) {
+        const pick = $('aCategory').value, cats = await (await api('/articles/categories')).json();
+        $('aCategory').innerHTML = cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('');
+        if (cats.some(c => c.category === pick)) $('aCategory').value = pick;
+      }
+      $('aList').innerHTML = '<option value="">Loading...</option>';
+      const list = await (await api('/articles/in-category?category=' + encodeURIComponent($('aCategory').value))).json();
+      $('aList').innerHTML = `<option value="">Pick an article (${list.length})</option>` + list.map(a => a.id
+        ? `<option value="${a.id}">${esc(a.title)} (${esc(A_STATUS[a.status] || a.status)})</option>`
+        : `<option value="site:${esc(a.slug)}">${esc(a.title)} (on the website)</option>`).join('');
       if (select) $('aList').value = select;
       await showArticle();
     } catch (e) { $('aDraftOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
   }
   async function showArticle(a) {
+    if ($('aList').value.startsWith('site:')) {
+      $('aOut').textContent = 'Opening the page from the website...';
+      try {
+        const imported = await (await api('/articles/import', { method: 'POST', body: JSON.stringify({ category: $('aCategory').value, slug: $('aList').value.slice(5) }) })).json();
+        $('aOut').textContent = '';
+        return loadArticles(imported.id);
+      } catch (e) { return $('aOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    }
     const id = $('aList').value;
     $('aEditor').hidden = !id;
     if (!id) return $('aPreview').srcdoc = '';
@@ -431,6 +444,7 @@
   }
   $('articles').addEventListener('toggle', () => { if ($('articles').open && $('key').value) loadArticles($('aList').value); });
   $('aList').addEventListener('change', () => showArticle());
+  $('aCategory').addEventListener('change', () => { if ($('key').value) loadArticles(); });
   $('aDraft').addEventListener('click', async () => {
     $('aDraftOut').textContent = 'Drafting. This can take a minute or two...';
     try {

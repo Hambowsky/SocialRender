@@ -2,9 +2,9 @@
 model: claude-sonnet-5-5
 effort: high
 max_tokens: 10000
-min_words: 600
-max_words: 1800
-required_headings: A simple way to decide | FAQs
+min_words: 400
+max_words: 1200
+required_headings: FAQs
 ---
 Write a Red Cherry IT comparison for the website, in Markdown.
 
@@ -27,7 +27,7 @@ Rules:
 * Use only facts in the sources. Where a point needs a fact the sources do not give, leave it out. Do not invent prices, figures, clients or quotes.
 * If you must keep a claim that needs checking, mark it [SOURCE NEEDED] so David can fix it before approval.
 * Plain, practical and honest. Explain any jargon in plain words.
-* Keep it between 800 and 1300 words.
+* Keep it between 450 and 750 words, like the guides already on the site.
 
 Return:
 * title: the title, without the #.
