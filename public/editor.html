@@ -78,14 +78,14 @@
 
 <details id="articles">
   <summary>Articles</summary>
-  <p>Claude drafts an article from your sources in the case study structure. The app checks it, you edit and approve it, then Publish puts it on the website in the same layout as your other guides. Nothing goes on the website until you press Publish.</p>
+  <p>Claude drafts an article from your sources in the structure for the category you pick. The app checks it, you edit and approve it, then Publish puts it on the website in the same layout as your other guides. Nothing goes on the website until you press Publish.</p>
   <main>
     <div class="side">
       <label>Topic <input id="aTopic" placeholder="The payments portal we built"></label>
       <label>Keyword <input id="aKeyword"></label>
       <label>Audience <input id="aAudience" placeholder="UK business owners"></label>
       <label>Page link (optional) <input id="aUrl" type="url"></label>
-      <label>Site folder <input id="aCategory" value="/guides/stories/"></label>
+      <label>Category <select id="aCategory"><option value="/guides/stories/">Stories</option></select></label>
     </div>
     <div class="side">
       <label>Sources: notes, facts, results and quotes. The article only uses what is here. <textarea id="aSources" rows="9"></textarea></label>
@@ -398,7 +398,10 @@
   const A_STATUS = { draft: 'Draft', approved: 'Approved, ready to publish', published: 'Published', rejected: 'Rejected' };
   async function loadArticles(select) {
     try {
-      const list = await (await api('/articles')).json();
+      const [list, cats] = await Promise.all([api('/articles').then(r => r.json()), api('/articles/categories').then(r => r.json())]);
+      const pick = $('aCategory').value;
+      $('aCategory').innerHTML = cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('');
+      if (cats.some(c => c.category === pick)) $('aCategory').value = pick;
       $('aList').innerHTML = '<option value="">Pick an article</option>' + list.map(a => `<option value="${a.id}">${esc(a.title)} (${esc(A_STATUS[a.status] || a.status)})</option>`).join('');
       if (select) $('aList').value = select;
       await showArticle();

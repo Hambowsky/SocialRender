@@ -183,6 +183,7 @@ export function buildApp() {
       sources: { type: 'string', maxLength: 40000 } } } },
   }, async req => articles.draft(req.body));
   app.get('/articles', async () => articles.list());
+  app.get('/articles/categories', async () => articles.categories());
   app.get<{ Params: { id: number } }>('/articles/:id', { schema: { params: articleId } }, async req => articles.show(req.params.id));
   app.put<{ Params: { id: number }; Body: Parameters<typeof articles.update>[1] }>('/articles/:id', {
     schema: { params: articleId, body: { type: 'object', additionalProperties: false, properties: {

@@ -28,8 +28,9 @@ const serve = (handler: (body: any) => unknown) => http.createServer((req, res) 
 });
 const claude = serve(r => {
   const prompt = JSON.stringify(r.messages);
+  if (prompt.includes('Red Cherry IT explainer')) claudeCalls.push('learn');
   claudeCalls.push(prompt.includes('Red Cherry IT article') ? 'article' : prompt.includes('Write the caption') ? 'caption' : 'post');
-  const out = prompt.includes('Red Cherry IT article')
+  const out = /Red Cherry IT (article|explainer)/.test(prompt)
     ? { title: 'Building an Information Portal for a Financial Services Business', summary: 'How we built a portal that publishes three articles a week.', body: exampleBody }
     : prompt.includes('Write the caption')
     ? { caption: 'How a payments business publishes three articles a week without a developer.', hashtags: ['#WebDesign', '#SEO', '#ContentMarketing'] }
@@ -144,4 +145,16 @@ test('approve, publish to the site repo, then queue one social post for approval
   assert.equal(again.reused, true);
   assert.equal(again.posts[0].id, s.posts[0].id);
   assert.equal(claudeCalls.length, before + 2, 'Claude is not asked twice');
+});
+
+test('each category drafts with its own structure prompt', async () => {
+  const cats = (await call('GET', '/articles/categories')).json();
+  assert.ok(cats.some((c: any) => c.category === '/guides/learn/' && c.label === 'Learn'), JSON.stringify(cats));
+  assert.equal((await call('POST', '/articles', { topic: 'x', sources, category: '/guides/tools/' })).statusCode, 400, 'no article-tools prompt yet');
+  const res = await call('POST', '/articles', { topic: 'Portals explained', sources, category: '/guides/learn/' });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(claudeCalls.at(-2), 'learn');
+  assert.match(res.json().url, /\/guides\/learn\//);
+  const a = (await call('PUT', `/articles/${res.json().id}`, { body: exampleBody.replace('## The challenge', '## Background') })).json();
+  assert.deepEqual(a.checks.errors, [], 'learn articles do not need the story headings');
 });
