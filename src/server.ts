@@ -259,6 +259,8 @@ export function buildApp() {
     lead_type: { enum: leads.LEAD_TYPES }, max_leads: { type: 'integer', minimum: 1, maximum: 100 },
     sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } } } };
   app.get('/campaigns', async () => leads.campaigns());
+  app.get<{ Querystring: { q: string } }>('/campaigns/towns', { schema: { querystring: { type: 'object', required: ['q'], properties: { q: { type: 'string', maxLength: 60 } } } } },
+    async req => leads.towns(req.query.q));
   app.post<{ Body: leads.CampaignInput }>('/campaigns', { schema: { body: campaignBody } }, async (req, reply) => reply.code(201).send(leads.createCampaign(req.body)));
   app.get<{ Params: { id: number } }>('/campaigns/:id', { schema: { params: id } }, async req => leads.campaign(req.params.id));
   app.put<{ Params: { id: number }; Body: leads.CampaignInput }>('/campaigns/:id', { schema: { params: id, body: campaignBody } }, async req => leads.updateCampaign(req.params.id, req.body));

@@ -9,7 +9,9 @@ export const LEAD_TYPES = ['no_website', 'outdated_website', 'both'] as const;
 export const SOURCES = ['places', 'directories'] as const;
 export const STATUSES = ['new', 'contacted', 'replied', 'bounced', 'converted', 'not_interested', 'not_a_fit', 'archived'] as const;
 // Google gives 1,000 Text Search calls with phone and website free each month; stay under that unless told otherwise.
-const MONTHLY_CALLS = { places: Number(process.env.PLACES_MONTHLY_CALLS || 900), firecrawl: Number(process.env.FIRECRAWL_MONTHLY_CALLS || 500) };
+// Town suggestions are a cheaper Google product with 10,000 free a month; half of that is plenty for typing.
+const MONTHLY_CALLS = { places: Number(process.env.PLACES_MONTHLY_CALLS || 900), firecrawl: Number(process.env.FIRECRAWL_MONTHLY_CALLS || 500), towns: 5000 };
+type Api = keyof typeof MONTHLY_CALLS;
 const MAX_COMBOS = 25;
 const DIRECTORIES = ['yell.com', 'freeindex.co.uk', 'scoot.co.uk', 'checkatrade.com', 'ratedpeople.com', 'mybuilder.com', 'facebook.com/pages', 'linkedin.com/company'];
 
@@ -69,15 +71,15 @@ export function deleteCampaign(id: number) {
 
 // ---- Searching ----
 
-function used(api: 'places' | 'firecrawl') {
+function used(api: Api) {
   return (db.prepare(`SELECT COUNT(*) AS n FROM api_cache WHERE key LIKE ? AND created_at >= datetime('now', 'start of month')`).get(`${api}:%`) as { n: number }).n;
 }
 
-async function cached<T>(api: 'places' | 'firecrawl', request: unknown, call: () => Promise<T>): Promise<T> {
+async function cached<T>(api: Api, request: unknown, call: () => Promise<T>): Promise<T> {
   const key = `${api}:${crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex')}`;
   const hit = db.prepare(`SELECT body FROM api_cache WHERE key = ? AND created_at > datetime('now', '-1 day')`).get(key) as { body: string } | undefined;
   if (hit) return JSON.parse(hit.body);
-  if (used(api) >= MONTHLY_CALLS[api]) fail(429, `The monthly limit of ${MONTHLY_CALLS[api]} ${api === 'places' ? 'Google Places' : 'Firecrawl'} searches is used up`);
+  if (used(api) >= MONTHLY_CALLS[api]) fail(429, `The monthly limit of ${MONTHLY_CALLS[api]} ${{ places: 'Google Places searches', firecrawl: 'Firecrawl searches', towns: 'town suggestions' }[api]} is used up`);
   const body = await call();
   db.prepare(`INSERT INTO api_cache (key, body) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET body = excluded.body, created_at = datetime('now')`).run(key, JSON.stringify(body));
   return body;
@@ -111,6 +113,26 @@ async function places(industry: string, town: string, want: number): Promise<Fou
     if (!pageToken) break;
   }
   return out;
+}
+
+// UK towns and cities as you type, so a campaign searches a real place. Suggestions are a nicety: any problem gives none.
+export async function towns(q: string): Promise<{ name: string; area: string }[]> {
+  if (!GOOGLE_PLACES_API_KEY || q.trim().length < 2) return [];
+  const req = { input: q.trim().toLowerCase(), includedRegionCodes: ['gb'], includedPrimaryTypes: ['locality', 'postal_town'] };
+  type Prediction = { placePrediction?: { structuredFormat?: { mainText?: { text: string }; secondaryText?: { text: string } } } };
+  try {
+    const data = await cached('towns', req, async () => {
+      const res = await fetch(`${GOOGLE_PLACES_URL}/v1/places:autocomplete`, { method: 'POST', signal: AbortSignal.timeout(8_000),
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': GOOGLE_PLACES_API_KEY }, body: JSON.stringify(req) });
+      if (!res.ok) fail(502, `Google said ${res.status}`);
+      return await res.json() as { suggestions?: Prediction[] };
+    });
+    // The main text never has a comma, which matters because towns are stored as a comma separated list.
+    return (data.suggestions ?? []).flatMap(s => {
+      const f = s.placePrediction?.structuredFormat;
+      return f?.mainText?.text ? [{ name: f.mainText.text, area: f.secondaryText?.text ?? '' }] : [];
+    });
+  } catch { return []; }
 }
 
 // Directory listings are businesses that advertise somewhere other than their own site: a strong no website signal.
