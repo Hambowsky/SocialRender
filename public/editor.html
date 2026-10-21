@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Red Cherry IT Studio</title>
-<link rel="icon" href="/assets/logo.png">
+<link rel="icon" type="image/png" href="/assets/favicon.png">
 <style>
   @font-face { font-family: Archivo; font-weight: 400; src: url(/fonts/archivo-latin-400-normal.woff2) format('woff2'); }
   @font-face { font-family: Archivo; font-weight: 500 700; src: url(/fonts/archivo-latin-500-normal.woff2) format('woff2'); }
@@ -182,7 +182,7 @@
       <div class="card-head"><h2>Image</h2></div>
       <label>Template <select id="template"></select></label>
       <div id="fields" class="fields"></div>
-      <button>Render and download PNG</button>
+      <div class="row"><button style="flex:1">Render</button><button type="button" class="plain" id="download" disabled style="flex:1">Download PNG</button></div>
       <div id="status" class="note" aria-live="polite"></div>
     </form>
     <div class="card" id="previewCard">
@@ -421,8 +421,21 @@
     refresh();
   }
 
+  // The last render, reused for posting and downloading until the template or text changes.
+  let lastRender;
+  const renderKey = () => JSON.stringify([$('template').value, fieldValues(), savedHtml]);
+  const current = () => lastRender?.key === renderKey() ? lastRender : undefined;
+  async function renderNow() {
+    const key = renderKey();
+    const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) })).json();
+    lastRender = { id: r.id, template: $('template').value, key };
+    $('download').disabled = false;
+    return lastRender;
+  }
+
   let timer;
   function refresh() {
+    $('download').disabled = !current();
     clearTimeout(timer);
     timer = setTimeout(async () => {
       try {
@@ -446,14 +459,18 @@
     e.preventDefault();
     status('Rendering...');
     try {
-      const res = await api('/render', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) });
-      const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await res.blob()), download: `${$('template').value}-${res.headers.get('x-render-id')}.png` });
-      a.click();
-      URL.revokeObjectURL(a.href);
-      status('Downloaded.', 'good');
+      await renderNow();
+      status('Rendered. Post it to Buffer below, or download it.', 'good');
     } catch (err) {
       status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
     }
+  });
+  $('download').addEventListener('click', async () => {
+    const r = current();
+    if (!r) return;
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await (await fetch(`/public/renders/${r.id}.png`)).blob()), download: `${r.template}-${r.id}.png` });
+    a.click();
+    URL.revokeObjectURL(a.href);
   });
 
   $('save').addEventListener('click', async () => {
@@ -639,7 +656,7 @@
     if (mode === 'scheduled' && !$('dueAt').value) return note('postOut', 'Pick a date and time.', 'bad');
     note('postOut', 'Rendering...');
     try {
-      const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) })).json();
+      const r = current() ?? await renderNow();
       const body = { render_id: r.id, channels, text: $('postText').value, mode };
       if (mode === 'scheduled') body.due_at = new Date($('dueAt').value).toISOString();
       await api('/posts', { method: 'POST', body: JSON.stringify(body) });
