@@ -2,7 +2,7 @@
 // Searching costs money per call, so every answer is cached for a day and calls are capped per month.
 import crypto from 'node:crypto';
 import { db } from './db.ts';
-import { fail, FIRECRAWL_API_KEY, FIRECRAWL_API_URL, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL } from './config.ts';
+import { fail, GBP_PER_USD, FIRECRAWL_API_KEY, FIRECRAWL_API_URL, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL } from './config.ts';
 import { checkSite, type SiteCheck } from './sitecheck.ts';
 
 export const LEAD_TYPES = ['no_website', 'outdated_website', 'both'] as const;
@@ -12,6 +12,8 @@ export const STATUSES = ['new', 'contacted', 'replied', 'bounced', 'converted', 
 // Town suggestions are a cheaper Google product with 10,000 free a month; half of that is plenty for typing.
 const MONTHLY_CALLS = { places: Number(process.env.PLACES_MONTHLY_CALLS || 900), firecrawl: Number(process.env.FIRECRAWL_MONTHLY_CALLS || 500), towns: 5000 };
 type Api = keyof typeof MONTHLY_CALLS;
+// Google's price for Text Search with phone and website (Enterprise), after the first 1,000 free each month.
+const GOOGLE_FREE = 1000, GOOGLE_USD_EACH = 0.035;
 const MAX_COMBOS = 25;
 const DIRECTORIES = ['yell.com', 'freeindex.co.uk', 'scoot.co.uk', 'checkatrade.com', 'ratedpeople.com', 'mybuilder.com', 'facebook.com/pages', 'linkedin.com/company'];
 
@@ -19,7 +21,8 @@ export type CampaignInput = { name: string; industries: string; towns: string; l
 type Campaign = Omit<CampaignInput, 'sources'> & { id: number; sources: string; status: string; last_run_at: string | null; last_run_summary: string | null };
 type Found = { company_name: string; phone: string; email: string; website_url: string; address: string; postcode: string; town: string;
   industry: string; source: string; source_ref: string; rating: number | null; reviews: number | null };
-type Progress = { stage: string; found: number; checked: number; added: number; duplicates: number; not_matching: number };
+type Progress = { stage: string; found: number; checked: number; added: number; duplicates: number; not_matching: number;
+  google_searches?: number; google_cost_gbp?: number; firecrawl_searches?: number; firecrawl_credits?: number };
 
 const list_ = (s: string) => [...new Set(s.split(',').map(x => x.trim()).filter(Boolean))];
 
@@ -71,13 +74,24 @@ export function deleteCampaign(id: number) {
 
 // ---- Searching ----
 
+// What searching has used this calendar month: Google calls against its free 1,000, and Firecrawl credits (they bill by credit).
+export function usage() {
+  const firecrawl = db.prepare(`SELECT COUNT(*) AS calls, COALESCE(SUM(json_extract(body, '$.creditsUsed')), 0) AS credits FROM api_cache
+    WHERE key LIKE 'firecrawl:%' AND created_at >= datetime('now', 'start of month')`).get() as { calls: number; credits: number };
+  const google = used('places');
+  return { google_searches: google, google_free: GOOGLE_FREE, google_cost_gbp: googleCost(0, google), firecrawl_searches: firecrawl.calls, firecrawl_credits: firecrawl.credits };
+}
+// Cost of the Google calls between two month counts, counting only those past the free allowance.
+const googleCost = (from: number, to: number) => +(Math.max(0, to - Math.max(from, GOOGLE_FREE)) * GOOGLE_USD_EACH * GBP_PER_USD).toFixed(2);
+
 function used(api: Api) {
   return (db.prepare(`SELECT COUNT(*) AS n FROM api_cache WHERE key LIKE ? AND created_at >= datetime('now', 'start of month')`).get(`${api}:%`) as { n: number }).n;
 }
 
+// One row per paid call: the key carries the day, so answers are reused until midnight (UTC) and every call is counted.
 async function cached<T>(api: Api, request: unknown, call: () => Promise<T>): Promise<T> {
-  const key = `${api}:${crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex')}`;
-  const hit = db.prepare(`SELECT body FROM api_cache WHERE key = ? AND created_at > datetime('now', '-1 day')`).get(key) as { body: string } | undefined;
+  const key = `${api}:${new Date().toISOString().slice(0, 10)}:${crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex')}`;
+  const hit = db.prepare('SELECT body FROM api_cache WHERE key = ?').get(key) as { body: string } | undefined;
   if (hit) return JSON.parse(hit.body);
   if (used(api) >= MONTHLY_CALLS[api]) fail(429, `The monthly limit of ${MONTHLY_CALLS[api]} ${{ places: 'Google Places searches', firecrawl: 'Firecrawl searches', towns: 'town suggestions' }[api]} is used up`);
   const body = await call();
@@ -230,7 +244,14 @@ export function run(id: number) {
     db.prepare('UPDATE campaigns SET status = ?, last_run_summary = ? WHERE id = ?').run(status, JSON.stringify(summary), id);
     running.delete(id);
   };
-  work(c, p).then(() => finish('done', { ...p, stage: undefined }), err => finish('failed', { ...p, stage: undefined, error: (err as Error).message }));
+  // Searches answered from the cache cost nothing, so the run's cost is the change in this month's counts.
+  const before = usage();
+  const spent = () => {
+    const after = usage();
+    return { google_searches: after.google_searches - before.google_searches, google_cost_gbp: googleCost(before.google_searches, after.google_searches),
+      firecrawl_searches: after.firecrawl_searches - before.firecrawl_searches, firecrawl_credits: after.firecrawl_credits - before.firecrawl_credits };
+  };
+  work(c, p).then(() => finish('done', { ...p, ...spent(), stage: undefined }), err => finish('failed', { ...p, ...spent(), stage: undefined, error: (err as Error).message }));
   return campaign(id);
 }
 
