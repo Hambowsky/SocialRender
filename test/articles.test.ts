@@ -56,7 +56,10 @@ const github = http.createServer((req, res) => {
     const u = decodeURIComponent(req.url!.replace('/repos/me/site', '').split('?')[0]);
     if (req.headers.authorization !== 'Bearer fake') return send({ message: 'Bad credentials' }, 401);
     if (u === '/git/ref/heads/main') return send({ object: { sha: `head${commits.length}` } });
-    if (u.startsWith('/contents/')) { const f = repo[u.slice(10)]; return f === undefined ? send({}, 404) : send({ content: Buffer.from(f).toString('base64') }); }
+    if (u.startsWith('/contents/')) {
+      const k = u.slice(10), f = repo[k], kids = Object.keys(repo).filter(p => p.startsWith(k + '/')).map(p => ({ name: p.slice(k.length + 1) }));
+      return f !== undefined ? send({ content: Buffer.from(f).toString('base64') }) : kids.length ? send(kids) : send({}, 404);
+    }
     if (u.startsWith('/git/commits/')) return send({ tree: { sha: 't' } });
     if (u === '/git/trees') { pending = JSON.parse(b).tree; return send({ sha: 'nt' }); }
     if (u === '/git/commits') { const m = JSON.parse(b).message; pending.message = m; return send({ sha: `c${commits.length + 1}` }); }
@@ -157,4 +160,34 @@ test('each category drafts with its own structure prompt', async () => {
   assert.match(res.json().url, /\/guides\/learn\//);
   const a = (await call('PUT', `/articles/${res.json().id}`, { body: exampleBody.replace('## The challenge', '## Background') })).json();
   assert.deepEqual(a.checks.errors, [], 'learn articles do not need the story headings');
+});
+
+test('a page already on the site can be opened, edited and published again, keeping its own extras', async () => {
+  // A live page that the tool did not make: built from the shell, with its own cards and banner heading.
+  const { page } = await import('../src/articles.ts');
+  repo['guides/learn/index.html'] = '<div class="guide-list">\n      </div>';
+  repo['guides/learn/old-guide.html'] = page({ title: 'An old guide', summary: 'Old summary.', category: '/guides/learn/', slug: 'old-guide',
+    body: '# An old guide\n\nThe short answer.\n\n## Steps\n\n1. First\n2. Second\n\nSee [pricing](https://redcherryit.com/pricing).\n\n## FAQs\n\n**Is it hard?**\nNo, it is easy.\n\n*No jargon. No stress.*' }, '2026-08-10')
+    .replace('<h2>Ready To Get Started?</h2>', '<h2>Not Sure Where To Start?</h2>').replace('See More Of Our Client Success Stories', 'More Learn Guides');
+  const list = (await call('GET', '/articles/in-category?category=/guides/learn/')).json();
+  assert.ok(list.some((a: any) => a.slug === 'old-guide' && a.status === 'on_site'), JSON.stringify(list));
+  const a = (await call('POST', '/articles/import', { category: '/guides/learn/', slug: 'old-guide' })).json();
+  assert.equal(a.status, 'published');
+  assert.equal(a.title, 'An old guide');
+  assert.equal(a.summary, 'Old summary.');
+  assert.match(a.body, /^# An old guide\n\nThe short answer\.\n\n## Steps\n\n1\. First\n2\. Second\n\nSee \[pricing\]\(https:\/\/redcherryit\.com\/pricing\)\.\n\n## FAQs\n\n\*\*Is it hard\?\*\*\nNo, it is easy\.\n\n\*No jargon\. No stress\.\*$/);
+  assert.equal((await call('POST', '/articles/import', { category: '/guides/learn/', slug: 'old-guide' })).json().id, a.id, 'opening it again reuses it');
+  assert.ok(!(await call('GET', '/articles/in-category?category=/guides/learn/')).json().some((x: any) => x.status === 'on_site'));
+
+  await call('POST', `/articles/${a.id}/reopen`);
+  const body = a.body.replace('The short answer.', 'The new short answer.').replace('## FAQs', 'Plain words here. '.repeat(200) + '\n\n## FAQs');
+  assert.equal((await call('PUT', `/articles/${a.id}`, { body })).statusCode, 200);
+  assert.equal((await call('POST', `/articles/${a.id}/approve`)).statusCode, 200);
+  assert.equal((await call('POST', `/articles/${a.id}/publish`)).statusCode, 200);
+  const html = repo['guides/learn/old-guide.html'];
+  assert.match(html, /The new short answer/);
+  assert.match(html, /<h2>Not Sure Where To Start\?<\/h2>/, 'banner heading kept');
+  assert.match(html, /More Learn Guides/, 'related cards kept');
+  assert.match(html, /<p>No jargon\. No stress\.<\/p>/);
+  assert.match(html, /"datePublished": "2026-08-10"/);
 });

@@ -2,8 +2,8 @@
 model: claude-sonnet-5-5
 effort: high
 max_tokens: 10000
-min_words: 600
-max_words: 1800
+min_words: 400
+max_words: 1200
 required_headings: The challenge | What we built | The result | Why | FAQs
 ---
 Write a Red Cherry IT article for the website, in Markdown.
@@ -27,7 +27,7 @@ Follow the structure of the example article in the voice guide:
 Rules:
 * Use only facts in the sources. Where a point needs a fact the sources do not give, leave it out. Do not invent clients, results, numbers or quotes.
 * If you must keep a claim that needs checking, mark it [SOURCE NEEDED] so David can fix it before approval.
-* Keep it between 600 and 1500 words.
+* Keep it between 450 and 750 words, like the guides already on the site.
 
 Return:
 * title: the title, without the #.

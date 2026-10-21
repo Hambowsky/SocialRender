@@ -6,10 +6,10 @@ import { db } from './db.ts';
 import { fail, ROOT, SITE_URL } from './config.ts';
 import { current as currentPrompt, list as listPrompts, parsePrompt, runPrompt, writeCopy } from './copy.ts';
 import { readPage } from './page.ts';
-import { esc, inline, toHtml } from './markdown.ts';
+import { esc, fromHtml, inline, toHtml, unesc } from './markdown.ts';
 import { render } from './render.ts';
 import * as posts from './posts.ts';
-import { publishPage } from './site.ts';
+import { publishPage, sitePage, sitePages } from './site.ts';
 
 type Article = { id: number; slug: string; category: string; title: string; summary: string; body: string; topic: string; keyword: string; sources: string; status: string; published_at: string | null };
 export type DraftInput = { topic: string; keyword?: string; audience?: string; sources?: string; url?: string; category?: string };
@@ -20,6 +20,44 @@ const articleUrl = (a: Article) => `${SITE_URL}${a.category}${a.slug}`;
 
 export const list = () => db.prepare(`SELECT id, slug, category, title, status, created_at, updated_at, published_at FROM articles ORDER BY id DESC LIMIT 200`).all();
 export const show = (id: number) => withChecks(get(id));
+
+// One category: the tool's own articles, then pages already on the site that have not been opened here yet.
+export async function inCategory(category: string) {
+  checkCategory(category);
+  const mine = db.prepare(`SELECT id, slug, category, title, status FROM articles WHERE category = ? ORDER BY id DESC`).all(category) as { slug: string }[];
+  const known = new Set((db.prepare('SELECT slug FROM articles').all() as { slug: string }[]).map(a => a.slug));
+  const site = (await sitePages(category)).filter(s => !known.has(s))
+    .map(slug => ({ slug, category, title: slug.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase()), status: 'on_site' }));
+  return [...mine, ...site];
+}
+
+const between = (html: string, from: RegExp, to: string) => {
+  const m = from.exec(html);
+  return m ? html.slice(m.index + m[0].length, html.indexOf(to, m.index + m[0].length)) : '';
+};
+const textOf = (h: string) => unesc(h.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+
+// Brings a live page into the tool as a published article, so it can be edited and published again.
+// Its own text becomes its sources, so the checks compare edits with what was live.
+export async function importPage(category: string, slug: string) {
+  checkCategory(category);
+  if (!/^[a-z0-9-]{1,120}$/.test(slug)) fail(400, 'That is not a page name');
+  const existing = db.prepare('SELECT id FROM articles WHERE slug = ?').get(slug) as { id: number } | undefined;
+  if (existing) return show(existing.id);
+  const html = await sitePage(category, slug) ?? fail(404, `There is no ${category}${slug} page on the site`);
+  const url = `${SITE_URL}${category}${slug}`;
+  const title = textOf(between(html, /<h1[^>]*>/, '</h1>')) || slug;
+  const summary = unesc(html.match(/<meta name="description" content="([^"]*)"/)?.[1] ?? '');
+  const answer = fromHtml(`<p>${between(html, /<div class="answer-box">/, '</div>').replace(/<strong>Short answer:<\/strong>/i, '')}</p>`, url);
+  const content = fromHtml(between(html, /<div class="article-body">/, '</section>'), url);
+  const cta = textOf(between(html, /<div class="cta-banner[^"]*">[\s\S]*?<p>/, '</p>'));
+  const body = [`# ${title}`, answer, content, cta && `*${cta}*`].filter(Boolean).join('\n\n');
+  const published = html.match(/"datePublished":\s*"(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+  const r = db.prepare(`INSERT INTO articles (slug, category, title, summary, body, topic, keyword, sources, status, published_at)
+                        VALUES (?, ?, ?, ?, ?, ?, '', ?, 'published', ?)`)
+    .run(slug, category, title, summary, body, title, `Imported from ${url}\n\n${body}`, published);
+  return show(Number(r.lastInsertRowid));
+}
 
 const slugify = (s: string) => s.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'article';
 function freeSlug(base: string) {
@@ -33,10 +71,17 @@ const CATEGORY = /^\/([a-z0-9-]+\/)+$/;
 // Each category has its own structure prompt, article-<last folder>, e.g. article-learn for /guides/learn/.
 // Adding a prompt with that name in the Prompts section adds the category.
 const promptFor = (category: string) => `article-${category.split('/').filter(Boolean).at(-1)}`;
+// The name shown in the breadcrumb, from the prompt's section setting, else the folder name.
+const sectionName = (category: string) => {
+  const folder = category.split('/').filter(Boolean).at(-1)!;
+  const p = categoryPrompt(category);
+  return (p && parsePrompt(p.body).settings.section) || folder.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+};
+const categoryPrompt = (category: string) => { try { return currentPrompt(promptFor(category)); } catch { return undefined; } };
 export const categories = () => (listPrompts() as { name: string }[])
   .filter(p => p.name.startsWith('article-'))
-  .map(p => p.name.slice(8))
-  .map(c => ({ category: `/guides/${c}/`, label: c.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) }));
+  .map(p => `/guides/${p.name.slice(8)}/`)
+  .map(category => ({ category, label: sectionName(category) }));
 function checkCategory(category: string) {
   if (!CATEGORY.test(category)) fail(400, 'category must look like /guides/stories/');
   if (!categories().some(c => c.category === category)) fail(400, `There is no ${promptFor(category)} prompt, so ${category} has no article structure yet`);
@@ -126,12 +171,13 @@ export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' 
   const blocks = a.body.replace(/\r/g, '').split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
   if (blocks[0]?.startsWith('# ')) blocks.shift();
   const shortAnswer = blocks[0] && !blocks[0].startsWith('#') ? blocks.shift()! : a.summary;
-  let cta = DEFAULT_CTA;
-  // Trailing rule and italic lines are the call to action and notes for David, not page content.
+  let cta = '';
+  // Trailing rule and italic lines are the call to action (the last one) and notes for David, not page content.
   while (blocks.length && /^(-{3,}|\*[^*][\s\S]*\*)$/.test(blocks.at(-1)!)) {
     const b = blocks.pop()!;
-    if (/get in touch|contact/i.test(b)) cta = plain(b);
+    if (!cta && b.startsWith('*')) cta = plain(b);
   }
+  cta ||= DEFAULT_CTA;
   const faqs: { q: string; a: string }[] = [];
   const faqStart = blocks.findIndex(b => /^##\s+FAQs?/i.test(b));
   const out = blocks.map((b, i) => {
@@ -142,10 +188,10 @@ export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' 
   });
   const url = `${SITE_URL}${a.category}${a.slug}`;
   const sectionUrl = `${SITE_URL}${a.category.replace(/\/$/, '')}`;
-  const sectionSlug = a.category.split('/').filter(Boolean).at(-1)!;
-  const section = sectionSlug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  const section = sectionName(a.category);
   const vars: Record<string, string> = {
-    title: esc(a.title), description: esc(a.summary), url: esc(url), section: esc(section), section_url: esc(sectionUrl),
+    title: esc(a.title), description: esc(a.summary), url: esc(url), section: esc(section),
+    folder: esc(a.category.split('/').filter(Boolean).at(-1)!.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())), section_url: esc(sectionUrl),
     short_answer: inline(shortAnswer.replace(/\n/g, ' ')), cta: esc(cta), year: date.slice(0, 4),
     updated_month: new Date(date + 'T12:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
     body: toHtml(out.join('\n\n')).split('\n').map(l => l && '        ' + l).join('\n'),

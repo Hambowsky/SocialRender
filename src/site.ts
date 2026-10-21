@@ -70,17 +70,46 @@ async function commit(build: (head: string) => Promise<File[]>, message: string)
   }
 }
 
+// Pages already on the site in one category folder, by slug.
+export async function sitePages(category: string): Promise<string[]> {
+  const dir = category.replace(/^\/|\/$/g, '');
+  const names: string[] = SITE_REPO
+    ? ((await gh('GET', `/contents/${dir}?ref=${SITE_BRANCH}`)) ?? []).map((f: { name: string }) => f.name)
+    : fs.existsSync(path.join(PUBLISH_DIR, dir)) ? fs.readdirSync(path.join(PUBLISH_DIR, dir)) : [];
+  return names.filter(n => n.endsWith('.html') && n !== 'index.html').map(n => n.slice(0, -5)).sort();
+}
+
+export async function sitePage(category: string, slug: string) {
+  const file = `${category.replace(/^\/|\/$/g, '')}/${slug}.html`;
+  if (SITE_REPO) return readRepoFile(file, SITE_BRANCH);
+  const local = path.join(PUBLISH_DIR, ...file.split('/'));
+  return fs.existsSync(local) ? fs.readFileSync(local, 'utf8') : undefined;
+}
+
+// A page that is already live keeps its own Related Reading cards and banner heading when published again.
+const RELATED = /<div class="related-grid[\s\S]*?\n {6}<\/div>/;
+const CTA_HEADING = /(<div class="cta-banner[^"]*">\s*<h2>)[\s\S]*?(<\/h2>)/;
+export function keepExtras(html: string, old: string | undefined) {
+  if (!old) return html;
+  const related = old.match(RELATED)?.[0], heading = old.match(CTA_HEADING);
+  if (related) html = html.replace(RELATED, () => related);
+  if (heading) html = html.replace(CTA_HEADING, (_, a, b) => a + old.match(CTA_HEADING)![0].slice(heading[1].length, -heading[2].length) + b);
+  return html;
+}
+
 export async function publishPage(l: Listing, html: string) {
   const dir = l.category.replace(/^\/|\/$/g, '');
   if (!SITE_REPO) {
     const out = path.join(PUBLISH_DIR, ...dir.split('/'));
     fs.mkdirSync(out, { recursive: true });
-    fs.writeFileSync(path.join(out, `${l.slug}.html`), html);
+    const file = path.join(out, `${l.slug}.html`);
+    fs.writeFileSync(file, keepExtras(html, fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined));
     return { where: 'folder', files: [`${l.category}${l.slug}.html`] };
   }
   if (!SITE_GITHUB_TOKEN) fail(503, 'SITE_GITHUB_TOKEN is not set, so the site repo cannot be updated');
   const r = await commit(async head => {
-    const files: File[] = [{ path: `${dir}/${l.slug}.html`, content: html }];
+    const page = `${dir}/${l.slug}.html`;
+    const files: File[] = [{ path: page, content: keepExtras(html, await readRepoFile(page, head)) }];
     const index = await readRepoFile(`${dir}/index.html`, head);
     if (index) files.push({ path: `${dir}/index.html`, content: addCard(index, l) });
     const sitemap = await readRepoFile('sitemap.xml', head);
