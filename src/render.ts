@@ -7,6 +7,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { db } from './db.ts';
 import { fail, RENDERS_DIR, ROOT } from './config.ts';
 import { current, fill, type Problem } from './templates.ts';
+import { checkUrl } from './page.ts';
 
 const TYPES: Record<string, string> = {
   '.js': 'text/javascript', '.woff2': 'font/woff2', '.svg': 'image/svg+xml',
@@ -144,6 +145,29 @@ function enqueue<T>(work: () => Promise<T>): Promise<T> {
   queue = job.catch(() => {});
   return job;
 }
+
+// A lead's homepage as a JPEG, in its own context so nothing it sets touches the renders. Every request the page makes is
+// checked like a page link, so a site can never make this server load something on its own network.
+export const screenshotSite = (url: string, file: string) => enqueue(async () => {
+  const context = await (await getBrowser()).newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
+  const ok = new Map<string, Promise<boolean>>();
+  try {
+    await context.route('**/*', route => {
+      const u = new URL(route.request().url());
+      if (u.protocol === 'data:' || u.protocol === 'blob:') return route.continue();
+      if (!ok.has(u.host)) ok.set(u.host, checkUrl(u.href).then(() => true, () => false));
+      return ok.get(u.host)!.then(allowed => allowed ? route.continue() : route.abort());
+    });
+    const page = await context.newPage();
+    // A slow page is still shot as far as it got; one that never started loading is an error, not a blank picture.
+    const failed = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).then(() => null, (err: Error) => err);
+    if (failed && page.url() === 'about:blank') throw new Error(failed.message.split('\n')[0].replace(/^page\.goto: /, ''));
+    await page.waitForTimeout(1500); // cookie banners and fade ins
+    await page.screenshot({ path: file, type: 'jpeg', quality: 70 });
+  } finally {
+    await context.close().catch(() => {});
+  }
+});
 
 export const render = (template: string, fields: Record<string, string>, size?: string, html?: string) => enqueue(() => renderNow(template, fields, 'png', size, html));
 export const renderVideo = (template: string, fields: Record<string, string>, size?: string, html?: string) => enqueue(() => renderNow(template, fields, 'mp4', size, html));

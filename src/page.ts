@@ -10,7 +10,7 @@ for (const [a, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['
 for (const [a, bits] of [['::', 127], ['fc00::', 7], ['fe80::', 10], ['::ffff:0:0', 96]] as const) blocked.addSubnet(a, bits, 'ipv6');
 
 // ponytail: checks the address before fetching, so a DNS answer that changes in between could slip past. Pin the IP with a custom agent if that ever matters.
-async function checkUrl(raw: string) {
+export async function checkUrl(raw: string) {
   let u: URL;
   try { u = new URL(raw); } catch { return fail(400, 'That link is not a valid web address'); }
   if (u.protocol !== 'https:' && u.protocol !== 'http:') fail(400, 'The link must start with http or https');

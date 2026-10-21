@@ -11,8 +11,10 @@ process.env.API_KEY = 'test-key';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-leads-'));
 process.env.GOOGLE_PLACES_API_KEY = 'fake';
 process.env.FIRECRAWL_API_KEY = 'fake';
+process.env.ANTHROPIC_API_KEY = 'fake';
 
 const calls = { places: 0, firecrawl: 0 };
+const claude: any[] = [];
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => (body += c));
@@ -35,6 +37,16 @@ const fake = http.createServer((req, res) => {
       assert.deepEqual(JSON.parse(body).includedRegionCodes, ['gb']);
       return res.end(JSON.stringify({ suggestions: [{ placePrediction: { structuredFormat: { mainText: { text: 'Newcastle upon Tyne' }, secondaryText: { text: 'UK' } } } }, { queryPrediction: {} }] }));
     }
+    if (req.url?.startsWith('/v1/places/p')) {
+      calls.places++;
+      return res.end(JSON.stringify({ rating: 4.8, userRatingCount: 31, photos: [{}, {}], googleMapsUri: 'https://maps.google.com/?cid=1' }));
+    }
+    if (req.url === '/v1/messages') {
+      claude.push(JSON.parse(body));
+      return res.end(JSON.stringify({ id: 'm', type: 'message', role: 'assistant', model: 'claude-haiku-5-5', stop_reason: 'end_turn', stop_sequence: null,
+        content: [{ type: 'text', text: JSON.stringify({ priority: 'hot', notes: 'Great reviews and no website.', pitch: 'Your 31 reviews deserve a website to send people to.' }) }],
+        usage: { input_tokens: 3000, output_tokens: 100 } }));
+    }
     if (req.url === '/v2/search') {
       calls.firecrawl++;
       const { query } = JSON.parse(body);
@@ -50,8 +62,9 @@ let app: any;
 const headers = { 'x-api-key': 'test-key' };
 before(async () => {
   await new Promise<void>(ok => fake.listen(0, '127.0.0.1', () => ok()));
-  process.env.GOOGLE_PLACES_URL = process.env.FIRECRAWL_API_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
+  process.env.ANTHROPIC_BASE_URL = process.env.GOOGLE_PLACES_URL = process.env.FIRECRAWL_API_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
   app = (await import('../src/server.ts')).buildApp();
+  (await import('../src/copy.ts')).seed();
 });
 after(async () => { await app.close(); fake.close(); });
 
@@ -127,6 +140,29 @@ test('an outdated website campaign skips businesses with no site at all', async 
     payload: { name: 'Leeds', industries: 'plumber', towns: 'Leeds', lead_type: 'outdated_website', max_leads: 10, sources: ['places'] } })).json();
   const done = await runToEnd(c.id);
   assert.equal(done.last_run_summary.added, 0);
+});
+
+test('analysing a lead adds its Business Profile and Claude\'s priority, note and opening line', async () => {
+  const smith = (await app.inject({ method: 'GET', url: '/leads?q=Smith', headers })).json()[0];
+  const l = (await app.inject({ method: 'POST', url: `/leads/${smith.id}/analyse`, headers })).json();
+  assert.equal(l.priority, 'hot');
+  assert.equal(l.analysis.pitch, 'Your 31 reviews deserve a website to send people to.');
+  assert.deepEqual(l.analysis.gbp, { rating: 4.8, reviews: 31, has_hours: false, photos: 2, maps_url: 'https://maps.google.com/?cid=1' });
+  assert.deepEqual(l.analysis.errors, []);
+  const prompt = JSON.stringify(claude.at(-1).messages);
+  assert.match(prompt, /4\.8 stars from 31 reviews, no opening hours, 2 photos/);
+  assert.match(prompt, /Website: none/);
+  assert.equal((await app.inject({ method: 'GET', url: '/leads?priority=hot', headers })).json().length, 1);
+
+  // The rest of the campaign in the background. The dead site is not tested, since it does not load.
+  const camp = (await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse`, headers })).json();
+  assert.equal(camp.total, 2);
+  for (let i = 0; i < 100 && (await app.inject({ method: 'GET', url: `/campaigns/${smith.campaign_id}`, headers })).json().analysis_progress; i++) await new Promise(r => setTimeout(r, 50));
+  const c = (await app.inject({ method: 'GET', url: `/campaigns/${smith.campaign_id}`, headers })).json();
+  assert.equal(c.analysed, 3);
+  const dead = (await app.inject({ method: 'GET', url: '/leads?q=Dead', headers })).json()[0];
+  assert.deepEqual((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors, []);
+  assert.equal((await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse`, headers })).statusCode, 400, 'nothing left to analyse');
 });
 
 test('a lead keeps its status changes and notes, and survives deleting its campaign once worked on', async () => {

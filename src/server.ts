@@ -15,6 +15,7 @@ import * as buffer from './buffer.ts';
 import * as posts from './posts.ts';
 import * as articles from './articles.ts';
 import * as leads from './leads.ts';
+import { analyseCampaign, analyseLead } from './analyse.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -46,7 +47,7 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') ? 'claude' : 'other';
+    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -266,10 +267,17 @@ export function buildApp() {
   app.get<{ Params: { id: number } }>('/campaigns/:id', { schema: { params: id } }, async req => leads.campaign(req.params.id));
   app.put<{ Params: { id: number }; Body: leads.CampaignInput }>('/campaigns/:id', { schema: { params: id, body: campaignBody } }, async req => leads.updateCampaign(req.params.id, req.body));
   app.delete<{ Params: { id: number } }>('/campaigns/:id', { schema: { params: id } }, async req => leads.deleteCampaign(req.params.id));
+  app.post<{ Params: { id: number } }>('/campaigns/:id/analyse', { schema: { params: id } }, async (req, reply) => { leads.campaign(req.params.id); return reply.code(202).send(analyseCampaign(req.params.id)); });
+  app.post<{ Params: { id: number } }>('/leads/:id/analyse', { schema: { params: id } }, async req => analyseLead(req.params.id));
+  app.get<{ Params: { id: number } }>('/leads/:id/screenshot.jpg', { schema: { params: id } }, async (req, reply) => {
+    const file = leads.screenshotPath(req.params.id);
+    if (!fs.existsSync(file)) return reply.code(404).send({ error: 'No screenshot for this lead' });
+    return reply.type('image/jpeg').header('cache-control', 'no-cache').send(fs.createReadStream(file));
+  });
   app.post<{ Params: { id: number } }>('/campaigns/:id/run', { schema: { params: id } }, async (req, reply) => reply.code(202).send(leads.run(req.params.id)));
 
-  app.get<{ Querystring: { campaign?: number; status?: string; q?: string; has_email?: boolean } }>('/leads', { schema: { querystring: { type: 'object', properties: {
-    campaign: { type: 'integer' }, status: { enum: leads.STATUSES }, q: { type: 'string', maxLength: 100 }, has_email: { type: 'boolean' } } } } },
+  app.get<{ Querystring: { campaign?: number; status?: string; priority?: string; q?: string; has_email?: boolean } }>('/leads', { schema: { querystring: { type: 'object', properties: {
+    campaign: { type: 'integer' }, status: { enum: leads.STATUSES }, priority: { enum: ['hot', 'warm', 'cold'] }, q: { type: 'string', maxLength: 100 }, has_email: { type: 'boolean' } } } } },
   async req => leads.leads({ ...req.query, search: req.query.q }));
   app.get<{ Params: { id: number } }>('/leads/:id', { schema: { params: id } }, async req => leads.lead(req.params.id));
   const str = (max: number) => ({ type: 'string', maxLength: max });

@@ -75,6 +75,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     required: ['name', 'html'],
     properties: { name: str, html: str },
   },
+  'lead-review': {
+    type: 'object', additionalProperties: false,
+    required: ['priority', 'notes', 'pitch'],
+    properties: { priority: { type: 'string', enum: ['hot', 'warm', 'cold'] }, notes: str, pitch: str },
+  },
   caption: {
     type: 'object', additionalProperties: false,
     required: ['caption', 'hashtags'],
