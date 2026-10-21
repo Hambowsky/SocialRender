@@ -44,6 +44,22 @@ export async function channels() {
   return out;
 }
 
+// Facebook and Instagram refuse a post unless it says what kind it is, so createPost needs each channel's network.
+const services = new Map<string, string>();
+async function serviceOf(channelId: string) {
+  if (!services.has(channelId)) {
+    // Nothing has been sent yet, so a failure here is safe to retry, unlike a failed createPost.
+    try { for (const c of await channels()) services.set(c.id, c.service); }
+    catch (err) { throw new Error(`Could not look up the channel in Buffer: ${(err as Error).message}`); }
+  }
+  return services.get(channelId);
+}
+const POST = new Enum('post');
+const METADATA: Record<string, object> = {
+  facebook: { facebook: { type: POST } },
+  instagram: { instagram: { type: POST, shouldShareToFeed: true } },
+};
+
 export type NewPost = { channelId: string; text: string; imageUrl: string; mode: 'queue' | 'scheduled' | 'draft'; dueAt?: string };
 
 export async function createPost(p: NewPost): Promise<string> {
@@ -54,6 +70,8 @@ export async function createPost(p: NewPost): Promise<string> {
     mode: new Enum(p.mode === 'scheduled' ? 'customScheduled' : 'addToQueue'),
     assets: [{ image: { url: p.imageUrl } }],
   };
+  const metadata = METADATA[await serviceOf(p.channelId) ?? ''];
+  if (metadata) input.metadata = metadata;
   if (p.mode === 'scheduled') input.dueAt = p.dueAt;
   if (p.mode === 'draft') input.saveToDraft = true;
   const data = await gql(`mutation {
