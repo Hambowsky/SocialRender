@@ -11,13 +11,21 @@ process.env.API_KEY = 'test-key';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-copy-'));
 process.env.ANTHROPIC_API_KEY = 'fake';
 process.env.CLAUDE_MONTHLY_CAP_GBP = '1';
+process.env.OPENAI_API_KEY = 'fake';
 
-const calls: any[] = [];
+const calls: any[] = [], openai: any[] = [];
+let claudeDown = false;
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => (body += c));
   req.on('end', () => {
     const r = JSON.parse(body);
+    res.setHeader('content-type', 'application/json');
+    if (req.url === '/v1/chat/completions') {
+      openai.push(r);
+      return res.end(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: '{"caption": "From OpenAI", "hashtags": ["#SEO"]}' } }], usage: { prompt_tokens: 1000, completion_tokens: 200 } }));
+    }
+    if (claudeDown) { res.statusCode = 529; return res.end(JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } })); }
     calls.push(r);
     const prompt = JSON.stringify(r.messages);
     const design = prompt.includes('Design a new 1080');
@@ -32,7 +40,6 @@ const fake = http.createServer((req, res) => {
       : r.messages.length === 1 // first draft is too long, the rewrite fits
         ? { headline: 'Why speed matters so much more than you think for every small business website in the UK today', highlight_word: 'speed', subtitle: 'Faster pages keep visitors.', tag: 'Marketing Guide', footer_left: 'Free guide' }
         : { headline: 'Why speed matters', highlight_word: 'speed', subtitle: 'Faster pages keep visitors and win more enquiries.', tag: 'Marketing Guide', footer_left: 'Free guide' };
-    res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({
       id: 'msg_fake', type: 'message', role: 'assistant', model: r.model, stop_reason: 'end_turn', stop_sequence: null, stop_details: null,
       content: [{ type: 'text', text: JSON.stringify(out) }],
@@ -44,7 +51,7 @@ const fake = http.createServer((req, res) => {
 let app: any, closeBrowser: any, db: any;
 before(async () => {
   await new Promise<void>(ok => fake.listen(0, '127.0.0.1', () => ok()));
-  process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
+  process.env.ANTHROPIC_BASE_URL = process.env.OPENAI_BASE_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
   ({ closeBrowser } = await import('../src/render.ts'));
   ({ db } = await import('../src/db.ts'));
   const { buildApp } = await import('../src/server.ts');
@@ -78,6 +85,22 @@ test('a test run uses unsaved prompt text and saves nothing', async () => {
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(calls.length, before + 1);
   assert.match(JSON.stringify(calls.at(-1).messages), /Write the caption for Why speed matters/);
+});
+
+test('when Claude is overloaded the job goes to OpenAI and counts towards the same cap', async () => {
+  claudeDown = true;
+  try {
+    const res = await app.inject({ method: 'POST', url: '/prompts/caption/test', headers,
+      payload: { vars: { headline: 'Why speed matters', subtitle: 'x' }, body: '---\nmodel: claude-haiku-5-5\n---\nWrite the caption for {headline}' } });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.match(res.body, /From OpenAI/);
+    assert.equal(openai.length, 1);
+    assert.match(openai[0].messages[0].content, /JSON schema/);
+    assert.match(openai[0].messages[1].content, /Write the caption for Why speed matters/);
+    const row = db.prepare(`SELECT model, cost_usd FROM claude_usage ORDER BY id DESC LIMIT 1`).get();
+    assert.equal(row.model, 'gpt-5');
+    assert.ok(row.cost_usd > 0);
+  } finally { claudeDown = false; }
 });
 
 test('calls stop once the monthly cap would be passed', async () => {

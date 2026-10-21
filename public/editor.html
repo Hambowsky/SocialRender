@@ -398,7 +398,7 @@
             <option value="outdated_website">Outdated website</option>
             <option value="both">Either</option>
           </select></label>
-          <label>Most leads per run <input id="cMax" type="number" min="1" max="100" value="50"></label>
+          <label>Most leads per run <input id="cMax" type="number" min="1" max="100" value="100"></label>
         </div>
         <div class="fields" style="gap:6px"><span class="muted">Search</span>
           <div class="chips" id="cSources">
@@ -604,7 +604,7 @@
     $('cFormTitle').textContent = c ? `Edit ${c.name}` : 'New campaign';
     $('cCancel').hidden = !c;
     $('cName').value = c?.name ?? ''; $('cIndustries').value = c?.industries ?? ''; $('cTowns').value = c?.towns ?? '';
-    $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 50;
+    $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 100;
     for (const i of $('cSources').querySelectorAll('input')) i.checked = c ? c.sources.includes(i.value) : i.value === 'places';
     note('cOut', '');
   }
