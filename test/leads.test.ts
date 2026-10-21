@@ -31,6 +31,7 @@ const fake = http.createServer((req, res) => {
     }
     if (req.url === '/v1/places:autocomplete') {
       calls.places++;
+      if (JSON.parse(body).input === 'denied') { res.statusCode = 403; return res.end(JSON.stringify({ error: { message: 'Places API (New) has not been used in project 123 before or it is disabled.' } })); }
       assert.deepEqual(JSON.parse(body).includedRegionCodes, ['gb']);
       return res.end(JSON.stringify({ suggestions: [{ placePrediction: { structuredFormat: { mainText: { text: 'Newcastle upon Tyne' }, secondaryText: { text: 'UK' } } } }, { queryPrediction: {} }] }));
     }
@@ -86,6 +87,9 @@ test('town suggestions come from Google without the comma, and are cached', asyn
   assert.deepEqual(await get('newc'), [{ name: 'Newcastle upon Tyne', area: 'UK' }]);
   assert.equal(calls.places, n, 'second ask comes from the cache');
   assert.deepEqual(await get('N'), [], 'too short to ask');
+  const bad = await app.inject({ method: 'GET', url: '/campaigns/towns?q=denied', headers });
+  assert.equal(bad.statusCode, 502);
+  assert.match(bad.json().message, /Places API \(New\) has not been used/);
 });
 
 test('a campaign finds businesses with no website or a dead one, once each', async () => {
