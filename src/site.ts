@@ -1,13 +1,15 @@
 // Publishing to the website. With SITE_REPO set, the page, its listing card and its sitemap entry go into
 // the website's GitHub repo as one commit (with the hub page's guide count), and the host deploys from there. Without it, the page is written
 // to PUBLISH_DIR to upload by hand.
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fail, GITHUB_API_URL, PUBLISH_DIR, SITE_BRANCH, SITE_GITHUB_TOKEN, SITE_REPO, SITE_URL } from './config.ts';
 import { esc } from './markdown.ts';
 
 export type Listing = { category: string; slug: string; title: string; summary: string; date: string };
-type File = { path: string; content: string };
+// A Buffer is a binary file such as an image.
+export type File = { path: string; content: string | Buffer };
 
 async function gh(method: string, url: string, body?: unknown) {
   const res = await fetch(`${GITHUB_API_URL}/repos/${SITE_REPO}${url}`, {
@@ -25,6 +27,11 @@ async function readRepoFile(p: string, ref: string): Promise<string | undefined>
   const f = await gh('GET', `/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`);
   return f && Buffer.from(f.content, 'base64').toString('utf8');
 }
+
+// Git's own id for a file, so an unchanged image is never uploaded again.
+const blobSha = (b: Buffer) => crypto.createHash('sha1').update(`blob ${b.length}\0`).update(b).digest('hex');
+const repoSha = async (p: string, ref: string): Promise<string | undefined> =>
+  (await gh('GET', `/contents/${p.split('/').map(encodeURIComponent).join('/')}?ref=${ref}`))?.sha;
 
 // Adds the article's card to the end of its category listing, once.
 export function addCard(index: string, l: Listing) {
@@ -65,8 +72,11 @@ async function commit(build: (head: string) => Promise<File[]>, message: string)
   for (let attempt = 0; ; attempt++) {
     const head = (await gh('GET', `/git/ref/heads/${SITE_BRANCH}`))?.object.sha ?? fail(502, `The ${SITE_BRANCH} branch was not found in ${SITE_REPO}`);
     const files = await build(head);
-    const old = await Promise.all(files.map(f => readRepoFile(f.path, head)));
-    const tree = files.filter((f, i) => old[i] !== f.content).map(f => ({ path: f.path, mode: '100644', type: 'blob', content: f.content }));
+    const old = await Promise.all(files.map(f => Buffer.isBuffer(f.content) ? repoSha(f.path, head) : readRepoFile(f.path, head)));
+    const changed = files.filter((f, i) => old[i] !== (Buffer.isBuffer(f.content) ? blobSha(f.content) : f.content));
+    const tree = await Promise.all(changed.map(async f => Buffer.isBuffer(f.content)
+      ? { path: f.path, mode: '100644', type: 'blob', sha: (await gh('POST', '/git/blobs', { content: f.content.toString('base64'), encoding: 'base64' })).sha }
+      : { path: f.path, mode: '100644', type: 'blob', content: f.content }));
     if (!tree.length) return { commit: head, changed: [] as string[] };
     const base = await gh('GET', `/git/commits/${head}`);
     const t = await gh('POST', '/git/trees', { base_tree: base.tree.sha, tree });
@@ -107,19 +117,24 @@ export function keepExtras(html: string, old: string | undefined) {
   return html;
 }
 
-export async function publishPage(l: Listing, html: string) {
+// `extra` is any other file the page needs, such as its featured image, at its path from the site root.
+export async function publishPage(l: Listing, html: string, extra: File[] = []) {
   const dir = l.category.replace(/^\/|\/$/g, '');
   if (!SITE_REPO) {
+    for (const f of extra) {
+      fs.mkdirSync(path.dirname(path.join(PUBLISH_DIR, f.path)), { recursive: true });
+      fs.writeFileSync(path.join(PUBLISH_DIR, f.path), f.content);
+    }
     const out = path.join(PUBLISH_DIR, ...dir.split('/'));
     fs.mkdirSync(out, { recursive: true });
     const file = path.join(out, `${l.slug}.html`);
     fs.writeFileSync(file, keepExtras(html, fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : undefined));
-    return { where: 'folder', files: [`${l.category}${l.slug}.html`] };
+    return { where: 'folder', files: [`${l.category}${l.slug}.html`, ...extra.map(f => `/${f.path}`)] };
   }
   if (!SITE_GITHUB_TOKEN) fail(503, 'SITE_GITHUB_TOKEN is not set, so the site repo cannot be updated');
   const r = await commit(async head => {
     const page = `${dir}/${l.slug}.html`;
-    const files: File[] = [{ path: page, content: keepExtras(html, await readRepoFile(page, head)) }];
+    const files: File[] = [{ path: page, content: keepExtras(html, await readRepoFile(page, head)) }, ...extra];
     const index = await readRepoFile(`${dir}/index.html`, head);
     if (index) {
       const updated = addCard(index, l);

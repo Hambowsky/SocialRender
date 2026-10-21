@@ -33,9 +33,9 @@ async function getBrowser() {
 }
 export const closeBrowser = () => browser?.close();
 
-// Opens the page, runs `work` and closes it. The viewport is tall enough for square and upright templates.
+// Opens the page, runs `work` and closes it. The viewport fits upright posts and 1200 wide article headers.
 async function withPage<T>(html: string, work: (page: Page) => Promise<T>): Promise<T> {
-  const page = await (await getBrowser()).newPage({ viewport: { width: 1080, height: 1920 } });
+  const page = await (await getBrowser()).newPage({ viewport: { width: 1200, height: 1920 } });
   try {
     // No network at all: the page gets its HTML and local files only, so renders are repeatable.
     await page.route('**/*', route => route.abort());

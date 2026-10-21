@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Article header</title>
+<script type="application/json" id="sample">{"headline": "Can you rank on Google Maps in towns where you have no office?", "highlight_word": "Google Maps", "tag": "Local SEO", "footer_left": "Red Cherry IT guide", "footer_right": "redcherryit.com"}</script>
+<style>
+  @font-face { font-family: "Archivo"; font-weight: 400; src: url(/fonts/archivo-latin-400-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 500; src: url(/fonts/archivo-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "Archivo"; font-weight: 900; src: url(/fonts/archivo-latin-900-normal.woff2) format("woff2"); }
+  :root { --red: #b5333f; --ink: #1a1a1a; --grey: #444; --logo-grey: #a89c9c; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #e9e9e9; }
+  /* The featured image at the top of an article and its link preview (1200 by 630, the size social sites expect). */
+  .post {
+    width: 1200px; height: 630px; background: #fff; position: relative; overflow: hidden;
+    font-family: "Archivo", "Arial Black", Arial, sans-serif; color: var(--ink);
+  }
+  .edge { position: absolute; right: 0; top: 0; bottom: 0; width: 14px; background: var(--red); }
+
+  .logo { position: absolute; left: 72px; top: 60px; width: 260px; height: auto; }
+  .tag {
+    position: absolute; right: 86px; top: 74px;
+    font-weight: 500; font-size: 20px; letter-spacing: 5px; line-height: 1;
+    color: var(--red); text-transform: uppercase; white-space: nowrap;
+  }
+  .bar { position: absolute; left: 72px; top: 168px; width: 140px; height: 6px; background: var(--red); }
+  h1 { position: absolute; left: 72px; top: 196px; width: 1020px;
+       font-weight: 900; font-size: 64px; line-height: 1.06; letter-spacing: -2px; }
+  h1 .hl { color: var(--red); }
+
+  .rule { position: absolute; left: 72px; right: 86px; top: 520px; height: 2px; background: #111; }
+  .foot-l { position: absolute; left: 72px; top: 548px; font-weight: 900; font-size: 24px; white-space: nowrap; }
+  .foot-r { position: absolute; right: 86px; top: 548px; font-weight: 500; font-size: 24px; color: var(--red); white-space: nowrap; }
+</style>
+</head>
+<body>
+  <div class="post" data-size="1200x630">
+    <div class="edge" data-decor></div>
+    <img class="logo" src="/assets/logo.png" alt="Red Cherry IT">
+    <div class="tag" data-field="tag">{{tag}}</div>
+
+    <div class="bar"></div>
+    <h1 data-field="headline">{{headline}}</h1>
+
+    <div class="rule"></div>
+    <div class="foot-l" data-field="footer_left">{{footer_left}}</div>
+    <div class="foot-r" data-field="footer_right">{{footer_right}}</div>
+  </div>
+</body>
+</html>
