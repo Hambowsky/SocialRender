@@ -13,6 +13,11 @@ export const RENDERS_PER_MIN = Number(env.RENDERS_PER_MIN || 30);
 export const TEMPLATE_VERSIONS_KEEP = Number(env.TEMPLATE_VERSIONS_KEEP || 50);
 
 export const CLAUDE_MONTHLY_CAP_GBP = Number(env.CLAUDE_MONTHLY_CAP_GBP || 20);
+// OpenAI, only used when Claude is down or overloaded. Same monthly cap. Prices are US dollars per million tokens: check them on openai.com/api/pricing.
+export const OPENAI_API_KEY = env.OPENAI_API_KEY ?? '';
+export const OPENAI_BASE_URL = env.OPENAI_BASE_URL || 'https://api.openai.com';
+export const OPENAI_MODEL = env.OPENAI_MODEL || 'gpt-5';
+export const OPENAI_PRICE = { input: Number(env.OPENAI_INPUT_USD_PER_M || 1.25), output: Number(env.OPENAI_OUTPUT_USD_PER_M || 10) };
 export const GBP_PER_USD = Number(env.GBP_PER_USD || 0.79); // update now and then: the API bills in US dollars
 
 // Buffer. Images are handed to Buffer as links, so PUBLIC_URL must be the address the internet reaches this app on.

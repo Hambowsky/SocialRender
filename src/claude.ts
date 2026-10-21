@@ -1,14 +1,16 @@
-// The one function every Claude call goes through. It refuses a call that could take this month's
-// spend over the cap, and logs tokens and cost for every call it makes.
+// The one function every AI call goes through. It refuses a call that could take this month's
+// spend over the cap, and logs tokens and cost for every call it makes. When Claude is down or
+// overloaded, a call without web search goes to OpenAI instead, under the same cap.
 import Anthropic from '@anthropic-ai/sdk';
 import { db } from './db.ts';
-import { CLAUDE_MONTHLY_CAP_GBP, fail, GBP_PER_USD } from './config.ts';
+import { CLAUDE_MONTHLY_CAP_GBP, fail, GBP_PER_USD, OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL, OPENAI_PRICE } from './config.ts';
 
 // US dollars per million tokens. A model missing from here cannot be called, so every call is costed.
 const PRICES: Record<string, { input: number; output: number }> = {
   'claude-sonnet-5-5': { input: 2, output: 10 },
   'claude-haiku-5-5': { input: 0.1, output: 0.5 },
   'claude-opus-5-5': { input: 4, output: 20 },
+  [OPENAI_MODEL]: OPENAI_PRICE,
 };
 
 const costUsd = (model: string, input: number, output: number, searches = 0) =>
@@ -51,9 +53,7 @@ async function askNow(a: Ask) {
   const searches = a.webSearches ?? 0;
   const inputGuess = Math.ceil((a.system.length + JSON.stringify(a.messages).length) / 3) + searches * SEARCH_TOKENS_GUESS;
   const worstGbp = costUsd(a.model, inputGuess, a.maxTokens, searches) * GBP_PER_USD;
-  const spent = monthSpendGbp();
-  if (spent + worstGbp > CLAUDE_MONTHLY_CAP_GBP)
-    fail(402, `Monthly Claude spend cap reached: £${spent.toFixed(2)} of £${CLAUDE_MONTHLY_CAP_GBP} used this month`);
+  checkCap(worstGbp);
 
   client ??= new Anthropic();
   // Search results carry citations, which strict JSON output does not allow, so a searching call asks for JSON in words.
@@ -63,15 +63,21 @@ async function askNow(a: Ask) {
   let res: Anthropic.Message, cost = 0;
   // A long search can pause the turn; sending it back resumes it. Three rounds at most.
   for (let round = 0; ; round++) {
-    res = await client.messages.create({
-      model: a.model,
-      max_tokens: a.maxTokens,
-      system,
-      messages,
-      ...(searches
-        ? { tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: searches, user_location: { type: 'approximate', country: 'GB' } }], output_config: { effort: a.effort } }
-        : { output_config: { effort: a.effort, format: { type: 'json_schema', schema: a.schema } } }),
-    } as Anthropic.MessageCreateParamsNonStreaming);
+    try {
+      res = await client.messages.create({
+        model: a.model,
+        max_tokens: a.maxTokens,
+        system,
+        messages,
+        ...(searches
+          ? { tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: searches, user_location: { type: 'approximate', country: 'GB' } }], output_config: { effort: a.effort } }
+          : { output_config: { effort: a.effort, format: { type: 'json_schema', schema: a.schema } } }),
+      } as Anthropic.MessageCreateParamsNonStreaming);
+    } catch (err) {
+      // The SDK has already retried twice. An outage or overload goes to OpenAI; anything else is a real problem to show.
+      if (!OPENAI_API_KEY || searches || round > 0 || !outage(err)) throw err;
+      return askOpenAI(a, (err as Error).message);
+    }
     const used = res.usage.server_tool_use?.web_search_requests ?? 0;
     const c = costUsd(a.model, res.usage.input_tokens, res.usage.output_tokens, used);
     cost += c;
@@ -87,6 +93,42 @@ async function askNow(a: Ask) {
   const texts = res.content.filter(b => b.type === 'text').map(b => (b as Anthropic.TextBlock).text);
   if (!texts.length) return fail(502, 'Claude returned no text');
   return { output: searches ? jsonIn(texts.join('')) : JSON.parse(texts[0]), content: res.content, cost_gbp: cost * GBP_PER_USD };
+}
+
+function checkCap(worstGbp: number) {
+  const spent = monthSpendGbp();
+  if (spent + worstGbp > CLAUDE_MONTHLY_CAP_GBP)
+    fail(402, `Monthly AI spend cap reached: £${spent.toFixed(2)} of £${CLAUDE_MONTHLY_CAP_GBP} used this month`);
+}
+
+const outage = (err: unknown) => err instanceof Anthropic.APIConnectionError
+  || (err instanceof Anthropic.APIError && (err.status === 429 || (err.status ?? 0) >= 500));
+
+// The same job on OpenAI's Chat Completions API. Its reasoning tokens count as output, so it gets extra room for them.
+async function askOpenAI(a: Ask, why: string) {
+  const text = (c: Anthropic.MessageParam['content']) => typeof c === 'string' ? c : c.map(b => b.type === 'text' ? b.text : '').join('\n');
+  const messages = [
+    { role: 'system', content: `${a.system}\n\nReply with only a JSON object matching this JSON schema:\n${JSON.stringify(a.schema)}` },
+    ...a.messages.map(m => ({ role: m.role, content: text(m.content) })),
+  ];
+  const maxTokens = a.maxTokens + 4000;
+  checkCap(costUsd(OPENAI_MODEL, Math.ceil(JSON.stringify(messages).length / 3), maxTokens) * GBP_PER_USD);
+  const res = await fetch(`${OPENAI_BASE_URL}/v1/chat/completions`, { method: 'POST', signal: AbortSignal.timeout(300_000),
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${OPENAI_API_KEY}` },
+    body: JSON.stringify({ model: OPENAI_MODEL, messages, max_completion_tokens: maxTokens,
+      ...(/^(gpt-5|o\d)/.test(OPENAI_MODEL) && { reasoning_effort: a.effort }), response_format: { type: 'json_object' } }) });
+  const json = await res.json().catch(() => ({})) as { choices?: { message: { content: string | null }; finish_reason: string }[];
+    usage?: { prompt_tokens: number; completion_tokens: number }; error?: { message: string } };
+  if (!res.ok || !json.choices?.[0]) fail(502, `Claude is unavailable (${why}) and OpenAI failed too: ${json.error?.message ?? res.status}`);
+  const usage = json.usage ?? { prompt_tokens: 0, completion_tokens: 0 };
+  const cost = costUsd(OPENAI_MODEL, usage.prompt_tokens, usage.completion_tokens);
+  db.prepare('INSERT INTO claude_usage (job, model, input_tokens, output_tokens, cost_usd) VALUES (?, ?, ?, ?, ?)')
+    .run(a.job, OPENAI_MODEL, usage.prompt_tokens, usage.completion_tokens, cost);
+  const choice = json.choices![0];
+  if (choice.finish_reason === 'length') fail(502, `OpenAI ran out of room. Raise max_tokens in the ${a.job.split(':')[1]} prompt`);
+  const out = choice.message.content ?? '';
+  // Shaped like a Claude reply, so a follow up turn can carry it as history.
+  return { output: jsonIn(out), content: [{ type: 'text', text: out, citations: null }] as Anthropic.ContentBlock[], cost_gbp: cost * GBP_PER_USD };
 }
 
 // The JSON object in a reply that may have words or a code fence around it.

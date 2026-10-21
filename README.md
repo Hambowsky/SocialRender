@@ -28,7 +28,9 @@ All in environment variables, listed in `.env.example`.
 | `RENDERS_PER_MIN` | `30` | Render rate limit. Other endpoints allow 600 a minute. |
 | `TEMPLATE_VERSIONS_KEEP` | `50` | Saved versions kept per template and per prompt. |
 | `ANTHROPIC_API_KEY` | none | Console API key for copywriting. Without it only the copywriting endpoints are off. |
-| `CLAUDE_MONTHLY_CAP_GBP` | `20` | Hard stop on Claude spend each calendar month. |
+| `CLAUDE_MONTHLY_CAP_GBP` | `20` | Hard stop on AI spend (Claude and the OpenAI fallback together) each calendar month. |
+| `OPENAI_API_KEY` | none | Fallback: when Claude is down or overloaded, writing jobs go to OpenAI instead, under the same monthly cap. Research and Find sources stay Claude only (they use Claude's web search). |
+| `OPENAI_MODEL`, `OPENAI_INPUT_USD_PER_M`, `OPENAI_OUTPUT_USD_PER_M` | `gpt-5`, `1.25`, `10` | The fallback model and its prices per million tokens, used for the cap. |
 | `GBP_PER_USD` | `0.79` | Rate for converting the API's dollar prices. |
 | `BUFFER_API_KEY` | none | Buffer API key. Without it only the Buffer endpoints are off. |
 | `PUBLIC_URL` | none | The app's public address. Buffer fetches images from here, so posting needs it. |
