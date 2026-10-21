@@ -1,6 +1,6 @@
 # Red Cherry IT social and content tool
 
-The studio page has two areas, picked from the top bar. Marketing has Social (image, Write with Claude, Post to Buffer, calendar), Articles, Templates (code, versions and the designer) and Prompts. Sales has Leads, where the leads tool is moving in one part at a time. Each page lists its area with `data-section` on its nav link.
+The studio page has two areas, picked from the top bar. Marketing has Social (image, Write with Claude, Post to Buffer, calendar), Articles, Templates (code, versions and the designer) and Prompts. Sales has Campaigns and Leads, where the old PHP leads tool is moving in one part at a time. Each page lists its area with `data-section` on its nav link.
 
 Phase 1: the renderer and editor. Fills an HTML template with text and saves it as a 1080 by 1080 PNG.
 Phase 2: Claude copywriting. Writes the text for a template, checks it fits, and writes a caption.
@@ -38,6 +38,10 @@ All in environment variables, listed in `.env.example`.
 | `SITE_GITHUB_TOKEN` | none | Fine grained GitHub token with Contents read and write on the website repo only. |
 | `PUBLISH_DIR` | `DATA_DIR/site` | Without `SITE_REPO`, published pages are saved here to upload by hand. |
 | `SITE_URL` | `https://redcherryit.com` | Used for article links, canonical URLs and the sitemap. |
+| `GOOGLE_PLACES_API_KEY` | none | Google Maps search for campaigns. The key needs Places API (New) enabled. |
+| `PLACES_MONTHLY_CALLS` | `900` | Most Google searches a month, under Google's 1,000 free. Cached answers do not count. |
+| `FIRECRAWL_API_KEY` | none | Directory search (Yell, Checkatrade and others) for campaigns. |
+| `FIRECRAWL_MONTHLY_CALLS` | `500` | Most Firecrawl searches a month. |
 
 ## API
 Every endpoint needs `x-api-key`, except `/health`, the editor page with its fonts, logo and check script, and `/public/renders/<id>.png` (Buffer fetches images from there; ids are long random looking hashes that cannot be listed).
@@ -83,6 +87,15 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 * `POST /articles/<id>/social` with `{"template", "channels", "mode"}` writes a social post for a published article, renders it and adds it to the Buffer approval queue with the article link in the caption. Asking again for the same article and template returns the same posts without calling Claude.
 * Publishing also makes a featured image from the `article-header` template (1200 by 630, the title with the keyword in red when the title contains it), saved as `images/<category>/<slug>.png`. It is not shown on the page: `og:image` (with its size and alt text) and the Article schema point to it, so link previews and Google use it. An unchanged image is not committed again. If the title is too long for the image, the article still publishes with the site's standard image and the reply says why.
 * The Articles page does all this, with a preview. Publishing also updates the guide count on the guides hub page.
+
+## Sales
+A campaign is industries, towns, what you are looking for (no website, an outdated one, or either), the most leads per run and where to search. Run finds businesses on Google Maps and in UK directories, checks each website it finds, and keeps the ones that fit as leads. A run works in the background, one at a time, and the Campaigns page shows its progress.
+
+* A website is outdated when it has no SSL, no mobile viewport, or a copyright year two or more years old. A site that does not load counts as no website. SEO gaps (title, description, headings, alt text, canonical, structured data, social tags) are listed on the lead but do not decide it. Sites behind bot protection are kept with a note.
+* The same business is never added twice, across all campaigns: name and town make the key. Running a campaign again only adds new businesses, and its searches come from a one day cache at no cost.
+* Deleting a campaign deletes its leads that are still New. Leads you have worked on stay.
+* Leads have a status, a follow up date, contact details you can correct, and notes. Status changes are logged with the notes.
+* API: `GET/POST /campaigns`, `GET/PUT/DELETE /campaigns/<id>`, `POST /campaigns/<id>/run`, `GET /leads?campaign=&status=&q=&has_email=true`, `GET/PUT /leads/<id>`, `POST /leads/<id>/notes`.
 
 ## Templates
 `templates/` holds the four starting templates: social post, quote card, stat card and tip card. On start, any template file whose exact HTML is not already in the database is added as a new version. After that, edits made in the editor are the live version, and every save can be rolled back.

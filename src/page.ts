@@ -37,12 +37,13 @@ export function pageText(html: string) {
 
 const MAX_CHARS = 15000;
 
-export async function readPage(raw: string) {
+// Follows redirects by hand so every hop is checked against the private address list.
+export async function fetchPage(raw: string, accept = 'text/html,text/plain') {
   let url = await checkUrl(raw);
   for (let hops = 0; ; hops++) {
     let res: Response;
     try {
-      res = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: { 'user-agent': 'RedCherryIT-SocialRender/1 (+https://redcherryit.com)', accept: 'text/html,text/plain' } });
+      res = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: { 'user-agent': 'RedCherryIT-SocialRender/1 (+https://redcherryit.com)', accept } });
     } catch (err) { return fail(502, `Could not load that page: ${(err as Error).message}`); }
     const next = res.headers.get('location');
     if (res.status >= 300 && res.status < 400 && next) {
@@ -50,11 +51,16 @@ export async function readPage(raw: string) {
       url = await checkUrl(new URL(next, url).href);
       continue;
     }
-    if (!res.ok) fail(502, `That page returned ${res.status}`);
-    if (!/text\/(html|plain)|xhtml/.test(res.headers.get('content-type') ?? '')) fail(400, 'That link is not a web page');
-    const html = (await res.text()).slice(0, 2_000_000);
-    const page = pageText(html);
-    if (page.text.length < 100) fail(422, 'Could not find much text on that page. It may need JavaScript to show its content, so paste the text into Sources instead.');
-    return { url: url.href, ...page, text: page.text.slice(0, MAX_CHARS) };
+    return { url, res };
   }
+}
+
+export async function readPage(raw: string) {
+  const { url, res } = await fetchPage(raw);
+  if (!res.ok) fail(502, `That page returned ${res.status}`);
+  if (!/text\/(html|plain)|xhtml/.test(res.headers.get('content-type') ?? '')) fail(400, 'That link is not a web page');
+  const html = (await res.text()).slice(0, 2_000_000);
+  const page = pageText(html);
+  if (page.text.length < 100) fail(422, 'Could not find much text on that page. It may need JavaScript to show its content, so paste the text into Sources instead.');
+  return { url: url.href, ...page, text: page.text.slice(0, MAX_CHARS) };
 }

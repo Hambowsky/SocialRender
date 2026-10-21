@@ -30,6 +30,12 @@ export const SITE_GITHUB_TOKEN = env.SITE_GITHUB_TOKEN ?? '';
 export const GITHUB_API_URL = env.GITHUB_API_URL || 'https://api.github.com'; // tests point this at a fake
 export const SITE_URL = (env.SITE_URL || 'https://redcherryit.com').replace(/\/$/, '');
 
+// Sales. Finding businesses uses Google Places (New) and Firecrawl search of UK directories. Either can be left unset.
+export const GOOGLE_PLACES_API_KEY = env.GOOGLE_PLACES_API_KEY ?? '';
+export const GOOGLE_PLACES_URL = env.GOOGLE_PLACES_URL || 'https://places.googleapis.com'; // tests point these at fakes
+export const FIRECRAWL_API_KEY = env.FIRECRAWL_API_KEY ?? '';
+export const FIRECRAWL_API_URL = env.FIRECRAWL_API_URL || 'https://api.firecrawl.dev';
+
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
 

@@ -158,6 +158,20 @@
   dialog :focus-visible { outline-color: var(--red-soft); }
   .welcome { max-width: 460px; margin: 10vh auto; text-align: center; }
   .welcome img { height: 40px; margin: 0 auto 8px; }
+
+  /* Sales */
+  .camp { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+  .camp h3 { font-size: 15px; }
+  .table { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 700; padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tbody tr { cursor: pointer; } tbody tr:hover { background: var(--field); }
+  td small { display: block; color: var(--muted); }
+  .facts { display: flex; flex-wrap: wrap; gap: 6px; }
+  .activity { display: grid; gap: 8px; font-size: 13px; max-height: 220px; overflow-y: auto; }
+  .activity div { padding: 8px 10px; border-radius: 10px; background: var(--field); }
+  #leadDialog { width: min(720px, 94vw); }
 </style>
 </head>
 <body>
@@ -166,13 +180,14 @@
     <a href="#social"><img src="/assets/logo.png" alt="Red Cherry IT" width="159" height="30"></a>
     <div class="sections" role="group" aria-label="Area">
       <a href="#social" data-section="marketing">Marketing</a>
-      <a href="#leads" data-section="sales">Sales</a>
+      <a href="#campaigns" data-section="sales">Sales</a>
     </div>
     <nav aria-label="Pages">
       <a href="#social" data-view="social" data-section="marketing">Social</a>
       <a href="#articles" data-view="articles" data-section="marketing">Articles</a>
       <a href="#templates" data-view="templates" data-section="marketing">Templates</a>
       <a href="#prompts" data-view="prompts" data-section="marketing">Prompts</a>
+      <a href="#campaigns" data-view="campaigns" data-section="sales">Campaigns</a>
       <a href="#leads" data-view="leads" data-section="sales">Leads</a>
     </nav>
     <span class="pill" id="spend">Claude spend</span>
@@ -361,13 +376,57 @@
 </section>
 
 <!-- Prompts -->
-<!-- Sales: the leads tool moves in here, one part at a time -->
-<section class="view" data-view="leads" hidden>
-  <div class="card">
-    <h2>Leads</h2>
-    <p class="muted">Campaigns, finding businesses and website checks come here next. Your current leads tool keeps working until everything in it is here.</p>
+<!-- Sales: campaigns find businesses, leads are what they found -->
+<section class="view" data-view="campaigns" hidden>
+  <div class="cols two">
+    <div class="card">
+      <div class="card-head"><h2 id="cFormTitle">New campaign</h2><button type="button" class="plain small" id="cCancel" hidden>Cancel edit</button></div>
+      <p class="muted">Every industry is searched in every town. Businesses already in your leads are skipped, so running a campaign again only adds new ones.</p>
+      <div class="fields">
+        <label>Name <input id="cName" maxlength="120" placeholder="Trades in Sheffield"></label>
+        <label>Industries, separated by commas <input id="cIndustries" placeholder="plumber, electrician, roofer"></label>
+        <label>Towns, separated by commas <input id="cTowns" placeholder="Sheffield, Rotherham"></label>
+        <div class="cols two">
+          <label>Looking for <select id="cType">
+            <option value="no_website">No website</option>
+            <option value="outdated_website">Outdated website</option>
+            <option value="both">Either</option>
+          </select></label>
+          <label>Most leads per run <input id="cMax" type="number" min="1" max="100" value="50"></label>
+        </div>
+        <div class="fields" style="gap:6px"><span class="muted">Search</span>
+          <div class="chips" id="cSources">
+            <label class="chip"><input type="checkbox" value="places" checked>Google Maps</label>
+            <label class="chip"><input type="checkbox" value="directories">Directories (Yell, Checkatrade and others)</label>
+          </div>
+        </div>
+        <div class="row"><button type="button" id="cSave">Save campaign</button></div>
+        <div id="cOut"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Campaigns</h2><button type="button" class="plain small" id="cReload">Refresh</button></div>
+      <div id="cList" class="queue"></div>
+    </div>
   </div>
 </section>
+
+<section class="view" data-view="leads" hidden>
+  <div class="card">
+    <div class="card-head"><h2>Leads</h2><span class="muted" id="lCount"></span></div>
+    <div class="row">
+      <label>Campaign <select id="lCampaign"><option value="">All</option></select></label>
+      <label>Status <select id="lStatus"><option value="">All</option></select></label>
+      <label style="flex:1;min-width:200px">Search <input id="lSearch" type="search" placeholder="Name, town, industry or email"></label>
+      <label class="chip" style="align-self:end"><input type="checkbox" id="lEmail">Has email</label>
+    </div>
+    <div class="table"><table>
+      <thead><tr><th>Business</th><th>Why it is a lead</th><th>Contact</th><th>Status</th><th>Follow up</th></tr></thead>
+      <tbody id="lRows"></tbody>
+    </table></div>
+  </div>
+</section>
+<dialog id="leadDialog"><div class="card" id="leadDetail"></div></dialog>
 
 <section class="view" data-view="prompts" hidden>
   <div class="cols wide-left">
@@ -439,6 +498,8 @@
     if (checkPending && $('preview').offsetParent) $('preview').onload();
     if (!ok) return;
     if (view === 'articles' && !loaded.articles) { loaded.articles = true; loadArticles(); }
+    if (view === 'campaigns') loadCampaigns();
+    if (view === 'leads') loadLeads();
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -458,6 +519,145 @@
   $('sizePick').addEventListener('change', () => { applySize(); refresh(); });
   function fitPreview() { const w = $('frame').clientWidth; if (w) $('preview').style.transform = `scale(${w / 1080})`; }
   new ResizeObserver(fitPreview).observe($('frame'));
+
+  // ---- Sales ----
+  const STATUSES = { new: 'New', contacted: 'Contacted', replied: 'Replied', bounced: 'Bounced', converted: 'Won', not_interested: 'Not interested', not_a_fit: 'Not a fit', archived: 'Archived' };
+  const TYPES = { no_website: 'No website', outdated_website: 'Outdated website', both: 'No website or outdated' };
+  const ISSUES = { no_ssl: 'No SSL (not secure)', no_mobile_viewport: 'Not mobile friendly', old_copyright_year: 'Old copyright year', unreachable: 'Unreachable',
+    no_title: 'No page title', no_meta_description: 'No meta description', no_h1: 'No main heading', multiple_h1: 'Several main headings',
+    images_missing_alt: 'Images without alt text', no_canonical: 'No canonical link', no_structured_data: 'No structured data', no_open_graph: 'No social preview tags' };
+  $('lStatus').innerHTML += Object.entries(STATUSES).map(([v, t]) => `<option value="${v}">${t}</option>`).join('');
+  let campList = [], editing = null, poll = null;
+
+  const campBody = () => ({ name: $('cName').value, industries: $('cIndustries').value, towns: $('cTowns').value, lead_type: $('cType').value,
+    max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value) });
+  function editCampaign(c) {
+    editing = c?.id ?? null;
+    $('cFormTitle').textContent = c ? `Edit ${c.name}` : 'New campaign';
+    $('cCancel').hidden = !c;
+    $('cName').value = c?.name ?? ''; $('cIndustries').value = c?.industries ?? ''; $('cTowns').value = c?.towns ?? '';
+    $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 50;
+    for (const i of $('cSources').querySelectorAll('input')) i.checked = c ? c.sources.includes(i.value) : i.value === 'places';
+    note('cOut', '');
+  }
+  $('cCancel').addEventListener('click', () => editCampaign(null));
+  $('cSave').addEventListener('click', async () => {
+    try {
+      await api(editing ? `/campaigns/${editing}` : '/campaigns', { method: editing ? 'PUT' : 'POST', body: JSON.stringify(campBody()) });
+      editCampaign(null);
+      note('cOut', 'Saved. Press Run on the campaign to find businesses.', 'good');
+      loadCampaigns();
+    } catch (e) { note('cOut', esc(e.message), 'bad'); }
+  });
+
+  function campSummary(c) {
+    const p = c.progress ?? c.last_run_summary;
+    if (c.status === 'running' && p) return `${esc(p.stage)}. ${p.added} added so far, ${p.found} found, ${p.checked} website${p.checked === 1 ? '' : 's'} checked.`;
+    if (!p) return 'Not run yet.';
+    const counts = `${p.added} added, ${p.duplicates} already known, ${p.not_matching} did not fit. ${p.found} business${p.found === 1 ? '' : 'es'} found, ${p.checked} website${p.checked === 1 ? '' : 's'} checked.`;
+    return p.error ? `<span class="bad">${esc(p.error)}</span> ${p.found !== undefined ? counts : ''}` : counts;
+  }
+  async function loadCampaigns() {
+    try {
+      campList = await (await api('/campaigns')).json();
+      $('cList').innerHTML = campList.map(c => `<div class="camp">
+          <div class="row" style="justify-content:space-between"><h3>${esc(c.name)}</h3>
+            <span class="badge ${{ running: 'pending', done: 'sent', failed: 'bad' }[c.status] ?? ''}">${esc({ draft: 'Not run', running: 'Running', done: 'Done', failed: 'Failed' }[c.status])}</span></div>
+          <span class="muted">${esc(TYPES[c.lead_type])} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run</span>
+          <span style="font-size:13px">${campSummary(c)}</span>
+          <div class="row">
+            <button type="button" class="small" data-run="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>${c.status === 'draft' ? 'Run' : 'Run again'}</button>
+            <a class="muted" href="#leads" data-leads="${c.id}">${c.leads} lead${c.leads === 1 ? '' : 's'}</a>
+            <button type="button" class="plain small" data-edit="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Edit</button>
+            <button type="button" class="plain small" data-del="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Delete</button>
+          </div></div>`).join('') || '<p class="muted">No campaigns yet. Make one on the left.</p>';
+      const picked = $('lCampaign').value;
+      $('lCampaign').innerHTML = '<option value="">All</option>' + campList.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('');
+      $('lCampaign').value = picked;
+      // While a run is going, check on it every couple of seconds, but only while this page is open.
+      clearTimeout(poll);
+      if (campList.some(c => c.status === 'running')) poll = setTimeout(() => { if (location.hash === '#campaigns') loadCampaigns(); }, 2000);
+    } catch (e) { $('cList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
+  }
+  $('cReload').addEventListener('click', loadCampaigns);
+  $('cList').addEventListener('click', async e => {
+    const { run, edit, del, leads } = e.target.dataset;
+    if (leads) { $('lCampaign').value = leads; return; }
+    if (edit) return editCampaign(campList.find(c => c.id === Number(edit)));
+    if (del) {
+      const c = campList.find(x => x.id === Number(del));
+      if (!confirm(`Delete ${c.name}? Its leads that are still New go too. Leads you have worked on are kept.`)) return;
+      try { await api(`/campaigns/${del}`, { method: 'DELETE' }); } catch (err) { alert(err.message); }
+      return loadCampaigns();
+    }
+    if (run) {
+      e.target.disabled = true;
+      try { await api(`/campaigns/${run}/run`, { method: 'POST' }); } catch (err) { alert(err.message); }
+      loadCampaigns();
+    }
+  });
+
+  let leadTimer;
+  async function loadLeads() {
+    if (!campList.length) await loadCampaigns();
+    const q = new URLSearchParams();
+    if ($('lCampaign').value) q.set('campaign', $('lCampaign').value);
+    if ($('lStatus').value) q.set('status', $('lStatus').value);
+    if ($('lSearch').value.trim()) q.set('q', $('lSearch').value.trim());
+    if ($('lEmail').checked) q.set('has_email', 'true');
+    try {
+      const rows = await (await api(`/leads?${q}`)).json();
+      $('lCount').textContent = `${rows.length}${rows.length === 500 ? '+' : ''} lead${rows.length === 1 ? '' : 's'}`;
+      $('lRows').innerHTML = rows.map(l => `<tr data-lead="${l.id}">
+          <td><strong>${esc(l.company_name)}</strong><small>${esc([l.industry, l.town].filter(Boolean).join(', '))}</small></td>
+          <td>${esc(l.lead_reason)}${l.rating ? `<small>${l.rating} stars from ${l.reviews} reviews</small>` : ''}</td>
+          <td>${esc(l.phone)}<small>${esc(l.email)}</small></td>
+          <td><span class="badge ${{ new: 'draft', converted: 'sent', bounced: 'bad', contacted: 'pending', replied: 'pending' }[l.status] ?? ''}">${esc(STATUSES[l.status])}</span></td>
+          <td>${esc(l.follow_up_date?.split('-').reverse().join('/') ?? '')}</td></tr>`).join('')
+        || '<tr><td colspan="5" class="muted">No leads match. Run a campaign to find some.</td></tr>';
+    } catch (e) { $('lRows').innerHTML = `<tr><td colspan="5" class="bad">${esc(e.message)}</td></tr>`; }
+  }
+  for (const id of ['lCampaign', 'lStatus', 'lEmail']) $(id).addEventListener('change', loadLeads);
+  $('lSearch').addEventListener('input', () => { clearTimeout(leadTimer); leadTimer = setTimeout(loadLeads, 300); });
+  $('lRows').addEventListener('click', e => { const tr = e.target.closest('tr[data-lead]'); if (tr) openLead(tr.dataset.lead); });
+
+  const issueChips = o => Object.entries(o).map(([k, v]) => `<span class="badge">${esc(ISSUES[k] ?? k)}${v === true ? '' : `: ${esc(v)}`}</span>`).join('');
+  async function openLead(id) {
+    const l = await (await api(`/leads/${id}`)).json();
+    const links = [l.website_url && `<a href="${esc(l.website_url)}" target="_blank" rel="noopener">${esc(l.website_url)}</a>`,
+      l.source_ref.startsWith('http') && `<a href="${esc(l.source_ref)}" target="_blank" rel="noopener">${esc(l.source)} listing</a>`].filter(Boolean).join(' · ');
+    $('leadDetail').innerHTML = `<div class="card-head"><h2>${esc(l.company_name)}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
+      <span class="muted">${esc([l.industry, l.address || l.town].filter(Boolean).join(' · '))}${l.campaign ? ` · from ${esc(l.campaign)}` : ''}</span>
+      <div class="note">${esc(l.lead_reason)}${links ? `<br>${links}` : ''}</div>
+      ${Object.keys(l.website_issues).length ? `<div class="fields" style="gap:6px"><strong>Website</strong><div class="facts">${issueChips(l.website_issues)}</div></div>` : ''}
+      ${Object.keys(l.seo_issues).length ? `<div class="fields" style="gap:6px"><strong>SEO</strong><div class="facts">${issueChips(l.seo_issues)}</div></div>` : ''}
+      ${Object.keys(l.social_links).length ? `<div class="facts">${Object.entries(l.social_links).map(([k, v]) => `<a class="badge" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)}</a>`).join('')}</div>` : ''}
+      <div class="cols two">
+        <label>Contact name <input id="ldContact" value="${esc(l.contact_name)}"></label>
+        <label>Phone <input id="ldPhone" value="${esc(l.phone)}"></label>
+        <label>Email <input id="ldEmail" type="email" value="${esc(l.email)}"></label>
+        <label>Website <input id="ldSite" value="${esc(l.website_url)}"></label>
+        <label>Status <select id="ldStatus">${Object.entries(STATUSES).map(([v, t]) => `<option value="${v}" ${v === l.status ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+        <label>Follow up on <input id="ldFollow" type="date" value="${esc(l.follow_up_date ?? '')}"></label>
+      </div>
+      <label>Add a note <textarea id="ldNote" rows="2" placeholder="Saved with the lead"></textarea></label>
+      <div class="row"><button type="button" id="ldSave" data-id="${l.id}">Save</button><span id="ldOut"></span></div>
+      <div class="activity">${l.activity.map(a => `<div><span class="muted">${esc(a.created_at.slice(0, 16))}</span><br>${esc(a.text)}</div>`).join('')}</div>`;
+    if (!$('leadDialog').open) $('leadDialog').showModal();
+  }
+  $('leadDialog').addEventListener('click', async e => {
+    if (e.target === $('leadDialog') || e.target.dataset.close !== undefined) return $('leadDialog').close();
+    const id = e.target.dataset.id;
+    try {
+      if (e.target.id === 'ldSave') {
+        await api(`/leads/${id}`, { method: 'PUT', body: JSON.stringify({ contact_name: $('ldContact').value, phone: $('ldPhone').value, email: $('ldEmail').value,
+          website_url: $('ldSite').value, status: $('ldStatus').value, follow_up_date: $('ldFollow').value || null }) });
+        if ($('ldNote').value.trim()) await api(`/leads/${id}/notes`, { method: 'POST', body: JSON.stringify({ text: $('ldNote').value }) });
+        await openLead(id); loadLeads();
+        $('ldOut').innerHTML = '<span class="good">Saved</span>';
+      }
+    } catch (err) { alert(err.message); }
+  });
 
   function start() {
     Object.keys(loaded).forEach(k => delete loaded[k]);

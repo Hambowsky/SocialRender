@@ -85,6 +85,60 @@ const migrations = [
      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
      published_at TEXT
    );`,
+
+  `CREATE TABLE campaigns (
+     id INTEGER PRIMARY KEY,
+     name TEXT NOT NULL,
+     industries TEXT NOT NULL,         -- comma separated, every industry is searched in every town
+     towns TEXT NOT NULL,
+     lead_type TEXT NOT NULL,          -- no_website, outdated_website or both
+     max_leads INTEGER NOT NULL,
+     sources TEXT NOT NULL,            -- comma separated: places, directories
+     status TEXT NOT NULL DEFAULT 'draft', -- draft, running, done, failed
+     last_run_at TEXT,
+     last_run_summary TEXT,            -- JSON, or the error when a run failed
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE TABLE leads (
+     id INTEGER PRIMARY KEY,
+     campaign_id INTEGER REFERENCES campaigns (id) ON DELETE SET NULL,
+     dedup_key TEXT NOT NULL UNIQUE,   -- the same business is never added twice, whichever campaign finds it
+     company_name TEXT NOT NULL,
+     contact_name TEXT NOT NULL DEFAULT '',
+     phone TEXT NOT NULL DEFAULT '',
+     email TEXT NOT NULL DEFAULT '',
+     website_url TEXT NOT NULL DEFAULT '',
+     address TEXT NOT NULL DEFAULT '',
+     postcode TEXT NOT NULL DEFAULT '',
+     town TEXT NOT NULL DEFAULT '',
+     industry TEXT NOT NULL DEFAULT '',
+     source TEXT NOT NULL,             -- places, or the directory it came from
+     source_ref TEXT NOT NULL DEFAULT '',
+     has_website INTEGER NOT NULL,
+     website_issues TEXT NOT NULL DEFAULT '{}',
+     seo_issues TEXT NOT NULL DEFAULT '{}',
+     social_links TEXT NOT NULL DEFAULT '{}',
+     rating REAL,
+     reviews INTEGER,
+     lead_reason TEXT NOT NULL,
+     status TEXT NOT NULL DEFAULT 'new', -- new, contacted, replied, bounced, converted, not_interested, not_a_fit, archived
+     follow_up_date TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE INDEX leads_campaign ON leads (campaign_id);
+   CREATE TABLE lead_activity (
+     id INTEGER PRIMARY KEY,
+     lead_id INTEGER NOT NULL REFERENCES leads (id) ON DELETE CASCADE,
+     kind TEXT NOT NULL,               -- note or status
+     text TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE TABLE api_cache (            -- paid search answers, kept a day so a rerun costs nothing
+     key TEXT PRIMARY KEY,
+     body TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

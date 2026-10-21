@@ -20,6 +20,8 @@ services:
       SITE_GITHUB_TOKEN: ${SITE_GITHUB_TOKEN:-}
       PUBLISH_DIR: ${PUBLISH_DIR:-/data/site}
       SITE_URL: ${SITE_URL:-https://redcherryit.com}
+      GOOGLE_PLACES_API_KEY: ${GOOGLE_PLACES_API_KEY:-}
+      FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
     volumes:
       - data:/data
     expose:
