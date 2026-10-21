@@ -152,9 +152,7 @@ test('approve, publish to the site repo, then queue one social post for approval
   assert.equal(commits.length, 1);
   const page = `guides/stories/${pub.slug}.html`;
   const img = `images/guides/stories/${pub.slug}`;
-  assert.deepEqual(commits[0].files.sort(), ['guides/index.html', 'guides/stories/index.html', page, 'sitemap.xml', `${img}.png`, `${img}.webp`].sort());
-  assert.equal((repo[`${img}.webp`] as any).subarray(8, 12).toString(), 'WEBP');
-  assert.ok((repo[`${img}.webp`] as any).length < (repo[`${img}.png`] as any).length, 'the WebP is the smaller file');
+  assert.deepEqual(commits[0].files.sort(), ['guides/index.html', 'guides/stories/index.html', page, 'sitemap.xml', `${img}.png`].sort());
   assert.match(repo['guides/index.html'], /<span class="guide-card-count">2 guides<\/span>/);
   assert.match(repo['guides/index.html'], /Coming soon/, 'other categories untouched');
   const html = repo[page];
@@ -163,7 +161,7 @@ test('approve, publish to the site repo, then queue one social post for approval
   assert.match(html, /<h2>The challenge<\/h2>/);
   assert.match(html, /<h3>Can a business publish its own articles without a developer\?<\/h3>/);
   assert.match(html, /"@type": "FAQPage"/);
-  assert.match(html, new RegExp(`<img src="/${img}.webp" alt="Building an Information Portal for a Financial Services Business" width="1200" height="630"`));
+  assert.doesNotMatch(html, /<img src="\/images\/guides/, 'the image is for link previews only, not shown on the page');
   assert.match(html, new RegExp(`<meta property="og:image" content="https://redcherryit.com/${img}.png">`));
   assert.match(html, /<meta property="og:image:alt" content="Building an Information Portal/);
   assert.match(html, /"@type": "ImageObject"/);
