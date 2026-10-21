@@ -139,6 +139,10 @@ const migrations = [
      body TEXT NOT NULL,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    );`,
+
+  `ALTER TABLE leads ADD COLUMN analysis TEXT NOT NULL DEFAULT '{}'; -- PageSpeed, domain age, Business Profile, Claude's notes and pitch
+   ALTER TABLE leads ADD COLUMN priority TEXT;                         -- hot, warm or cold, from Claude
+   ALTER TABLE leads ADD COLUMN analysed_at TEXT;`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

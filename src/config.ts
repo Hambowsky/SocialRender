@@ -41,6 +41,10 @@ export const GOOGLE_PLACES_URL = env.GOOGLE_PLACES_URL || 'https://places.google
 export const FIRECRAWL_API_KEY = env.FIRECRAWL_API_KEY ?? '';
 export const FIRECRAWL_API_URL = env.FIRECRAWL_API_URL || 'https://api.firecrawl.dev';
 
+// Lead analysis. PageSpeed uses GOOGLE_PLACES_API_KEY, which needs the PageSpeed Insights API turned on in Google Cloud.
+export const PAGESPEED_URL = env.PAGESPEED_URL || 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
+export const RDAP_URL = env.RDAP_URL || 'https://rdap.org';
+
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
 

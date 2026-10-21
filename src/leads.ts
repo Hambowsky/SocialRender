@@ -1,9 +1,13 @@
 // Sales: campaigns find local businesses with no website or a weak one, and keep them as leads to follow up.
 // Searching costs money per call, so every answer is cached for a day and calls are capped per month.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { db } from './db.ts';
-import { fail, GBP_PER_USD, FIRECRAWL_API_KEY, FIRECRAWL_API_URL, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL } from './config.ts';
+import { DATA_DIR, fail, GBP_PER_USD, FIRECRAWL_API_KEY, FIRECRAWL_API_URL, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL } from './config.ts';
 import { checkSite, type SiteCheck } from './sitecheck.ts';
+
+export const screenshotPath = (id: number) => path.join(DATA_DIR, 'leads', `${id}.jpg`);
 
 export const LEAD_TYPES = ['no_website', 'outdated_website', 'both'] as const;
 export const SOURCES = ['places', 'directories'] as const;
@@ -31,10 +35,15 @@ db.prepare(`UPDATE campaigns SET status = 'failed', last_run_summary = ? WHERE s
   .run(JSON.stringify({ error: 'The app restarted during this run. Run it again: businesses already added are skipped.' }));
 
 const running = new Map<number, Progress>();
+// Lead analysis runs (src/analyse.ts) keep their progress here, so campaigns can show it.
+export const analysing = new Map<number, { done: number; total: number; current: string }>();
+export const busy = () => running.size > 0 || analysing.size > 0;
 
 function view(c: Campaign) {
   const leads = (db.prepare('SELECT COUNT(*) AS n FROM leads WHERE campaign_id = ?').get(c.id) as { n: number }).n;
-  return { ...c, sources: c.sources.split(','), last_run_summary: c.last_run_summary ? JSON.parse(c.last_run_summary) : null, leads, progress: running.get(c.id) ?? null };
+  const analysed = (db.prepare('SELECT COUNT(*) AS n FROM leads WHERE campaign_id = ? AND analysed_at IS NOT NULL').get(c.id) as { n: number }).n;
+  return { ...c, sources: c.sources.split(','), last_run_summary: c.last_run_summary ? JSON.parse(c.last_run_summary) : null, leads, analysed,
+    progress: running.get(c.id) ?? null, analysis_progress: analysing.get(c.id) ?? null };
 }
 const getRow = (id: number) => (db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id) as Campaign | undefined) ?? fail(404, 'No campaign with that id');
 
@@ -67,6 +76,9 @@ export function updateCampaign(id: number, c: CampaignInput) {
 export function deleteCampaign(id: number) {
   getRow(id);
   if (running.has(id)) fail(409, 'Wait for this campaign to finish running before deleting it');
+  if (analysing.has(id)) fail(409, 'Wait for this campaign\'s leads to finish being analysed before deleting it');
+  const gone = db.prepare(`SELECT id FROM leads WHERE campaign_id = ? AND status = 'new'`).all(id) as { id: number }[];
+  for (const l of gone) fs.rmSync(screenshotPath(l.id), { force: true });
   const { changes } = db.prepare(`DELETE FROM leads WHERE campaign_id = ? AND status = 'new'`).run(id);
   db.prepare('DELETE FROM campaigns WHERE id = ?').run(id);
   return { deleted: true, leads_removed: changes };
@@ -89,7 +101,7 @@ function used(api: Api) {
 }
 
 // One row per paid call: the key carries the day, so answers are reused until midnight (UTC) and every call is counted.
-async function cached<T>(api: Api, request: unknown, call: () => Promise<T>): Promise<T> {
+export async function cached<T>(api: Api, request: unknown, call: () => Promise<T>): Promise<T> {
   const key = `${api}:${new Date().toISOString().slice(0, 10)}:${crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex')}`;
   const hit = db.prepare('SELECT body FROM api_cache WHERE key = ?').get(key) as { body: string } | undefined;
   if (hit) return JSON.parse(hit.body);
@@ -233,7 +245,7 @@ async function work(c: Campaign, p: Progress) {
 
 export function run(id: number) {
   const c = getRow(id);
-  if (running.size) fail(409, running.has(id) ? 'This campaign is already running' : 'Another campaign is running. Wait for it to finish.');
+  if (busy()) fail(409, running.has(id) ? 'This campaign is already running' : 'Another campaign is running or being analysed. Wait for it to finish.');
   const sources = c.sources.split(',');
   if (sources.includes('places') && !GOOGLE_PLACES_API_KEY) fail(503, 'Google Maps search is not set up: add GOOGLE_PLACES_API_KEY');
   if (sources.includes('directories') && !FIRECRAWL_API_KEY) fail(503, 'Directory search is not set up: add FIRECRAWL_API_KEY');
@@ -258,12 +270,13 @@ export function run(id: number) {
 // ---- Leads ----
 
 const LEAD_LIST = `SELECT l.id, l.company_name, l.phone, l.email, l.website_url, l.town, l.industry, l.source, l.has_website, l.lead_reason,
-  l.status, l.follow_up_date, l.rating, l.reviews, l.created_at, l.campaign_id, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id`;
+  l.status, l.follow_up_date, l.rating, l.reviews, l.priority, l.analysed_at, l.created_at, l.campaign_id, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id`;
 
-export function leads(q: { campaign?: number; status?: string; search?: string; has_email?: boolean }) {
+export function leads(q: { campaign?: number; status?: string; priority?: string; search?: string; has_email?: boolean }) {
   const where: string[] = [], args: (string | number)[] = [];
   if (q.campaign) { where.push('l.campaign_id = ?'); args.push(q.campaign); }
   if (q.status) { where.push('l.status = ?'); args.push(q.status); }
+  if (q.priority) { where.push('l.priority = ?'); args.push(q.priority); }
   if (q.has_email) where.push(`l.email != ''`);
   if (q.search) { where.push('(l.company_name LIKE ? OR l.town LIKE ? OR l.industry LIKE ? OR l.email LIKE ?)'); args.push(...Array(4).fill(`%${q.search}%`)); }
   // ponytail: newest 500 only; add paging when the list outgrows that.
@@ -273,7 +286,7 @@ export function leads(q: { campaign?: number; status?: string; search?: string; 
 export function lead(id: number) {
   const l = db.prepare('SELECT l.*, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id WHERE l.id = ?').get(id) as Record<string, unknown> | undefined;
   if (!l) fail(404, 'No lead with that id');
-  for (const k of ['website_issues', 'seo_issues', 'social_links']) l![k] = JSON.parse(String(l![k]));
+  for (const k of ['website_issues', 'seo_issues', 'social_links', 'analysis']) l![k] = JSON.parse(String(l![k]));
   return { ...l!, activity: db.prepare('SELECT kind, text, created_at FROM lead_activity WHERE lead_id = ? ORDER BY id DESC').all(id) };
 }
 

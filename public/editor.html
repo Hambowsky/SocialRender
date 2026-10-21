@@ -173,6 +173,9 @@
   .activity { display: grid; gap: 8px; font-size: 13px; max-height: 220px; overflow-y: auto; }
   .activity div { padding: 8px 10px; border-radius: 10px; background: var(--field); }
   #leadDialog { width: min(720px, 94vw); }
+  .badge.hot { background: var(--red); color: #fff; }
+  .badge.warm { background: var(--amber-soft); color: var(--amber); }
+  .shot { width: 100%; border-radius: 10px; border: 1px solid var(--line); aspect-ratio: 16 / 10; object-fit: cover; object-position: top; background: var(--grey-soft); }
   .suggest { position: relative; }
   .suggest ul { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); max-height: 260px; overflow-y: auto; }
   .suggest li { padding: 8px 10px; border-radius: 7px; font-size: 14px; font-weight: 500; color: var(--ink); cursor: pointer; }
@@ -424,11 +427,12 @@
     <div class="row">
       <label>Campaign <select id="lCampaign"><option value="">All</option></select></label>
       <label>Status <select id="lStatus"><option value="">All</option></select></label>
+      <label>Priority <select id="lPriority"><option value="">All</option><option value="hot">Hot</option><option value="warm">Warm</option><option value="cold">Cold</option></select></label>
       <label style="flex:1;min-width:200px">Search <input id="lSearch" type="search" placeholder="Name, town, industry or email"></label>
       <label class="chip" style="align-self:end"><input type="checkbox" id="lEmail">Has email</label>
     </div>
     <div class="table"><table>
-      <thead><tr><th>Business</th><th>Why it is a lead</th><th>Contact</th><th>Status</th><th>Follow up</th></tr></thead>
+      <thead><tr><th>Business</th><th>Priority</th><th>Why it is a lead</th><th>Contact</th><th>Status</th><th>Follow up</th></tr></thead>
       <tbody id="lRows"></tbody>
     </table></div>
   </div>
@@ -626,6 +630,12 @@
     const cost = p.google_searches === undefined ? '' : `<br><span class="muted">Cost: ${money(p.google_cost_gbp)} for ${plural(p.google_searches, 'Google search', 'Google searches')}${p.firecrawl_searches ? `, plus ${plural(p.firecrawl_credits, 'Firecrawl credit')}` : ''}. Repeat searches the same day are free.</span>`;
     return (p.error ? `<span class="bad">${esc(p.error)}</span> ${p.found !== undefined ? counts : ''}` : counts) + cost;
   }
+  function analysisLine(c) {
+    const a = c.analysis_progress;
+    if (a) return `Analysing ${a.done + 1} of ${a.total}: ${esc(a.current)}`;
+    const err = c.last_run_summary?.analysis_error;
+    return c.leads ? `${c.analysed} of ${c.leads} leads analysed.${err ? ` <span class="bad">${esc(err)}</span>` : ''}` : '';
+  }
   const money = n => `£${Number(n).toFixed(2)}`;
   const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;
   async function loadCampaigns() {
@@ -639,8 +649,10 @@
             <span class="badge ${{ running: 'pending', done: 'sent', failed: 'bad' }[c.status] ?? ''}">${esc({ draft: 'Not run', running: 'Running', done: 'Done', failed: 'Failed' }[c.status])}</span></div>
           <span class="muted">${esc(TYPES[c.lead_type])} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run</span>
           <span style="font-size:13px">${campSummary(c)}</span>
+          <span style="font-size:13px">${analysisLine(c)}</span>
           <div class="row">
             <button type="button" class="small" data-run="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>${c.status === 'draft' ? 'Run' : 'Run again'}</button>
+            ${c.leads > c.analysed ? `<button type="button" class="plain small" data-analyse="${c.id}" ${c.analysis_progress || c.status === 'running' ? 'disabled' : ''}>Analyse leads</button>` : ''}
             <a class="muted" href="#leads" data-leads="${c.id}">${c.leads} lead${c.leads === 1 ? '' : 's'}</a>
             <button type="button" class="plain small" data-edit="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Edit</button>
             <button type="button" class="plain small" data-del="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Delete</button>
@@ -650,12 +662,19 @@
       $('lCampaign').value = picked;
       // While a run is going, check on it every couple of seconds, but only while this page is open.
       clearTimeout(poll);
-      if (campList.some(c => c.status === 'running')) poll = setTimeout(() => { if (location.hash === '#campaigns') loadCampaigns(); }, 2000);
+      if (campList.some(c => c.status === 'running' || c.analysis_progress)) poll = setTimeout(() => { if (location.hash === '#campaigns') loadCampaigns(); }, 2000);
     } catch (e) { $('cList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
   $('cReload').addEventListener('click', loadCampaigns);
   $('cList').addEventListener('click', async e => {
-    const { run, edit, del, leads } = e.target.dataset;
+    const { run, edit, del, leads, analyse } = e.target.dataset;
+    if (analyse) {
+      const c = campList.find(x => x.id === Number(analyse));
+      if (!confirm(`Analyse ${c.leads - c.analysed} lead${c.leads - c.analysed === 1 ? '' : 's'}? Each gets a PageSpeed test, a screenshot and Claude's view, at well under a penny of Claude each, within your monthly cap.`)) return;
+      e.target.disabled = true;
+      try { await api(`/campaigns/${analyse}/analyse`, { method: 'POST' }); } catch (err) { alert(err.message); }
+      return loadCampaigns();
+    }
     if (leads) { $('lCampaign').value = leads; return; }
     if (edit) return editCampaign(campList.find(c => c.id === Number(edit)));
     if (del) {
@@ -677,6 +696,7 @@
     const q = new URLSearchParams();
     if ($('lCampaign').value) q.set('campaign', $('lCampaign').value);
     if ($('lStatus').value) q.set('status', $('lStatus').value);
+    if ($('lPriority').value) q.set('priority', $('lPriority').value);
     if ($('lSearch').value.trim()) q.set('q', $('lSearch').value.trim());
     if ($('lEmail').checked) q.set('has_email', 'true');
     try {
@@ -684,17 +704,44 @@
       $('lCount').textContent = `${rows.length}${rows.length === 500 ? '+' : ''} lead${rows.length === 1 ? '' : 's'}`;
       $('lRows').innerHTML = rows.map(l => `<tr data-lead="${l.id}">
           <td><strong>${esc(l.company_name)}</strong><small>${esc([l.industry, l.town].filter(Boolean).join(', '))}</small></td>
+          <td>${l.priority ? `<span class="badge ${l.priority}">${esc(PRIORITY[l.priority])}</span>` : '<span class="muted">Not analysed</span>'}</td>
           <td>${esc(l.lead_reason)}${l.rating ? `<small>${l.rating} stars from ${l.reviews} reviews</small>` : ''}</td>
           <td>${esc(l.phone)}<small>${esc(l.email)}</small></td>
           <td><span class="badge ${{ new: 'draft', converted: 'sent', bounced: 'bad', contacted: 'pending', replied: 'pending' }[l.status] ?? ''}">${esc(STATUSES[l.status])}</span></td>
           <td>${esc(l.follow_up_date?.split('-').reverse().join('/') ?? '')}</td></tr>`).join('')
-        || '<tr><td colspan="5" class="muted">No leads match. Run a campaign to find some.</td></tr>';
-    } catch (e) { $('lRows').innerHTML = `<tr><td colspan="5" class="bad">${esc(e.message)}</td></tr>`; }
+        || '<tr><td colspan="6" class="muted">No leads match. Run a campaign to find some.</td></tr>';
+    } catch (e) { $('lRows').innerHTML = `<tr><td colspan="6" class="bad">${esc(e.message)}</td></tr>`; }
   }
-  for (const id of ['lCampaign', 'lStatus', 'lEmail']) $(id).addEventListener('change', loadLeads);
+  for (const id of ['lCampaign', 'lStatus', 'lPriority', 'lEmail']) $(id).addEventListener('change', loadLeads);
   $('lSearch').addEventListener('input', () => { clearTimeout(leadTimer); leadTimer = setTimeout(loadLeads, 300); });
   $('lRows').addEventListener('click', e => { const tr = e.target.closest('tr[data-lead]'); if (tr) openLead(tr.dataset.lead); });
 
+  const PRIORITY = { hot: 'Hot', warm: 'Warm', cold: 'Cold' };
+  // What phase 3 found: Claude's view first, since that is what David acts on, then the facts behind it.
+  function analysisHtml(l) {
+    const a = l.analysis;
+    if (!l.analysed_at) return `<div class="row"><button type="button" class="plain" id="ldAnalyse" data-id="${l.id}">Analyse this lead</button><span class="muted">PageSpeed, domain age, Business Profile, a screenshot and Claude's view. Well under a penny of Claude.</span></div>`;
+    const g = a.gbp, facts = [
+      a.pagespeed && `Mobile PageSpeed ${a.pagespeed.score}${a.pagespeed.lcp ? ` (loads in ${esc(a.pagespeed.lcp)})` : ''}`,
+      a.domain && `Domain since ${esc(a.domain.registered.split('-').reverse().join('/'))} (${a.domain.years} years)`,
+      g && `${g.rating ?? 'No'} stars from ${g.reviews ?? 0} reviews`,
+      g && g.has_hours !== undefined && (g.has_hours ? 'Opening hours listed' : 'No opening hours'),
+      g && g.photos !== undefined && plural(g.photos, 'photo'),
+    ].filter(Boolean);
+    return `<div class="fields" style="gap:8px">
+        <div class="row" style="justify-content:space-between"><strong>Analysis</strong>${l.priority ? `<span class="badge ${l.priority}">${PRIORITY[l.priority]}</span>` : ''}</div>
+        ${a.notes ? `<p style="font-size:14px">${esc(a.notes)}</p>` : ''}
+        ${a.pitch ? `<div class="note"><strong>Opening line</strong><br><span id="ldPitch">${esc(a.pitch)}</span><div class="row" style="margin-top:6px"><button type="button" class="plain small" id="ldCopy">Copy</button></div></div>` : ''}
+        <div class="facts">${facts.map(f => `<span class="badge">${f}</span>`).join('')}${g?.maps_url ? `<a class="badge" href="${esc(g.maps_url)}" target="_blank" rel="noopener">Google Maps</a>` : ''}</div>
+        ${a.screenshot ? `<img class="shot" id="ldShot" alt="Their homepage">` : ''}
+        ${a.errors?.length ? `<span class="muted">Could not get: ${esc(a.errors.join('; '))}</span>` : ''}
+        <div class="row"><button type="button" class="plain small" id="ldAnalyse" data-id="${l.id}">Analyse again</button><span class="muted">Checked ${esc(l.analysed_at.slice(0, 10).split('-').reverse().join('/'))}</span></div>
+      </div>`;
+  }
+  async function loadShot(id) {
+    if (!$('ldShot')) return;
+    try { $('ldShot').src = URL.createObjectURL(await (await api(`/leads/${id}/screenshot.jpg`)).blob()); } catch { $('ldShot').hidden = true; }
+  }
   const issueChips = o => Object.entries(o).map(([k, v]) => `<span class="badge">${esc(ISSUES[k] ?? k)}${v === true ? '' : `: ${esc(v)}`}</span>`).join('');
   async function openLead(id) {
     const l = await (await api(`/leads/${id}`)).json();
@@ -706,6 +753,7 @@
       ${Object.keys(l.website_issues).length ? `<div class="fields" style="gap:6px"><strong>Website</strong><div class="facts">${issueChips(l.website_issues)}</div></div>` : ''}
       ${Object.keys(l.seo_issues).length ? `<div class="fields" style="gap:6px"><strong>SEO</strong><div class="facts">${issueChips(l.seo_issues)}</div></div>` : ''}
       ${Object.keys(l.social_links).length ? `<div class="facts">${Object.entries(l.social_links).map(([k, v]) => `<a class="badge" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)}</a>`).join('')}</div>` : ''}
+      ${analysisHtml(l)}
       <div class="cols two">
         <label>Contact name <input id="ldContact" value="${esc(l.contact_name)}"></label>
         <label>Phone <input id="ldPhone" value="${esc(l.phone)}"></label>
@@ -718,11 +766,20 @@
       <div class="row"><button type="button" id="ldSave" data-id="${l.id}">Save</button><span id="ldOut"></span></div>
       <div class="activity">${l.activity.map(a => `<div><span class="muted">${esc(a.created_at.slice(0, 16))}</span><br>${esc(a.text)}</div>`).join('')}</div>`;
     if (!$('leadDialog').open) $('leadDialog').showModal();
+    loadShot(l.id);
   }
   $('leadDialog').addEventListener('click', async e => {
     if (e.target === $('leadDialog') || e.target.dataset.close !== undefined) return $('leadDialog').close();
     const id = e.target.dataset.id;
     try {
+      if (e.target.id === 'ldCopy') { await navigator.clipboard.writeText($('ldPitch').textContent); e.target.textContent = 'Copied'; return; }
+      if (e.target.id === 'ldAnalyse') {
+        e.target.disabled = true;
+        e.target.textContent = 'Analysing, this takes up to a minute...';
+        await api(`/leads/${id}/analyse`, { method: 'POST' });
+        await openLead(id); loadLeads();
+        return;
+      }
       if (e.target.id === 'ldSave') {
         await api(`/leads/${id}`, { method: 'PUT', body: JSON.stringify({ contact_name: $('ldContact').value, phone: $('ldPhone').value, email: $('ldEmail').value,
           website_url: $('ldSite').value, status: $('ldStatus').value, follow_up_date: $('ldFollow').value || null }) });
@@ -730,7 +787,7 @@
         await openLead(id); loadLeads();
         $('ldOut').innerHTML = '<span class="good">Saved</span>';
       }
-    } catch (err) { alert(err.message); }
+    } catch (err) { alert(err.message); if (e.target.id === 'ldAnalyse') openLead(id); }
   });
 
   function start() {
