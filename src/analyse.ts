@@ -73,13 +73,18 @@ export async function analyseLead(id: number) {
   }
   // Tried even when the campaign run could not reach the site: it may have been down, or turned the check away.
   if (site) {
+    let html = '';
     await step('Screenshot', async () => {
       fs.mkdirSync(path.dirname(screenshotPath(id)), { recursive: true });
-      const html = await screenshotSite(site, screenshotPath(id));
+      html = await screenshotSite(site, screenshotPath(id));
       a.screenshot = true;
-      // Look again for an email: the plain check (home and contact pages), then the page as the browser built it,
-      // which catches sites that add their email with JavaScript.
-      const email = !l.email && ((await checkSite(site).catch(() => null))?.email || findEmail(html));
+    });
+    // Look again for an email: the plain check (home and contact pages), then the page as the browser built it,
+    // which catches sites that add their email with JavaScript.
+    if (!l.email) await step('Website check', async () => {
+      const check = await checkSite(site);
+      if (!check.reachable) a.errors.push(`Website check: ${check.note}`);
+      const email = check.email || findEmail(html);
       if (email) {
         db.prepare(`UPDATE leads SET email = ? WHERE id = ? AND email = ''`).run(email, id);
         db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Found ${email} on the website`);

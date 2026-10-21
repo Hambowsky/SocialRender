@@ -47,7 +47,10 @@ export async function fetchPage(raw: string, accept = 'text/html,text/plain') {
     let res: Response;
     try {
       res = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: { 'user-agent': BROWSER, 'accept-language': 'en-GB,en;q=0.9', accept } });
-    } catch (err) { return fail(502, `Could not load that page: ${(err as Error).message}`); }
+    } catch (err) {
+      const cause = (err as { cause?: { code?: string; message?: string } }).cause; // fetch only says "fetch failed"; the cause says why
+      return fail(502, `Could not load that page: ${cause ? cause.code ?? cause.message : (err as Error).message}`);
+    }
     const next = res.headers.get('location');
     if (res.status >= 300 && res.status < 400 && next) {
       if (hops >= 4) fail(502, 'That page redirects too many times');
