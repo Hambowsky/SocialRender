@@ -380,7 +380,7 @@
     const res = await fetch(path, { ...opts, headers: { 'x-api-key': $('key').value, ...(opts.body ? { 'content-type': 'application/json' } : {}) } });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw Object.assign(new Error(body.error || body.message || res.statusText), { body });
+      throw Object.assign(new Error(body.message || body.error || res.statusText), { body });
     }
     return res;
   }
