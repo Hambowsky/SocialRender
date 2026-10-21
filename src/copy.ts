@@ -10,7 +10,8 @@ import { ask, type Ask } from './claude.ts';
 import { checkFit, checkHtml } from './render.ts';
 import { current as currentTemplate, fieldsOf, list as listTemplates, sampleOf, type Problem } from './templates.ts';
 import { NAME_PATTERN } from './versions.ts';
-import { readPage } from './page.ts';
+import { pageText, readPage } from './page.ts';
+import { sitePage } from './site.ts';
 
 const PROMPTS_DIR = path.join(ROOT, 'prompts');
 
@@ -107,14 +108,25 @@ export function guideTag(url: string) {
   return folder ? folder[0].toUpperCase() + folder.slice(1).replace(/-/g, ' ') : undefined;
 }
 
+// One of our own guides, from the tool if it has it (so a page just published works before the site deploys),
+// else from the website repo. Neither goes over the web, so it works whatever the server's DNS says about our domain.
+async function ownGuide(url: string) {
+  const path = new URL(url).pathname;
+  const row = db.prepare(`SELECT title, summary, body FROM articles WHERE category || slug = ?`).get(path) as { title: string; summary: string; body: string } | undefined;
+  if (row) return { url, title: row.title, description: row.summary, text: row.body };
+  const [, category, slug] = path.match(/^(\/.+\/)([^/]+)$/) ?? [];
+  const html = slug ? await sitePage(category, slug).catch(() => undefined) : undefined;
+  if (!html) return undefined;
+  const page = pageText(html);
+  return { url, ...page, text: page.text.slice(0, 15000) };
+}
+
 export async function writeCopy(input: CopyInput) {
   const t = templateVars(input.template);
   if (!input.topic?.trim() && !input.url) fail(400, 'Give a topic or a page link');
   // A page link is read here and handed to Claude as a source, so its facts can be used and quoted.
   // Our own guides are read from the tool when it has them, so a page just published works before the site deploys.
-  const own = input.url && guideTag(input.url) ? db.prepare(`SELECT title, summary, body FROM articles WHERE category || slug = ?`)
-    .get(new URL(input.url).pathname) as { title: string; summary: string; body: string } | undefined : undefined;
-  const page = own ? { url: input.url!, title: own.title, description: own.summary, text: own.body } : input.url ? await readPage(input.url) : undefined;
+  const page = input.url ? (guideTag(input.url) && await ownGuide(input.url)) || await readPage(input.url) : undefined;
   const vars = { ...input, ...t } as Record<string, string>;
   // One of our guides: its category is the tag, and the headline is a fresh hook rather than the title.
   const tag = page && guideTag(page.url);

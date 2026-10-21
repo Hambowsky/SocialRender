@@ -323,7 +323,7 @@
     <div class="fields">
       <div class="card" id="design">
         <div class="card-head"><h2>Design a template with Claude</h2></div>
-        <p class="muted">Describe it. Claude designs it in the brand style, starting from the template picked on Social, and checks its sample text fits. Nothing is saved until you save it.</p>
+        <p class="muted">Describe it. Claude designs it in the brand style, starting from the template picked under Template code, and checks its sample text fits. Nothing is saved until you save it.</p>
         <label>What should it look like? <textarea id="designDesc" rows="3" placeholder="An event card with a big date block on the left, the event name as the headline and the venue as the subtitle"></textarea></label>
         <div class="row"><button id="designBtn" type="button">Design it</button></div>
         <div id="designOut"></div>
@@ -331,6 +331,7 @@
       </div>
       <div class="card" id="code">
         <div class="card-head"><h2>Template code</h2><span class="muted" id="codeName"></span></div>
+        <label>Template to edit <select id="tplPick"></select></label>
         <p class="muted">Edits show in the preview straight away. Save to make them live for renders.</p>
         <textarea id="html" class="code" spellcheck="false"></textarea>
         <label>Note for this version <input id="note" maxlength="200"></label>
@@ -436,7 +437,7 @@
     try {
       const list = await (await api('/templates')).json();
       const keep = $('template').value;
-      $('template').innerHTML = list.map(t => `<option>${esc(t.name)}</option>`).join('');
+      $('template').innerHTML = $('tplPick').innerHTML = list.map(t => `<option>${esc(t.name)}</option>`).join('');
       if (keep && list.some(t => t.name === keep)) $('template').value = keep;
       await loadTemplate($('template').value === keep);
     } catch (e) { status(esc(e.message), 'bad'); }
@@ -460,6 +461,7 @@
     defaultSize = t.html.match(/class="post"[^>]*data-size="(\d+x\d+)"/)?.[1] ?? '1080x1080';
     applySize();
     $('codeName').textContent = t.name;
+    $('tplPick').value = t.name;
     $('versions').innerHTML = (await (await api(`/templates/${t.name}/versions`)).json()).map(v =>
       `<li><span>Version ${v.id} · ${esc(v.created_at.slice(0, 16))}${v.note ? '<br><span class="muted">' + esc(v.note) + '</span>' : ''}</span>
        ${v.id === t.version ? '<span class="badge sent">Live</span>' : `<button type="button" class="plain small" data-v="${v.id}">Roll back</button>`}</li>`).join('');
@@ -501,6 +503,12 @@
   };
 
   $('template').addEventListener('change', () => loadTemplate());
+  // The Templates section edits the same template as Social, so both menus pick it.
+  $('tplPick').addEventListener('change', () => {
+    if ($('html').value !== savedHtml && !confirm('Switch template? Your unsaved edits to this one will be lost.')) return $('tplPick').value = $('template').value;
+    $('template').value = $('tplPick').value;
+    loadTemplate();
+  });
   $('fields').addEventListener('input', refresh);
   $('html').addEventListener('input', refresh);
 
