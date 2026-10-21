@@ -258,3 +258,13 @@ test('find sources keeps only facts with a link and writes them ready for the dr
   assert.equal(r.text, '* Most brochure sites take four to six weeks. (Timelines, 2026: https://example.co.uk/timelines)');
   assert.equal(researchCalls.at(-1).tools[0].max_uses, 6);
 });
+
+test('a guide that is only on the site is read from the website repo, never fetched over the web', async () => {
+  const { page } = await import('../src/articles.ts');
+  repo['guides/stories/site-only.html'] = page({ title: 'A guide only on the site', summary: 'Site summary.', category: '/guides/stories/', slug: 'site-only',
+    body: '# A guide only on the site\n\nThe short answer.\n\n## More\n\n' + 'Plain words about websites. '.repeat(20) }, '2026-08-10');
+  const res = await call('POST', '/copy', { template: 'social-post', url: 'https://redcherryit.com/guides/stories/site-only' });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.match(res.json().page.title, /A guide only on the site/);
+  assert.equal(res.json().fields.tag, 'Stories');
+});
