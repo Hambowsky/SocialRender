@@ -37,13 +37,16 @@ export function pageText(html: string) {
 
 const MAX_CHARS = 15000;
 
+// Many small business sites (Wix, Cloudflare) turn away or strip pages for anything that does not look like a browser.
+const BROWSER = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+
 // Follows redirects by hand so every hop is checked against the private address list.
 export async function fetchPage(raw: string, accept = 'text/html,text/plain') {
   let url = await checkUrl(raw);
   for (let hops = 0; ; hops++) {
     let res: Response;
     try {
-      res = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: { 'user-agent': 'RedCherryIT-SocialRender/1 (+https://redcherryit.com)', accept } });
+      res = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(15_000), headers: { 'user-agent': BROWSER, 'accept-language': 'en-GB,en;q=0.9', accept } });
     } catch (err) { return fail(502, `Could not load that page: ${(err as Error).message}`); }
     const next = res.headers.get('location');
     if (res.status >= 300 && res.status < 400 && next) {
