@@ -21,18 +21,18 @@ after(async () => { await app.close(); await closeBrowser(); });
 const pngSize = (buf: Buffer) => ({ width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) });
 const names = (list() as { name: string }[]).map(t => t.name);
 
-test('there are four image and four motion templates', () => {
-  assert.deepEqual(names, ['motion-blueprint', 'motion-glow', 'motion-isometric', 'motion-whiteboard', 'quote-card', 'social-post', 'stat-card', 'tip-card']);
+test('there are an article header, four image and four motion templates', () => {
+  assert.deepEqual(names, ['article-header', 'motion-blueprint', 'motion-glow', 'motion-isometric', 'motion-whiteboard', 'quote-card', 'social-post', 'stat-card', 'tip-card']);
 });
 
 for (const name of names) {
-  const height = name.startsWith('motion-') ? 1920 : 1080;
-  test(`${name} renders its sample text at 1080 by ${height}`, async () => {
+  const [width, height] = name === 'article-header' ? [1200, 630] : [1080, name.startsWith('motion-') ? 1920 : 1080];
+  test(`${name} renders its sample text at ${width} by ${height}`, async () => {
     const fields = sampleOf(current(name).body);
     const res = await app.inject({ method: 'POST', url: '/render', headers, payload: { template: name, fields } });
     assert.equal(res.statusCode, 200, res.body);
     assert.equal(res.headers['content-type'], 'image/png');
-    assert.deepEqual(pngSize(res.rawPayload), { width: 1080, height });
+    assert.deepEqual(pngSize(res.rawPayload), { width, height });
     if (OUT) fs.writeFileSync(path.join(OUT, `${name}.png`), res.rawPayload);
   });
 }

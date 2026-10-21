@@ -1,5 +1,6 @@
 // Articles against a fake Claude and a fake Buffer, so tests cost nothing and post nothing.
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
@@ -69,6 +70,7 @@ const repo: Record<string, string> = {
 };
 const commits: { message: string; files: string[] }[] = [];
 let pending: any;
+const blobs: Buffer[] = [];
 const github = http.createServer((req, res) => {
   let b = '';
   req.on('data', c => (b += c));
@@ -79,13 +81,15 @@ const github = http.createServer((req, res) => {
     if (u === '/git/ref/heads/main') return send({ object: { sha: `head${commits.length}` } });
     if (u.startsWith('/contents/')) {
       const k = u.slice(10), f = repo[k], kids = Object.keys(repo).filter(p => p.startsWith(k + '/')).map(p => ({ name: p.slice(k.length + 1) }));
-      return f !== undefined ? send({ content: Buffer.from(f).toString('base64') }) : kids.length ? send(kids) : send({}, 404);
+      const sha = f !== undefined && crypto.createHash('sha1').update(`blob ${Buffer.from(f).length}\0`).update(Buffer.from(f)).digest('hex');
+      return f !== undefined ? send({ content: Buffer.from(f).toString('base64'), sha }) : kids.length ? send(kids) : send({}, 404);
     }
     if (u.startsWith('/git/commits/')) return send({ tree: { sha: 't' } });
+    if (u === '/git/blobs') { blobs.push(Buffer.from(JSON.parse(b).content, 'base64')); return send({ sha: `blob${blobs.length - 1}` }); }
     if (u === '/git/trees') { pending = JSON.parse(b).tree; return send({ sha: 'nt' }); }
     if (u === '/git/commits') { const m = JSON.parse(b).message; pending.message = m; return send({ sha: `c${commits.length + 1}` }); }
     if (u === '/git/refs/heads/main') {
-      for (const f of pending) repo[f.path] = f.content;
+      for (const f of pending) repo[f.path] = f.content ?? blobs[+f.sha.slice(4)];
       commits.push({ message: pending.message, files: pending.map((f: any) => f.path) });
       return send({});
     }
@@ -147,7 +151,10 @@ test('approve, publish to the site repo, then queue one social post for approval
   assert.equal(pub.status, 'published', JSON.stringify(pub));
   assert.equal(commits.length, 1);
   const page = `guides/stories/${pub.slug}.html`;
-  assert.deepEqual(commits[0].files.sort(), ['guides/index.html', 'guides/stories/index.html', page, 'sitemap.xml'].sort());
+  const img = `images/guides/stories/${pub.slug}`;
+  assert.deepEqual(commits[0].files.sort(), ['guides/index.html', 'guides/stories/index.html', page, 'sitemap.xml', `${img}.png`, `${img}.webp`].sort());
+  assert.equal((repo[`${img}.webp`] as any).subarray(8, 12).toString(), 'WEBP');
+  assert.ok((repo[`${img}.webp`] as any).length < (repo[`${img}.png`] as any).length, 'the WebP is the smaller file');
   assert.match(repo['guides/index.html'], /<span class="guide-card-count">2 guides<\/span>/);
   assert.match(repo['guides/index.html'], /Coming soon/, 'other categories untouched');
   const html = repo[page];
@@ -156,6 +163,10 @@ test('approve, publish to the site repo, then queue one social post for approval
   assert.match(html, /<h2>The challenge<\/h2>/);
   assert.match(html, /<h3>Can a business publish its own articles without a developer\?<\/h3>/);
   assert.match(html, /"@type": "FAQPage"/);
+  assert.match(html, new RegExp(`<img src="/${img}.webp" alt="Building an Information Portal for a Financial Services Business" width="1200" height="630"`));
+  assert.match(html, new RegExp(`<meta property="og:image" content="https://redcherryit.com/${img}.png">`));
+  assert.match(html, /<meta property="og:image:alt" content="Building an Information Portal/);
+  assert.match(html, /"@type": "ImageObject"/);
   assert.doesNotMatch(html, /\{\{\w+\}\}/, 'every slot is filled');
   assert.match(repo['guides/stories/index.html'], /href="older-story">\n        <\/a>\n        <a class="guide-card" href="building-an-information-portal/);
   assert.match(repo['sitemap.xml'], /older-story.*\n.*building-an-information-portal-for-a-financial-services-business<\/loc>.*\n.*pricing/);

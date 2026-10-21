@@ -1,7 +1,9 @@
 // Articles: Claude drafts, the app checks, David approves, the app publishes static files,
 // then Claude writes a matching social post that waits in the Buffer approval queue.
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { db } from './db.ts';
 import { fail, ROOT, SITE_URL } from './config.ts';
 import { current as currentPrompt, fillPromptVars, list as listPrompts, parsePrompt, runPrompt, systemPrompt, writeCopy } from './copy.ts';
@@ -224,7 +226,11 @@ const DEFAULT_CTA = 'Want something similar for your business? Get in touch for 
 
 // The full page in the same layout as the live story pages (site/article.html): the opening paragraph
 // becomes the short answer box, the closing call to action goes in the banner, and FAQs get their schema.
-export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' | 'slug'>, date: string, published = date) {
+// The featured image lives next to the site's other images, named after the article so the file name describes it.
+// The page shows the WebP (small, sharp text); link previews and schema use the PNG, which every social site reads.
+const imagePath = (a: Pick<Article, 'category' | 'slug'>, ext: 'png' | 'webp') => `/images${a.category}${a.slug}.${ext}`;
+
+export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' | 'slug'>, date: string, published = date, image = false) {
   const blocks = a.body.replace(/\r/g, '').split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
   if (blocks[0]?.startsWith('# ')) blocks.shift();
   const shortAnswer = blocks[0] && !blocks[0].startsWith('#') ? blocks.shift()! : a.summary;
@@ -249,12 +255,17 @@ export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' 
   const vars: Record<string, string> = {
     title: esc(a.title), description: esc(a.summary), url: esc(url), section: esc(section),
     folder: esc(a.category.split('/').filter(Boolean).at(-1)!.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())), section_url: esc(sectionUrl),
+    image_meta: image
+      ? [['og:image', `${SITE_URL}${imagePath(a, 'png')}`], ['og:image:type', 'image/png'], ['og:image:width', '1200'], ['og:image:height', '630'], ['og:image:alt', a.title]]
+          .map(([k, v]) => `<meta property="${k}" content="${esc(v)}">`).join('\n') + `\n<meta name="twitter:image:alt" content="${esc(a.title)}">`
+      : '<meta property="og:image" content="https://redcherryit.com/images/og-image.png">',
+    hero: image ? `\n      <img src="${imagePath(a, 'webp')}" alt="${esc(a.title)}" width="1200" height="630" fetchpriority="high" style="display:block;width:100%;height:auto;margin:24px 0 8px;border-radius:12px;">` : '',
     short_answer: inline(shortAnswer.replace(/\n/g, ' ')), cta: esc(cta), year: date.slice(0, 4),
     updated_month: new Date(date + 'T12:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }),
     body: toHtml(out.join('\n\n')).split('\n').map(l => l && '        ' + l).join('\n'),
     article_schema: json({
       '@context': 'https://schema.org', '@type': 'Article', headline: a.title, description: a.summary,
-      image: 'https://redcherryit.com/images/og-image.png',
+      image: image ? { '@type': 'ImageObject', url: `${SITE_URL}${imagePath(a, 'png')}`, width: 1200, height: 630, caption: a.title } : 'https://redcherryit.com/images/og-image.png',
       author: { '@type': 'Person', name: 'David Hanmer', url: 'https://redcherryit.com/about' },
       publisher: { '@type': 'Organization', name: 'Red Cherry IT', logo: { '@type': 'ImageObject', url: 'https://redcherryit.com/images/logo.png' } },
       datePublished: published, dateModified: date, mainEntityOfPage: { '@type': 'WebPage', '@id': url },
@@ -280,14 +291,30 @@ export async function publish(id: number) {
   const a = get(id);
   if (a.status !== 'approved' && a.status !== 'published') fail(409, `Approve the article before publishing. It is ${a.status}.`);
   const date = today();
-  const result = await publishPage({ category: a.category, slug: a.slug, title: a.title, summary: a.summary, date }, page(a, date, firstPublished(a)));
+  const header = await headerImage(a);
+  const images = header.ok ? [{ path: imagePath(a, 'png').slice(1), content: header.png }, { path: imagePath(a, 'webp').slice(1), content: header.webp }] : [];
+  const result = await publishPage({ category: a.category, slug: a.slug, title: a.title, summary: a.summary, date }, page(a, date, firstPublished(a), header.ok), images);
   db.prepare(`UPDATE articles SET status = 'published', published_at = COALESCE(published_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`).run(id);
-  return { ...show(id), published: result };
+  return { ...show(id), published: result, image: header.ok ? `${SITE_URL}${imagePath(a, 'webp')}` : header.problem };
+}
+
+// The article-header template with the title on it. The keyword is picked out in red when the title contains it.
+// If the title does not fit, the article still publishes, with the site's standard image.
+async function headerImage(a: Article): Promise<{ ok: true; png: Buffer; webp: Buffer } | { ok: false; problem: string }> {
+  const keyword = a.keyword.trim();
+  const highlight = keyword && new RegExp(`(?<!\\w)${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!\\w)`, 'i').test(a.title) ? keyword : '';
+  const r = await render('article-header', { headline: a.title, highlight_word: highlight, tag: sectionName(a.category),
+    footer_left: 'Red Cherry IT guide', footer_right: 'redcherryit.com' });
+  if (!r.ok) return { ok: false, problem: `No header image: ${r.problems.map(p => p.message).join(', ')}` };
+  // Lossless WebP: about 60% smaller than the PNG with no blur on the text.
+  const { stdout } = await promisify(execFile)('ffmpeg', ['-loglevel', 'error', '-i', r.file, '-c:v', 'libwebp', '-lossless', '1', '-compression_level', '6', '-f', 'webp', 'pipe:1'],
+    { encoding: 'buffer', maxBuffer: 20e6 });
+  return { ok: true, png: fs.readFileSync(r.file), webp: stdout };
 }
 
 export function download(id: number, format: 'md' | 'html') {
   const a = get(id);
-  return format === 'md' ? markdown(a, today()) : page(a, today(), firstPublished(a));
+  return format === 'md' ? markdown(a, today()) : page(a, today(), firstPublished(a), a.status === 'published');
 }
 
 // One social post per template for a published article, added to the Buffer approval queue.
