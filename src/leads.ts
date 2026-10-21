@@ -272,16 +272,30 @@ export function run(id: number) {
 const LEAD_LIST = `SELECT l.id, l.company_name, l.phone, l.email, l.website_url, l.town, l.industry, l.source, l.has_website, l.lead_reason,
   l.status, l.follow_up_date, l.rating, l.reviews, l.priority, l.analysed_at, l.created_at, l.campaign_id, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id`;
 
-export function leads(q: { campaign?: number; status?: string; priority?: string; search?: string; has_email?: boolean }) {
+const INACTIVE = `('not_interested', 'not_a_fit', 'archived')`;
+const HAS = { website: 'l.has_website = 1', email: `l.email != ''`, phone: `l.phone != ''` };
+const SORTS: Record<string, string> = { newest: 'l.id DESC', priority: `CASE l.priority WHEN 'hot' THEN 0 WHEN 'warm' THEN 1 WHEN 'cold' THEN 2 ELSE 3 END, l.id DESC`,
+  name: 'l.company_name COLLATE NOCASE', town: 'l.town COLLATE NOCASE, l.company_name COLLATE NOCASE' };
+export type LeadFilter = { campaign?: number; status?: string; priority?: string; search?: string; sort?: string } & Partial<Record<`has_${keyof typeof HAS}`, 'yes' | 'no'>>;
+
+// Same filters as the old tool: status (active hides the dead ones, contacted_plus is anything past new), priority, search,
+// and yes/no on whether a lead has a website, an email or a phone number.
+export function leads(q: LeadFilter) {
   const where: string[] = [], args: (string | number)[] = [];
   if (q.campaign) { where.push('l.campaign_id = ?'); args.push(q.campaign); }
-  if (q.status) { where.push('l.status = ?'); args.push(q.status); }
+  if (q.status === 'active') where.push(`l.status NOT IN ${INACTIVE}`);
+  else if (q.status === 'contacted_plus') where.push(`l.status IN ('contacted', 'replied', 'converted', 'bounced')`);
+  else if (q.status) { where.push('l.status = ?'); args.push(q.status); }
   if (q.priority) { where.push('l.priority = ?'); args.push(q.priority); }
-  if (q.has_email) where.push(`l.email != ''`);
+  for (const [k, sql] of Object.entries(HAS)) {
+    const v = q[`has_${k}` as keyof LeadFilter];
+    if (v === 'yes') where.push(sql); else if (v === 'no') where.push(`NOT (${sql})`);
+  }
   if (q.search) { where.push('(l.company_name LIKE ? OR l.town LIKE ? OR l.industry LIKE ? OR l.email LIKE ?)'); args.push(...Array(4).fill(`%${q.search}%`)); }
-  // ponytail: newest 500 only; add paging when the list outgrows that.
-  return db.prepare(`${LEAD_LIST}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY l.id DESC LIMIT 500`).all(...args);
+  // ponytail: first 500 only; add paging when the list outgrows that.
+  return db.prepare(`${LEAD_LIST}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${SORTS[q.sort ?? ''] ?? SORTS.newest} LIMIT 500`).all(...args);
 }
+export const LEAD_SORTS = Object.keys(SORTS);
 
 export function lead(id: number) {
   const l = db.prepare('SELECT l.*, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id WHERE l.id = ?').get(id) as Record<string, unknown> | undefined;

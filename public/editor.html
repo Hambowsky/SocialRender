@@ -426,10 +426,13 @@
     <div class="card-head"><h2>Leads</h2><span class="muted" id="lCount"></span></div>
     <div class="row">
       <label>Campaign <select id="lCampaign"><option value="">All</option></select></label>
-      <label>Status <select id="lStatus"><option value="">All</option></select></label>
+      <label>Status <select id="lStatus"><option value="active">Active</option><option value="contacted_plus">Contacted or later</option><option value="">All</option></select></label>
       <label>Priority <select id="lPriority"><option value="">All</option><option value="hot">Hot</option><option value="warm">Warm</option><option value="cold">Cold</option></select></label>
       <label style="flex:1;min-width:200px">Search <input id="lSearch" type="search" placeholder="Name, town, industry or email"></label>
-      <label class="chip" style="align-self:end"><input type="checkbox" id="lEmail">Has email</label>
+      <label>Website <select id="lWebsite"><option value="">Either</option><option value="yes">Has one</option><option value="no">None</option></select></label>
+      <label>Email <select id="lEmail"><option value="">Either</option><option value="yes">Has one</option><option value="no">None</option></select></label>
+      <label>Phone <select id="lPhone"><option value="">Either</option><option value="yes">Has one</option><option value="no">None</option></select></label>
+      <label>Sort <select id="lSort"><option value="newest">Newest</option><option value="priority">Priority</option><option value="name">Name</option><option value="town">Town</option></select></label>
     </div>
     <div class="table"><table>
       <thead><tr><th>Business</th><th>Priority</th><th>Why it is a lead</th><th>Contact</th><th>Status</th><th>Follow up</th></tr></thead>
@@ -698,7 +701,8 @@
     if ($('lStatus').value) q.set('status', $('lStatus').value);
     if ($('lPriority').value) q.set('priority', $('lPriority').value);
     if ($('lSearch').value.trim()) q.set('q', $('lSearch').value.trim());
-    if ($('lEmail').checked) q.set('has_email', 'true');
+    for (const [id, key] of [['lWebsite', 'has_website'], ['lEmail', 'has_email'], ['lPhone', 'has_phone']]) if ($(id).value) q.set(key, $(id).value);
+    q.set('sort', $('lSort').value);
     try {
       const rows = await (await api(`/leads?${q}`)).json();
       $('lCount').textContent = `${rows.length}${rows.length === 500 ? '+' : ''} lead${rows.length === 1 ? '' : 's'}`;
@@ -712,7 +716,7 @@
         || '<tr><td colspan="6" class="muted">No leads match. Run a campaign to find some.</td></tr>';
     } catch (e) { $('lRows').innerHTML = `<tr><td colspan="6" class="bad">${esc(e.message)}</td></tr>`; }
   }
-  for (const id of ['lCampaign', 'lStatus', 'lPriority', 'lEmail']) $(id).addEventListener('change', loadLeads);
+  for (const id of ['lCampaign', 'lStatus', 'lPriority', 'lWebsite', 'lEmail', 'lPhone', 'lSort']) $(id).addEventListener('change', loadLeads);
   $('lSearch').addEventListener('input', () => { clearTimeout(leadTimer); leadTimer = setTimeout(loadLeads, 300); });
   $('lRows').addEventListener('click', e => { const tr = e.target.closest('tr[data-lead]'); if (tr) openLead(tr.dataset.lead); });
 
