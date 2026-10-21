@@ -132,7 +132,18 @@ test('a campaign finds businesses with no website or a dead one, once each', asy
   const usage = (await app.inject({ method: 'GET', url: '/campaigns/usage', headers })).json();
   assert.deepEqual(usage, { google_searches: 1, google_free: 1000, google_cost_gbp: 0, firecrawl_searches: 8, firecrawl_credits: 16 });
   assert.deepEqual(calls, before);
-  assert.equal((await app.inject({ method: 'GET', url: '/leads?has_email=true', headers })).json().length, 1);
+  const list = async (q: string) => (await app.inject({ method: 'GET', url: `/leads?${q}`, headers })).json();
+  const all = await list('');
+  assert.equal((await list('has_email=yes')).length, 1);
+  for (const key of ['has_website', 'has_email', 'has_phone']) {
+    const [yes, no] = [await list(`${key}=yes`), await list(`${key}=no`)];
+    assert.equal(yes.length + no.length, all.length, `${key} yes and no cover every lead`);
+  }
+  assert.ok((await list('has_website=no')).every((l: { has_website: number }) => !l.has_website));
+  assert.deepEqual((await list('sort=name')).map((l: { company_name: string }) => l.company_name),
+    all.map((l: { company_name: string }) => l.company_name).sort((a: string, b: string) => a.localeCompare(b, 'en', { sensitivity: 'base' })));
+  assert.equal((await list('status=active')).length, all.length);
+  assert.equal((await list('status=contacted_plus')).length, 0);
 });
 
 test('an outdated website campaign skips businesses with no site at all', async () => {
@@ -171,6 +182,7 @@ test('a lead keeps its status changes and notes, and survives deleting its campa
   l = (await app.inject({ method: 'POST', url: `/leads/${first.id}/notes`, headers, payload: { text: 'Called, ring back Monday' } })).json();
   assert.equal(l.status, 'contacted');
   assert.deepEqual(l.activity.map((a: any) => a.text), ['Called, ring back Monday', 'Status changed from new to contacted']);
+  assert.deepEqual((await app.inject({ method: 'GET', url: '/leads?status=contacted_plus', headers })).json().map((x: any) => x.id), [first.id]);
   assert.equal((await app.inject({ method: 'PUT', url: `/leads/${first.id}`, headers, payload: { status: 'nonsense' } })).statusCode, 400);
 
   const del = (await app.inject({ method: 'DELETE', url: `/campaigns/${first.campaign_id}`, headers })).json();

@@ -276,8 +276,10 @@ export function buildApp() {
   });
   app.post<{ Params: { id: number } }>('/campaigns/:id/run', { schema: { params: id } }, async (req, reply) => reply.code(202).send(leads.run(req.params.id)));
 
-  app.get<{ Querystring: { campaign?: number; status?: string; priority?: string; q?: string; has_email?: boolean } }>('/leads', { schema: { querystring: { type: 'object', properties: {
-    campaign: { type: 'integer' }, status: { enum: leads.STATUSES }, priority: { enum: ['hot', 'warm', 'cold'] }, q: { type: 'string', maxLength: 100 }, has_email: { type: 'boolean' } } } } },
+  const yesNo = { enum: ['yes', 'no'] };
+  app.get<{ Querystring: Omit<leads.LeadFilter, 'search'> & { q?: string } }>('/leads', { schema: { querystring: { type: 'object', properties: {
+    campaign: { type: 'integer' }, status: { enum: [...leads.STATUSES, 'active', 'contacted_plus'] }, priority: { enum: ['hot', 'warm', 'cold'] },
+    q: { type: 'string', maxLength: 100 }, has_website: yesNo, has_email: yesNo, has_phone: yesNo, sort: { enum: leads.LEAD_SORTS } } } } },
   async req => leads.leads({ ...req.query, search: req.query.q }));
   app.get<{ Params: { id: number } }>('/leads/:id', { schema: { params: id } }, async req => leads.lead(req.params.id));
   const str = (max: number) => ({ type: 'string', maxLength: max });
