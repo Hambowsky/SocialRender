@@ -3,7 +3,8 @@ export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
 
 // Quotes stay as typed in text; link targets cannot contain them, so attributes stay safe.
 export const inline = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"]+|\/[^)\s"]*)\)/g, '<a href="$2">$1</a>')
+  .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s"]+|\/[^)\s"]*)\)/g, (_, t: string, href: string) =>
+    /^https?:\/\/(www\.)?redcherryit\.com(\/|$)/.test(href) || href.startsWith('/') ? `<a href="${href}">${t}</a>` : `<a href="${href}" target="_blank" rel="noopener">${t}</a>`)
   .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
   .replace(/(^|[^*])\*(?!\s)(.+?)\*/g, '$1<em>$2</em>');
 

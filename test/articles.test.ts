@@ -124,13 +124,17 @@ test('a draft needs sources, and a good draft passes the checks', async () => {
 
 test('checks catch dashes, missing headings, made up figures and [SOURCE NEEDED]', async () => {
   const body = exampleBody.replace('## FAQs', '## Questions').replace('three articles every week', 'five articles every week — 40% more')
-    + '\n\nMost sites double their leads [SOURCE NEEDED].';
+    + '\n\nMost sites double their leads [SOURCE NEEDED]. See [a made up page](https://fake.example/x).';
   const a = (await call('PUT', '/articles/1', { body })).json();
   assert.equal(a.checks.errors.length, 3, JSON.stringify(a.checks));
   assert.match(a.checks.errors.join(' '), /"FAQs" heading/);
   assert.match(a.checks.errors.join(' '), /Dashes/);
   assert.match(a.checks.errors.join(' '), /SOURCE NEEDED/);
   assert.match(a.checks.warnings.join(' '), /40% does not appear/);
+  assert.match(a.checks.warnings.join(' '), /fake\.example\/x is not in the sources/);
+  const { inline } = await import('../src/markdown.ts');
+  assert.equal(inline('[ICO](https://ico.org.uk/a) and [us](https://redcherryit.com/contact)'),
+    '<a href="https://ico.org.uk/a" target="_blank" rel="noopener">ICO</a> and <a href="https://redcherryit.com/contact">us</a>');
   assert.equal((await call('POST', '/articles/1/approve')).statusCode, 422, 'cannot approve with errors');
   assert.equal((await call('PUT', '/articles/1', { body: exampleBody })).statusCode, 200);
 });

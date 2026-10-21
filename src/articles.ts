@@ -163,6 +163,9 @@ export function checks(a: Pick<Article, 'body' | 'sources' | 'category'>) {
   for (const f of figures) if (!sourceText.includes(f.replace(/^£/, '').replace(/%$/, ''))) warnings.push(`${f} does not appear in the sources. Check it is right.`);
   const quotes = a.body.match(/"[^"\n]{20,}"/g) ?? [];
   for (const q of quotes) if (!a.sources.includes(q.slice(1, 40))) warnings.push(`The quote ${q.slice(0, 50)}..." does not appear in the sources.`);
+  // Every link must be one of the sources or our own site, so Claude cannot point readers at a page it made up.
+  for (const [, href] of a.body.matchAll(/\]\((https?:\/\/[^)\s]+)\)/g))
+    if (!href.startsWith(SITE_URL) && !a.sources.includes(href)) warnings.push(`The link ${href} is not in the sources. Check it goes where it should.`);
   return { words, errors, warnings };
 }
 
