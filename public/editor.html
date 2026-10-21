@@ -76,6 +76,7 @@
   .note.bad { background: var(--red-soft); }
   .note.good { background: var(--green-soft); }
   .note:empty { display: none; }
+  .note progress { display: block; width: 100%; height: 8px; margin: 8px 0 4px; accent-color: var(--red); }
   [hidden] { display: none !important; }
 
   /* Segmented control and channel chips */
@@ -528,6 +529,19 @@
       status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
     }
   });
+  // A progress bar for slow jobs. The server does not report progress, so the bar moves on a time estimate
+  // and slows as it nears the end; the seconds counter shows it is still working. Call the returned stop().
+  function busy(show, label, expect) {
+    const t0 = Date.now();
+    const draw = () => {
+      const s = (Date.now() - t0) / 1000;
+      show(`${label}<progress max="100" value="${Math.round(95 * (1 - Math.exp(-2 * s / expect)))}"></progress><span class="muted">${Math.floor(s)} seconds so far, usually about ${expect}</span>`);
+    };
+    draw();
+    const id = setInterval(draw, 500);
+    return () => clearInterval(id);
+  }
+
   // A one off change to the template for this post only (snow for Christmas). Claude changes a copy of the
   // template; the copy goes with this post's preview, render and video, and the saved template is untouched.
   function clearOneOff() { oneOff = undefined; $('tweakClear').hidden = true; note('tweakOut', ''); }
@@ -535,16 +549,17 @@
     const change = $('tweak').value.trim();
     if (change.length < 3) return note('tweakOut', 'Say what to change first.', 'bad');
     $('tweakGo').disabled = true;
-    note('tweakOut', 'Claude is changing the design for this post...');
+    const stop = busy(m => note('tweakOut', m), 'Claude is changing the design for this post, then checking the text still fits.', 60);
     try {
       const r = await (await api('/templates/tweak', { method: 'POST', body: JSON.stringify({ template: $('template').value, change, fields: fieldValues(), ...sizeBody() }) })).json();
+      stop();
       if (!r.ok) return note('tweakOut', `That change did not fit, so nothing changed:<br>${problemList(r.problems)}<br>Cost £${r.cost_gbp.toFixed(4)}`, 'bad');
       oneOff = { template: $('template').value, html: r.html };
       $('tweakClear').hidden = false;
       note('tweakOut', `Done. This post now has: ${esc(change)}. The saved template is unchanged. Cost £${r.cost_gbp.toFixed(4)}`, 'good');
       refresh();
     } catch (err) { note('tweakOut', esc(err.message), 'bad'); }
-    finally { $('tweakGo').disabled = false; }
+    finally { stop(); $('tweakGo').disabled = false; }
   });
   $('tweakClear').addEventListener('click', () => { clearOneOff(); refresh(); });
 
@@ -552,15 +567,17 @@
   $('makeVideo').addEventListener('click', async () => {
     const key = renderKey();
     $('makeVideo').disabled = true;
-    status('Making the video. It plays every frame, so this takes a minute or so...');
+    const stop = busy(m => status(m), 'Making the video. It records every frame, one at a time.', 60);
     try {
       const r = await (await api('/render/video', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues(), ...sizeBody(), ...oneOffBody() }) })).json();
+      stop();
       lastVideo = { id: r.id, template: $('template').value, key };
       $('dlVideo').disabled = lastVideo.key !== renderKey();
       status('Video ready. Download it and post it by hand.', 'good');
     } catch (err) {
+      stop();
       status(err.body?.problems ? problemList(err.body.problems) : esc(err.message), 'bad');
-    } finally { $('makeVideo').disabled = false; }
+    } finally { stop(); $('makeVideo').disabled = false; }
   });
   $('dlVideo').addEventListener('click', async () => {
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await (await fetch(`/public/renders/${lastVideo.id}.mp4`)).blob()), download: `${lastVideo.template}-${lastVideo.id}.mp4` });
@@ -617,14 +634,15 @@
   $('fromArticle').addEventListener('change', () => { $('url').value = $('fromArticle').value; });
   $('url').addEventListener('input', () => { $('fromArticle').value = ''; });
   $('writeBtn').addEventListener('click', async () => {
-    note('writeOut', $('url').value.trim() ? 'Reading the page and writing...' : 'Writing...');
+    const stop = busy(m => note('writeOut', m), $('url').value.trim() ? 'Reading the page, writing the text and checking it fits.' : 'Writing the text and checking it fits.', 25);
     try {
       const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...sizeBody(), ...writeVars(), ...($('url').value.trim() ? { url: $('url').value.trim() } : {}) }) })).json();
+      stop();
       for (const [k, v] of Object.entries(r.fields)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
       refresh();
       $('postText').value = [r.caption, r.page?.url, r.hashtags.join(' ')].filter(Boolean).join('\n\n');
       note('writeOut', `${r.fits ? 'Done. The text is in the image and the caption is in Post to Buffer.' : 'Still too long after one rewrite. Shorten it by hand.'}${r.page ? `<br>Read: ${esc(r.page.title || r.page.url)}` : ''}<br>Cost £${r.cost_gbp.toFixed(4)}`, r.fits ? 'good' : 'bad');
-    } catch (e) { note('writeOut', esc(e.message), 'bad'); }
+    } catch (e) { stop(); note('writeOut', esc(e.message), 'bad'); }
     loadSpend();
   });
 
