@@ -5,6 +5,7 @@ import path from 'node:path';
 import type Anthropic from '@anthropic-ai/sdk';
 import { fail, ROOT, SITE_URL } from './config.ts';
 import { versionStore } from './versions.ts';
+import { db } from './db.ts';
 import { ask, type Ask } from './claude.ts';
 import { checkFit, checkHtml } from './render.ts';
 import { current as currentTemplate, fieldsOf, list as listTemplates, sampleOf, type Problem } from './templates.ts';
@@ -110,7 +111,10 @@ export async function writeCopy(input: CopyInput) {
   const t = templateVars(input.template);
   if (!input.topic?.trim() && !input.url) fail(400, 'Give a topic or a page link');
   // A page link is read here and handed to Claude as a source, so its facts can be used and quoted.
-  const page = input.url ? await readPage(input.url) : undefined;
+  // Our own guides are read from the tool when it has them, so a page just published works before the site deploys.
+  const own = input.url && guideTag(input.url) ? db.prepare(`SELECT title, summary, body FROM articles WHERE category || slug = ?`)
+    .get(new URL(input.url).pathname) as { title: string; summary: string; body: string } | undefined : undefined;
+  const page = own ? { url: input.url!, title: own.title, description: own.summary, text: own.body } : input.url ? await readPage(input.url) : undefined;
   const vars = { ...input, ...t } as Record<string, string>;
   // One of our guides: its category is the tag, and the headline is a fresh hook rather than the title.
   const tag = page && guideTag(page.url);
