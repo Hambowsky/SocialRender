@@ -852,17 +852,20 @@
       a.click(); return URL.revokeObjectURL(a.href);
     }
     if (act === 'publish' && !confirm('Put this article on the website now?')) return;
-    note('aOut', act === 'social' ? 'Writing and rendering the post...' : '');
+    // A social post is made on the Social page, from the article's live page, so channels and template are picked there.
+    if (act === 'social') {
+      note('aOut', '');
+      location.hash = '#social';
+      $('fromArticle').value = '';
+      $('url').value = article.url;
+      $('topic').value = '';
+      $('write').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return $('writeBtn').click();
+    }
+    note('aOut', '');
     try {
       if (act === 'save' || act === 'approve') {
         await api('/articles/' + article.id, { method: 'PUT', body: JSON.stringify({ title: $('aTitle').value, summary: $('aSummary').value, slug: $('aSlug').value, body: $('aBody').value }) });
-      }
-      if (act === 'social') {
-        const channels = [...$('channels').querySelectorAll('input:checked')].map(c => ({ id: c.value, name: c.dataset.name }));
-        if (!channels.length) return note('aOut', 'Pick at least one channel under Post to Buffer on the Social page first. The image uses the template picked there.', 'bad');
-        const r = await (await api(`/articles/${article.id}/social`, { method: 'POST', body: JSON.stringify({ template: $('template').value, channels, mode: $('postMode').value }) })).json();
-        note('aOut', `${r.reused ? 'Already made earlier.' : `Made. Cost £${r.cost_gbp.toFixed(4)}.`} It is waiting for approval on the <a href="#social">Social</a> page.`, 'good');
-        loadPosts(); return;
       }
       let published = false, result;
       if (act !== 'save') result = await (await api(`/articles/${article.id}/${act}`, { method: 'POST' })).json();

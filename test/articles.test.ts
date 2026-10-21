@@ -219,9 +219,15 @@ test('a page already on the site can be opened, edited and published again, keep
   assert.match(html, /"datePublished": "2026-08-10"/);
 });
 
-test('the Social page can list every live guide to write a post from', async () => {
+test('the Social page can list every live guide and write a post from one, tagged with its category', async () => {
+  const url = 'https://redcherryit.com/guides/stories/building-an-information-portal-for-a-financial-services-business';
   const live = (await call('GET', '/articles/live')).json();
-  assert.ok(live.some((a: any) => a.url === 'https://redcherryit.com/guides/stories/building-an-information-portal-for-a-financial-services-business'), JSON.stringify(live));
+  assert.ok(live.some((a: any) => a.url === url), JSON.stringify(live));
+  // Read from the tool, not fetched, so it works before the site has deployed.
+  const res = await call('POST', '/copy', { template: 'social-post', url });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.json().fields.tag, 'Stories');
+  assert.equal(res.json().page.title, 'Building an Information Portal for a Financial Services Business');
 });
 
 test('research suggests ideas from a web search, skips pages already there, and counts searches in the spend', async () => {
