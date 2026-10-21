@@ -93,7 +93,8 @@ A campaign is industries, towns, what you are looking for (no website, an outdat
 
 * The industries box suggests common UK business types as you type, and the towns box suggests real UK towns and cities from Google (`GET /campaigns/towns?q=`, cached a day, at most 5,000 a month, inside Google's 10,000 free). Picking one adds it to the list.
 * A website is outdated when it has no SSL, no mobile viewport, or a copyright year two or more years old. A site that does not load counts as no website. SEO gaps (title, description, headings, alt text, canonical, structured data, social tags) are listed on the lead but do not decide it. Sites behind bot protection are kept with a note.
-* The same business is never added twice, across all campaigns: name and town make the key. Running a campaign again only adds new businesses, and its searches come from a one day cache at no cost.
+* The same business is never added twice, across all campaigns: name and town make the key. Running a campaign again only adds new businesses, and the same search on the same day comes from a cache at no cost.
+* Each run shows what it cost: Google searches (the first 1,000 a month are free, then about 3p each at Google's Text Search Enterprise price) and Firecrawl credits. The Campaigns page shows the month so far.
 * Deleting a campaign deletes its leads that are still New. Leads you have worked on stay.
 * Leads have a status, a follow up date, contact details you can correct, and notes. Status changes are logged with the notes.
 * API: `GET/POST /campaigns`, `GET/PUT/DELETE /campaigns/<id>`, `POST /campaigns/<id>/run`, `GET /leads?campaign=&status=&q=&has_email=true`, `GET/PUT /leads/<id>`, `POST /leads/<id>/notes`.

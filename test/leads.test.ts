@@ -40,7 +40,7 @@ const fake = http.createServer((req, res) => {
       const { query } = JSON.parse(body);
       const web = query.includes('site:yell.com') ? [{ title: 'Jones Heating - Plumbers in Sheffield | Yell', url: 'https://www.yell.com/biz/jones', description: 'Call 0114 496 0123 or info@jonesheating.co.uk' },
         { title: 'Smith Plumbing - Yell', url: 'https://www.yell.com/biz/smith', description: '' }] : [];
-      return res.end(JSON.stringify({ success: true, data: { web } }));
+      return res.end(JSON.stringify({ success: true, data: { web }, creditsUsed: 2 }));
     }
     res.statusCode = 404; res.end('{}');
   });
@@ -108,12 +108,16 @@ test('a campaign finds businesses with no website or a dead one, once each', asy
   assert.equal(jones.source, 'yell.com');
   assert.equal(leads.find((l: any) => l.company_name === 'Dead Site Plumbers').lead_reason, 'Website listed but unreachable');
   assert.equal(done.last_run_summary.added, 3);
+  assert.deepEqual([done.last_run_summary.google_searches, done.last_run_summary.google_cost_gbp, done.last_run_summary.firecrawl_searches, done.last_run_summary.firecrawl_credits], [1, 0, 8, 16]);
 
   // Running again finds the same businesses but adds none, and the searches come from the cache at no cost.
   const before = { ...calls };
 
   const again = await runToEnd(c.id);
   assert.equal(again.last_run_summary.added, 0);
+  assert.equal(again.last_run_summary.google_searches, 0, 'repeat searches cost nothing');
+  const usage = (await app.inject({ method: 'GET', url: '/campaigns/usage', headers })).json();
+  assert.deepEqual(usage, { google_searches: 1, google_free: 1000, google_cost_gbp: 0, firecrawl_searches: 8, firecrawl_credits: 16 });
   assert.deepEqual(calls, before);
   assert.equal((await app.inject({ method: 'GET', url: '/leads?has_email=true', headers })).json().length, 1);
 });
