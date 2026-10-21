@@ -6,6 +6,7 @@ import { db } from './db.ts';
 import { fail, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL, PAGESPEED_URL, RDAP_URL } from './config.ts';
 import { analysing, busy, cached, lead, screenshotPath } from './leads.ts';
 import { screenshotSite } from './render.ts';
+import { findEmail } from './sitecheck.ts';
 import { runPrompt } from './copy.ts';
 
 type Analysis = {
@@ -70,8 +71,14 @@ export async function analyseLead(id: number) {
     await step('Domain age', async () => { a.domain = await domainAge(site); });
     await step('Screenshot', async () => {
       fs.mkdirSync(path.dirname(screenshotPath(id)), { recursive: true });
-      await screenshotSite(site, screenshotPath(id));
+      const html = await screenshotSite(site, screenshotPath(id));
       a.screenshot = true;
+      // The first check reads the raw page; sites that add their email with JavaScript only show it here.
+      const email = !l.email && findEmail(html);
+      if (email) {
+        db.prepare(`UPDATE leads SET email = ? WHERE id = ? AND email = ''`).run(email, id);
+        db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Found ${email} on the website`);
+      }
     });
   }
   if (l.source === 'places' && l.source_ref && GOOGLE_PLACES_API_KEY) await step('Business Profile', async () => { a.gbp = await businessProfile(l.source_ref); });

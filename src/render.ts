@@ -164,6 +164,7 @@ export const screenshotSite = (url: string, file: string) => enqueue(async () =>
     if (failed && page.url() === 'about:blank') throw new Error(failed.message.split('\n')[0].replace(/^page\.goto: /, ''));
     await page.waitForTimeout(1500); // cookie banners and fade ins
     await page.screenshot({ path: file, type: 'jpeg', quality: 70 });
+    return await page.content(); // the page as the browser built it, so details added by JavaScript can be read too
   } finally {
     await context.close().catch(() => {});
   }
