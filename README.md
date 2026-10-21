@@ -1,5 +1,7 @@
 # Red Cherry IT social and content tool
 
+The studio page has four sections, picked from the top bar: Social (image, Write with Claude, Post to Buffer, calendar), Articles, Templates (code, versions and the designer) and Prompts.
+
 Phase 1: the renderer and editor. Fills an HTML template with text and saves it as a 1080 by 1080 PNG.
 Phase 2: Claude copywriting. Writes the text for a template, checks it fits, and writes a caption.
 CLAUDE.md is the full brief. PLAN.md has the data model and the plan for later phases.
@@ -9,7 +11,7 @@ Needs Node 22.18 or newer.
 
     npm install
     cp .env.example .env        # then set API_KEY and DATA_DIR=./data
-    npm start                   # editor at http://127.0.0.1:3000
+    npm start                   # studio at http://127.0.0.1:3000
     npm test                    # renders every template and checks an overlong headline is refused
 
 Set `RENDER_SAMPLES_DIR=/some/folder` when running the tests to keep each sample PNG for checking by eye.
@@ -64,7 +66,7 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 * `POST /posts` with `{"render_id": "...", "channels": [{"id": "...", "name": "..."}], "text": "...", "mode": "queue"}` adds one post per channel. `mode` is `queue` (next free Buffer slot), `scheduled` (add `due_at`, an ISO time in the future) or `draft` (a Buffer draft). Posts wait with status `pending_approval`. Sending the same thing twice returns the same posts; pass `idempotency_key` to set the key yourself.
 * `POST /posts/<id>/approve` sends it to Buffer. `POST /posts/<id>/reject` drops it. `GET /posts` lists open and recent posts, `?status=sent` filters.
 * A post is only ever sent once: approving claims it in one database step, and once Buffer returns an id it is never sent again. If Buffer says no, the status is `failed` with the reason, and you can send again. If the request may have reached Buffer but the answer was lost (timeout, network or server error), the status is `check_buffer`: look in Buffer, then `POST /posts/<id>/mark-sent` or send again.
-* The editor's "Post to Buffer" panel does all this. Write with Claude fills in its caption.
+* The Social page's "Post to Buffer" card does all this. Write with Claude fills in its caption. Its calendar shows posts on the day they go out (scheduled time, or the day a queue post went to Buffer); picking a future day sets a scheduled time. Posts waiting for approval are listed beside it.
 * Only images are sent. Video support in Buffer's API is still to be checked, so videos (phase 5) will be saved for you to post by hand until then.
 
 ## Articles
@@ -76,7 +78,7 @@ A new line in a headline forces a line break. Fields are capped at 300 character
 * Publishing builds the full page from `site/article.html`, a copy of a live story page with slots, so it matches the rest of the guides: short answer box, author line, FAQ schema, breadcrumbs, related reading and call to action. With `SITE_REPO` set it makes one commit to the website repo with the new page, its card at the end of the category's `index.html`, and its line in `sitemap.xml`, and 20i deploys it. Publishing again updates the same page and changes nothing else. If the site's header, footer or styles change, update `site/article.html` to match.
 * `GET /articles/<id>/download?format=html` gets the finished page, `format=md` a Markdown copy with front matter.
 * `POST /articles/<id>/social` with `{"template", "channels", "mode"}` writes a social post for a published article, renders it and adds it to the Buffer approval queue with the article link in the caption. Asking again for the same article and template returns the same posts without calling Claude.
-* The editor's "Articles" panel does all this, with a preview.
+* The Articles page does all this, with a preview. Publishing also updates the guide count on the guides hub page.
 
 ## Templates
 `templates/` holds the four starting templates: social post, quote card, stat card and tip card. On start, any template file whose exact HTML is not already in the database is added as a new version. After that, edits made in the editor are the live version, and every save can be rolled back.

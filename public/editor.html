@@ -3,165 +3,359 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Red Cherry IT Editor</title>
+<title>Red Cherry IT Studio</title>
+<link rel="icon" href="/assets/logo.png">
 <style>
-  body { font: 15px/1.4 system-ui, sans-serif; margin: 0; padding: 24px; background: #f4f4f4; color: #1a1a1a; }
-  main { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
-  form, .side { flex: 1 1 320px; max-width: 460px; display: grid; gap: 10px; }
-  label { display: grid; gap: 4px; font-weight: 600; }
-  input, textarea, select { font: inherit; padding: 8px; border: 1px solid #bbb; border-radius: 6px; background: #fff; }
-  textarea.code { font: 13px/1.4 ui-monospace, monospace; min-height: 360px; }
-  button { font: inherit; font-weight: 600; padding: 9px 14px; border: 0; border-radius: 6px; background: #b5333f; color: #fff; cursor: pointer; }
-  button.plain { background: #ddd; color: #1a1a1a; }
-  .frame { width: 540px; height: 540px; overflow: hidden; border: 1px solid #ccc; background: #fff; flex: none; position: relative; }
-  iframe { width: 1080px; height: 1080px; border: 0; transform: scale(.5); transform-origin: 0 0; position: absolute; }
-  .bad { color: #b5333f; }
-  .good { color: #1d7a3a; }
-  details { background: #fff; border: 1px solid #ddd; border-radius: 8px; padding: 12px; margin-top: 24px; }
-  summary { font-weight: 600; cursor: pointer; }
-  ul { padding-left: 18px; margin: 0; }
-  li { margin: 4px 0; }
+  @font-face { font-family: Archivo; font-weight: 400; src: url(/fonts/archivo-latin-400-normal.woff2) format('woff2'); }
+  @font-face { font-family: Archivo; font-weight: 500 700; src: url(/fonts/archivo-latin-500-normal.woff2) format('woff2'); }
+  @font-face { font-family: Archivo; font-weight: 800 900; src: url(/fonts/archivo-latin-900-normal.woff2) format('woff2'); }
+  :root {
+    --red: #b5333f; --red-dark: #962a34; --red-soft: #fbeef0; --ink: #1a1a1a; --body: #444; --muted: #8a8282;
+    --bg: #f6f4f3; --card: #fff; --line: #ebe6e5; --field: #faf9f8;
+    --green: #1d7a3a; --green-soft: #e7f4ec; --amber: #a86100; --amber-soft: #fdf1df; --blue: #2c5aa0; --blue-soft: #e9f0fb; --grey-soft: #f0eeee;
+    --radius: 14px; --shadow: 0 1px 2px rgba(26, 26, 26, .04), 0 6px 24px rgba(26, 26, 26, .05);
+  }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.5 Archivo, system-ui, sans-serif; margin: 0; background: var(--bg); color: var(--ink); }
+  a { color: var(--red); }
+  h1, h2, h3 { margin: 0; line-height: 1.2; }
+  h2 { font-size: 17px; font-weight: 800; }
+  p { margin: 0; }
+  .muted { color: var(--muted); font-size: 13px; }
+
+  /* Top bar */
+  header { position: sticky; top: 0; z-index: 10; background: rgba(255, 255, 255, .92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  .bar { max-width: 1440px; margin: 0 auto; padding: 0 24px; height: 64px; display: flex; align-items: center; gap: 28px; }
+  .bar img { height: 30px; width: auto; display: block; }
+  nav { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
+  nav a { padding: 8px 14px; border-radius: 999px; text-decoration: none; color: var(--body); font-weight: 600; white-space: nowrap; }
+  nav a:hover { background: var(--grey-soft); }
+  nav a.on { background: var(--red-soft); color: var(--red); }
+  .pill { font-size: 13px; color: var(--body); background: var(--grey-soft); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+  .keybox { position: relative; }
+  .keybox .pop { position: absolute; right: 0; top: 46px; width: 300px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; display: grid; gap: 8px; }
+
+  /* Layout */
+  main { max-width: 1440px; margin: 0 auto; padding: 24px; }
+  .view { display: grid; gap: 20px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .cols { display: grid; gap: 20px; align-items: start; }
+  .social-top { grid-template-columns: minmax(280px, 340px) minmax(320px, 1fr) minmax(280px, 360px); }
+  .two { grid-template-columns: 1fr 1fr; }
+  .wide-left { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+  .cal-row { grid-template-columns: minmax(0, 2.4fr) minmax(280px, 1fr); }
+  @media (max-width: 1180px) { .cal-row { grid-template-columns: 1fr; } }
+  @media (max-width: 1180px) { .social-top { grid-template-columns: 1fr 1fr; } .social-top > :nth-child(2) { grid-row: 1 / 3; grid-column: 2; } }
+  @media (max-width: 820px) {
+    .social-top, .two, .wide-left { grid-template-columns: 1fr; } .social-top > :nth-child(2) { grid-row: auto; grid-column: auto; }
+    .bar { gap: 6px 14px; padding: 10px 16px 6px; height: auto; flex-wrap: wrap; } .bar > a { flex: 1; } nav { order: 3; flex-basis: 100%; }
+    main { padding: 16px; } .pill { display: none; }
+  }
+
+  /* Forms */
+  label { display: grid; gap: 6px; font-weight: 600; font-size: 13px; color: var(--body); }
+  input, textarea, select { font: inherit; font-size: 14px; color: var(--ink); padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); width: 100%; transition: border-color .15s, box-shadow .15s, background .15s; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: var(--red); background: #fff; box-shadow: 0 0 0 3px var(--red-soft); }
+  textarea { resize: vertical; }
+  textarea.code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; min-height: 420px; }
+  .fields { display: grid; gap: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; font-weight: 700; font-size: 14px; padding: 10px 16px; border: 0; border-radius: 10px; background: var(--red); color: #fff; cursor: pointer; transition: background .15s, transform .05s; }
+  button:hover { background: var(--red-dark); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; }
+  button.plain { background: var(--grey-soft); color: var(--ink); }
+  button.plain:hover { background: #e6e2e1; }
+  button.small { padding: 6px 10px; font-size: 13px; border-radius: 8px; }
+  button.icon { padding: 6px 10px; background: transparent; color: var(--ink); font-size: 18px; line-height: 1; }
+  button.icon:hover { background: var(--grey-soft); }
+  .bad { color: var(--red); }
+  .good { color: var(--green); }
+  .note { font-size: 13px; padding: 10px 12px; border-radius: 10px; background: var(--grey-soft); }
+  .note.bad { background: var(--red-soft); }
+  .note.good { background: var(--green-soft); }
+  .note:empty { display: none; }
   [hidden] { display: none !important; }
+
+  /* Segmented control and channel chips */
+  .seg { justify-self: start; display: inline-flex; background: var(--grey-soft); border-radius: 10px; padding: 3px; gap: 2px; }
+  .seg button { background: transparent; color: var(--body); padding: 7px 12px; font-size: 13px; }
+  .seg button.on { background: #fff; color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--field); font-size: 13px; font-weight: 600; color: var(--body); cursor: pointer; user-select: none; }
+  .chip input { display: none; }
+  .chip:has(input:checked) { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+
+  /* Preview */
+  .frame { width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: #fff; position: relative; border: 1px solid var(--line); }
+  .frame iframe { width: 1080px; height: 1080px; border: 0; transform-origin: 0 0; position: absolute; top: 0; left: 0; }
+
+  /* Calendar */
+  .cal-head { display: flex; align-items: center; gap: 8px; }
+  .cal-head h2 { min-width: 170px; }
+  .cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .cal .dow { background: var(--field); font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .day { min-height: 112px; padding: 6px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; cursor: pointer; transition: background .15s; min-width: 0; }
+  .day:nth-child(7n) { border-right: 0; }
+  .day:hover { background: var(--field); }
+  .day.other { background: #fcfbfb; color: #bdb6b5; }
+  .day.past { cursor: default; }
+  .day .num { font-size: 12px; font-weight: 700; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
+  .day.today .num { background: var(--red); color: #fff; }
+  .day .add { margin-left: auto; font-size: 12px; color: var(--muted); opacity: 0; }
+  .day:not(.past):hover .add { opacity: 1; }
+  .ev { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 6px 3px 3px; border-radius: 7px; background: var(--grey-soft); color: var(--body); border-left: 3px solid transparent; overflow: hidden; white-space: nowrap; cursor: pointer; }
+  .ev img { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; flex: none; background: #fff; }
+  .ev span { overflow: hidden; text-overflow: ellipsis; }
+  .ev.pending { background: var(--amber-soft); border-left-color: var(--amber); color: var(--amber); }
+  .ev.sent { background: var(--green-soft); border-left-color: var(--green); color: var(--green); }
+  .ev.bad { background: var(--red-soft); border-left-color: var(--red); color: var(--red); }
+  .ev.draft { background: var(--blue-soft); border-left-color: var(--blue); color: var(--blue); }
+  .ev.rejected { text-decoration: line-through; opacity: .6; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+  @media (max-width: 820px) { .day { min-height: 64px; } .ev span { display: none; } .ev { padding: 2px; } }
+
+  /* Approval list */
+  .queue { display: grid; gap: 10px; }
+  .item { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+  .item img { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: var(--grey-soft); }
+  .item p { font-size: 13px; color: var(--body); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--grey-soft); color: var(--body); }
+  .badge.pending { background: var(--amber-soft); color: var(--amber); }
+  .badge.sent { background: var(--green-soft); color: var(--green); }
+  .badge.bad { background: var(--red-soft); color: var(--red); }
+  .badge.draft { background: var(--blue-soft); color: var(--blue); }
+
+  dialog { border: 0; border-radius: var(--radius); padding: 0; width: min(560px, 92vw); box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+  dialog::backdrop { background: rgba(26, 26, 26, .4); }
+  dialog .card { box-shadow: none; border: 0; }
+  dialog img.big { width: 100%; border-radius: 10px; background: var(--grey-soft); aspect-ratio: 1; object-fit: cover; }
+
+  /* Articles and versions */
+  .preview-page { width: 100%; height: 820px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+  .versions { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; max-height: 520px; overflow: auto; }
+  .versions li { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 13px; padding: 8px 10px; border-radius: 8px; background: var(--field); }
+  .checks p { font-size: 13px; }
+  pre { white-space: pre-wrap; font-size: 13px; margin: 0; }
+  #postDetail pre { font: inherit; font-size: 14px; color: var(--body); }
+  :focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+  dialog :focus-visible { outline-color: var(--red-soft); }
+  .welcome { max-width: 460px; margin: 10vh auto; text-align: center; }
+  .welcome img { height: 40px; margin: 0 auto 8px; }
 </style>
 </head>
 <body>
-<main>
-  <form id="f">
-    <label>API key <input id="key" type="password" autocomplete="off"></label>
-    <label>Template <select id="template"></select></label>
-    <div id="fields" style="display:grid;gap:10px"></div>
-    <button>Render and download PNG</button>
-    <div id="status" aria-live="polite"></div>
-  </form>
-  <div class="frame"><iframe id="preview" title="Live preview"></iframe></div>
-</main>
-
-<details id="write" open>
-  <summary>Write with Claude</summary>
-  <p>Claude writes the text for the chosen template, checks it fits, and writes a caption. Nothing is posted. <span id="spend"></span></p>
-  <main>
-    <div class="side">
-      <label>Page link (optional, Claude reads the page and writes about it) <input id="url" type="url" placeholder="https://redcherryit.com/blog/..."></label>
-      <label>Topic <input id="topic" placeholder="Why website speed matters, or leave empty with a link"></label>
-      <label>Keyword <input id="keyword"></label>
-      <label>Audience <input id="audience" placeholder="UK business owners"></label>
+<header>
+  <div class="bar">
+    <a href="#social"><img src="/assets/logo.png" alt="Red Cherry IT" width="159" height="30"></a>
+    <nav aria-label="Sections">
+      <a href="#social" data-view="social">Social</a>
+      <a href="#articles" data-view="articles">Articles</a>
+      <a href="#templates" data-view="templates">Templates</a>
+      <a href="#prompts" data-view="prompts">Prompts</a>
+    </nav>
+    <span class="pill" id="spend">Claude spend</span>
+    <div class="keybox">
+      <button type="button" class="plain small" id="keyBtn" aria-expanded="false">API key</button>
+      <div class="pop" id="keyPop" hidden>
+        <label>API key <input id="key" type="password" autocomplete="off"></label>
+        <p class="muted">Saved in this browser only.</p>
+      </div>
     </div>
-    <div class="side">
-      <label>Sources (facts and figures Claude may use) <textarea id="sources" rows="4"></textarea></label>
-      <div><button id="writeBtn" type="button">Write the text</button></div>
+  </div>
+</header>
+
+<main>
+<section class="card welcome" id="welcome" hidden>
+  <img src="/assets/logo.png" alt="">
+  <h2>Welcome to the Red Cherry IT studio</h2>
+  <p class="muted">Enter your API key to start.</p>
+  <input id="keyStart" type="password" autocomplete="off" placeholder="API key">
+</section>
+
+<!-- Social: make the image, write the text, post to Buffer, see the calendar -->
+<section class="view" data-view="social">
+  <div class="cols social-top">
+    <form class="card" id="f">
+      <div class="card-head"><h2>Image</h2></div>
+      <label>Template <select id="template"></select></label>
+      <div id="fields" class="fields"></div>
+      <button>Render and download PNG</button>
+      <div id="status" class="note" aria-live="polite"></div>
+    </form>
+    <div class="card" id="previewCard">
+      <div class="card-head"><h2>Preview</h2><span class="muted">1080 × 1080</span></div>
+      <div class="frame" id="frame"><iframe id="preview" title="Live preview"></iframe></div>
+    </div>
+    <div class="card" id="write">
+      <div class="card-head"><h2>Write with Claude</h2></div>
+      <p class="muted">Claude writes the text for this template, checks it fits and writes a caption. Nothing is posted.</p>
+      <label>Page link (optional) <input id="url" type="url" placeholder="https://redcherryit.com/..."></label>
+      <label>Topic <input id="topic" placeholder="Why website speed matters"></label>
+      <div class="cols two">
+        <label>Keyword <input id="keyword"></label>
+        <label>Audience <input id="audience" placeholder="UK business owners"></label>
+      </div>
+      <label>Sources <textarea id="sources" rows="3" placeholder="Facts and figures Claude may use"></textarea></label>
+      <button id="writeBtn" type="button">Write the text</button>
       <div id="writeOut"></div>
     </div>
-  </main>
-</details>
+  </div>
 
-<details id="buffer">
-  <summary>Post to Buffer</summary>
-  <p>Renders the image above and adds a post for each channel you tick. Nothing goes to Buffer until you approve it below.</p>
-  <main>
-    <div class="side">
-      <strong>Channels</strong>
-      <div id="channels">Open this section with your API key entered to load channels.</div>
-      <label>When
-        <select id="postMode"><option value="queue">Next free slot in the Buffer queue</option><option value="scheduled">At a set time</option><option value="draft">As a Buffer draft</option></select>
-      </label>
-      <label id="dueWrap" hidden>Date and time <input id="dueAt" type="datetime-local"></label>
+  <div class="card" id="buffer">
+    <div class="card-head"><h2>Post to Buffer</h2><span class="muted">Uses the image above. Nothing reaches Buffer until you approve it.</span></div>
+    <div class="cols two">
+      <div class="fields">
+        <label>Channels</label>
+        <div id="channels" class="chips"><span class="muted">Loading channels...</span></div>
+        <label>When</label>
+        <div class="seg" id="modeSeg">
+          <button type="button" data-mode="queue" class="on">Next queue slot</button>
+          <button type="button" data-mode="scheduled">Set time</button>
+          <button type="button" data-mode="draft">Buffer draft</button>
+        </div>
+        <input type="hidden" id="postMode" value="queue">
+        <label id="dueWrap" hidden>Date and time <input id="dueAt" type="datetime-local"></label>
+      </div>
+      <div class="fields">
+        <label>Caption <textarea id="postText" rows="6" maxlength="5000"></textarea></label>
+        <div class="row"><button id="postBtn" type="button">Send for approval</button><div id="postOut"></div></div>
+      </div>
     </div>
-    <div class="side">
-      <label>Caption <textarea id="postText" rows="7" maxlength="5000"></textarea></label>
-      <div><button id="postBtn" type="button">Send for approval</button></div>
-      <div id="postOut"></div>
-    </div>
-  </main>
-  <p><strong>Posts</strong> <button id="postsReload" type="button" class="plain">Refresh</button></p>
-  <ul id="posts"></ul>
-</details>
+  </div>
 
-<details id="articles">
-  <summary>Articles</summary>
-  <p>Claude drafts an article from your sources in the structure for the category you pick. The app checks it, you edit and approve it, then Publish puts it on the website in the same layout as your other guides. Nothing goes on the website until you press Publish.</p>
-  <main>
-    <div class="side">
-      <label>Topic <input id="aTopic" placeholder="The payments portal we built"></label>
-      <label>Keyword <input id="aKeyword"></label>
-      <label>Audience <input id="aAudience" placeholder="UK business owners"></label>
-      <label>Page link (optional) <input id="aUrl" type="url"></label>
-      <label>Category <select id="aCategory"><option value="/guides/stories/">Stories</option></select></label>
+  <div class="cols cal-row">
+    <div class="card">
+      <div class="card-head">
+        <div class="cal-head">
+          <button type="button" class="icon" id="calPrev" aria-label="Previous month">‹</button>
+          <h2 id="calTitle"></h2>
+          <button type="button" class="icon" id="calNext" aria-label="Next month">›</button>
+          <button type="button" class="plain small" id="calToday">Today</button>
+        </div>
+        <div class="legend">
+          <span><i style="background:var(--amber)"></i>Waiting for approval</span>
+          <span><i style="background:var(--green)"></i>In Buffer</span>
+          <span><i style="background:var(--blue)"></i>Buffer draft</span>
+          <span><i style="background:var(--red)"></i>Needs a look</span>
+        </div>
+      </div>
+      <div class="cal" id="cal"></div>
+      <p class="muted">Pick a future day to schedule the image above for it. Queue posts show on the day they went to Buffer, which picks the exact slot.</p>
     </div>
-    <div class="side">
-      <label>Sources: notes, facts, results and quotes. The article only uses what is here. <textarea id="aSources" rows="9"></textarea></label>
-      <div><button id="aDraft" type="button">Draft the article</button></div>
-      <div id="aDraftOut"></div>
+    <div class="card">
+      <div class="card-head"><h2>Needs your approval</h2><button type="button" class="plain small" id="postsReload">Refresh</button></div>
+      <div class="queue" id="posts"></div>
     </div>
-  </main>
-  <hr>
-  <main>
-    <div class="side" style="flex:2 1 520px;max-width:none">
+  </div>
+</section>
+
+<dialog id="postDialog"><div class="card" id="postDetail"></div></dialog>
+
+<!-- Articles -->
+<section class="view" data-view="articles" hidden>
+  <div class="card">
+    <div class="card-head"><h2>New article</h2><span class="muted">Claude drafts it from your sources in the structure for its category. Nothing goes on the website until you press Publish.</span></div>
+    <div class="cols two">
+      <div class="fields">
+        <label>Category <select id="aCategory"><option value="/guides/stories/">Stories</option></select></label>
+        <label>Topic <input id="aTopic" placeholder="The payments portal we built"></label>
+        <div class="cols two">
+          <label>Keyword <input id="aKeyword"></label>
+          <label>Audience <input id="aAudience" placeholder="UK business owners"></label>
+        </div>
+        <label>Page link (optional) <input id="aUrl" type="url"></label>
+      </div>
+      <div class="fields">
+        <label>Sources: notes, facts, results and quotes. The article only uses what is here. <textarea id="aSources" rows="8"></textarea></label>
+        <div class="row"><button id="aDraft" type="button">Draft the article</button><div id="aDraftOut"></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="cols wide-left">
+    <div class="card">
+      <div class="card-head"><h2>Edit</h2></div>
       <label>Article <select id="aList"></select></label>
-      <div id="aEditor" hidden style="display:grid;gap:10px">
-        <div id="aStatus"></div>
+      <div id="aEditor" hidden class="fields">
+        <div id="aStatus" class="note"></div>
         <label>Title <input id="aTitle"></label>
         <label>Summary <input id="aSummary" maxlength="400"></label>
         <label>Slug <input id="aSlug"></label>
         <label>Text (Markdown) <textarea id="aBody" class="code" spellcheck="true"></textarea></label>
-        <div id="aChecks"></div>
-        <div id="aButtons" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+        <div id="aChecks" class="checks"></div>
+        <div id="aButtons" class="row"></div>
         <div id="aOut"></div>
       </div>
     </div>
-    <div class="side"><strong>Preview of the page</strong><iframe id="aPreview" title="Article page preview" style="width:100%;height:760px;border:1px solid #ddd;background:#fff;position:static;transform:none"></iframe></div>
-  </main>
-</details>
+    <div class="card">
+      <div class="card-head"><h2>Page preview</h2></div>
+      <iframe id="aPreview" class="preview-page" title="Article page preview"></iframe>
+    </div>
+  </div>
+</section>
 
-<details id="prompts">
-  <summary>Prompts and test runs</summary>
-  <p>Test run uses the text below, saved or not, with the topic and fields above. It never posts or queues anything.</p>
-  <main>
-    <div class="side" style="flex:2 1 520px;max-width:none">
+<!-- Templates: code, versions and the designer, beside the same preview -->
+<section class="view" data-view="templates" hidden>
+  <div class="cols wide-left">
+    <div class="fields">
+      <div class="card" id="design">
+        <div class="card-head"><h2>Design a template with Claude</h2></div>
+        <p class="muted">Describe it. Claude designs it in the brand style, starting from the template picked on Social, and checks its sample text fits. Nothing is saved until you save it.</p>
+        <label>What should it look like? <textarea id="designDesc" rows="3" placeholder="An event card with a big date block on the left, the event name as the headline and the venue as the subtitle"></textarea></label>
+        <div class="row"><button id="designBtn" type="button">Design it</button></div>
+        <div id="designOut"></div>
+        <div class="row" style="align-items:end"><label style="flex:1">Name <input id="designName" pattern="[a-z0-9-]+"></label><button id="designSave" type="button" disabled>Save as new template</button></div>
+      </div>
+      <div class="card" id="code">
+        <div class="card-head"><h2>Template code</h2><span class="muted" id="codeName"></span></div>
+        <p class="muted">Edits show in the preview straight away. Save to make them live for renders.</p>
+        <textarea id="html" class="code" spellcheck="false"></textarea>
+        <label>Note for this version <input id="note" maxlength="200"></label>
+        <div class="row"><button id="save" type="button">Save new version</button><button id="revert" type="button" class="plain">Discard edits</button></div>
+      </div>
+    </div>
+    <div class="fields">
+      <div id="previewSlot"></div>
+      <div class="card"><h2>Versions</h2><ul id="versions" class="versions"></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- Prompts -->
+<section class="view" data-view="prompts" hidden>
+  <div class="cols wide-left">
+    <div class="card" id="prompts">
+      <div class="card-head"><h2>Prompts</h2><span class="muted">Test run uses the text below, saved or not, with the topic and fields on Social. It never posts or queues anything.</span></div>
       <label>Prompt <select id="promptName"></select></label>
       <textarea id="promptBody" class="code" spellcheck="false"></textarea>
       <label>Note for this version <input id="promptNote" maxlength="200"></label>
-      <div><button id="promptTest" type="button" class="plain">Test run</button> <button id="promptSave" type="button">Save new version</button></div>
-      <pre id="promptOut" style="white-space:pre-wrap"></pre>
+      <div class="row"><button id="promptTest" type="button" class="plain">Test run</button><button id="promptSave" type="button">Save new version</button></div>
+      <pre id="promptOut"></pre>
     </div>
-    <div class="side"><strong>Versions</strong><ul id="promptVersions"></ul></div>
-  </main>
-</details>
-
-<details id="design">
-  <summary>Design a template with Claude</summary>
-  <p>Describe the template you want. Claude designs it in the brand style, starting from the template picked above, and the app checks its sample text fits. It shows in the preview. Nothing is saved until you save it.</p>
-  <main>
-    <div class="side" style="flex:2 1 520px;max-width:none">
-      <label>What should it look like? <textarea id="designDesc" rows="4" placeholder="An event card with a big date block on the left, the event name as the headline and the venue as the subtitle"></textarea></label>
-      <div><button id="designBtn" type="button">Design it</button></div>
-      <div id="designOut"></div>
-      <label>Name <input id="designName" pattern="[a-z0-9-]+"></label>
-      <div><button id="designSave" type="button" disabled>Save as new template</button></div>
-    </div>
-  </main>
-</details>
-
-<details id="code">
-  <summary>Template code and versions</summary>
-  <p>Edits show in the preview straight away. Save to make them live for renders.</p>
-  <main>
-    <div class="side" style="flex:2 1 520px;max-width:none">
-      <textarea id="html" class="code" spellcheck="false"></textarea>
-      <label>Note for this version <input id="note" maxlength="200"></label>
-      <div><button id="save" type="button">Save new version</button> <button id="revert" type="button" class="plain">Discard edits</button></div>
-    </div>
-    <div class="side"><strong>Versions</strong><ul id="versions"></ul></div>
-  </main>
-</details>
+    <div class="card"><h2>Versions</h2><ul id="promptVersions" class="versions"></ul></div>
+  </div>
+</section>
+</main>
 
 <script>
   const $ = id => document.getElementById(id);
-  const status = (msg, cls = '') => { $('status').className = cls; $('status').innerHTML = msg; };
+  const status = (msg, cls = '') => { $('status').className = 'note ' + cls; $('status').innerHTML = msg; };
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  const note = (el, msg, cls = '') => { $(el).innerHTML = msg ? `<div class="note ${cls}">${msg}</div>` : ''; };
   let savedHtml = '';
 
+  // API key: kept in this browser only
   try { $('key').value = localStorage.getItem('rct-key') || ''; } catch {}
-  $('key').addEventListener('change', () => { try { localStorage.setItem('rct-key', $('key').value); } catch {} loadTemplates(); });
+  function setKey(v) {
+    $('key').value = v;
+    try { localStorage.setItem('rct-key', v); } catch {}
+    start();
+  }
+  $('key').addEventListener('change', () => setKey($('key').value));
+  $('keyStart').addEventListener('change', () => setKey($('keyStart').value));
+  $('keyBtn').addEventListener('click', () => { $('keyPop').hidden = !$('keyPop').hidden; $('keyBtn').setAttribute('aria-expanded', !$('keyPop').hidden); });
 
   async function api(path, opts = {}) {
     const res = await fetch(path, { ...opts, headers: { 'x-api-key': $('key').value, ...(opts.body ? { 'content-type': 'application/json' } : {}) } });
@@ -174,16 +368,40 @@
   const fieldValues = () => Object.fromEntries([...$('fields').querySelectorAll('[name]')].map(el => [el.name, el.value]));
   const problemList = ps => ps.map(p => esc(p.message)).join('<br>');
 
+  // Views. The preview card moves to whichever view needs it.
+  const loaded = {};
+  function show() {
+    const view = location.hash.slice(1) || 'social';
+    const ok = !!$('key').value;
+    $('welcome').hidden = ok;
+    for (const s of document.querySelectorAll('.view')) s.hidden = !ok || s.dataset.view !== view;
+    for (const a of document.querySelectorAll('nav a')) a.classList.toggle('on', a.dataset.view === view);
+    const card = $('previewCard');
+    if (view === 'templates' && card.parentElement !== $('previewSlot')) $('previewSlot').append(card);
+    if (view === 'social' && card.parentElement === $('previewSlot')) $('f').after(card);
+    fitPreview();
+    if (!ok) return;
+    if (view === 'articles' && !loaded.articles) { loaded.articles = true; loadArticles(); }
+    if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
+  }
+  window.addEventListener('hashchange', show);
+  function fitPreview() { const w = $('frame').clientWidth; if (w) $('preview').style.transform = `scale(${w / 1080})`; }
+  new ResizeObserver(fitPreview).observe($('frame'));
+
+  function start() {
+    Object.keys(loaded).forEach(k => delete loaded[k]);
+    show();
+    if (!$('key').value) return;
+    loadTemplates(); loadSpend(); loadChannels(); loadPosts();
+  }
+
   async function loadTemplates() {
-    if (!$('key').value) return status('Enter your API key to start.');
     try {
       const list = await (await api('/templates')).json();
       const keep = $('template').value;
       $('template').innerHTML = list.map(t => `<option>${esc(t.name)}</option>`).join('');
       if (keep && list.some(t => t.name === keep)) $('template').value = keep;
       await loadTemplate($('template').value === keep);
-      loadPrompts().catch(e => { $('promptOut').textContent = e.message; });
-      loadSpend();
     } catch (e) { status(esc(e.message), 'bad'); }
   }
 
@@ -192,13 +410,14 @@
     const old = fieldValues();
     $('fields').innerHTML = t.fields.map(n => {
       const v = esc(keepValues && n in old ? old[n] : t.sample[n] ?? '');
-      const input = n === 'headline' || n === 'subtitle' ? `<textarea name="${n}" rows="3">${v}</textarea>` : `<input name="${n}" value="${v}">`;
-      return `<label>${n.replace('_', ' ')} ${input}</label>`;
+      const input = n === 'headline' || n === 'subtitle' ? `<textarea name="${n}" rows="2">${v}</textarea>` : `<input name="${n}" value="${v}">`;
+      return `<label>${n.replace('_', ' ').replace(/^\w/, c => c.toUpperCase())} ${input}</label>`;
     }).join('');
     savedHtml = $('html').value = t.html;
+    $('codeName').textContent = t.name;
     $('versions').innerHTML = (await (await api(`/templates/${t.name}/versions`)).json()).map(v =>
-      `<li>Version ${v.id}, ${esc(v.created_at)}${v.note ? ': ' + esc(v.note) : ''}
-       ${v.id === t.version ? ' <strong>(live)</strong>' : ` <button type="button" class="plain" data-v="${v.id}">Roll back</button>`}</li>`).join('');
+      `<li><span>Version ${v.id} · ${esc(v.created_at.slice(0, 16))}${v.note ? '<br><span class="muted">' + esc(v.note) + '</span>' : ''}</span>
+       ${v.id === t.version ? '<span class="badge sent">Live</span>' : `<button type="button" class="plain small" data-v="${v.id}">Roll back</button>`}</li>`).join('');
     refresh();
   }
 
@@ -259,19 +478,18 @@
   async function loadSpend() {
     try {
       const u = await (await api('/usage')).json();
-      $('spend').textContent = `Spent this month: £${u.month_spend_gbp.toFixed(2)} of £${u.cap_gbp}.`;
+      $('spend').textContent = `Claude: £${u.month_spend_gbp.toFixed(2)} of £${u.cap_gbp} this month`;
     } catch {}
   }
   $('writeBtn').addEventListener('click', async () => {
-    $('writeOut').textContent = $('url').value.trim() ? 'Reading the page and writing...' : 'Writing...';
+    note('writeOut', $('url').value.trim() ? 'Reading the page and writing...' : 'Writing...');
     try {
       const r = await (await api('/copy', { method: 'POST', body: JSON.stringify({ template: $('template').value, ...writeVars(), ...($('url').value.trim() ? { url: $('url').value.trim() } : {}) }) })).json();
       for (const [k, v] of Object.entries(r.fields)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
       refresh();
       $('postText').value = [r.caption, r.page?.url, r.hashtags.join(' ')].filter(Boolean).join('\n\n');
-      $('writeOut').innerHTML = `${r.fits ? '' : '<p class="bad">Still too long after one rewrite. Shorten it by hand.</p>'}
-        <p><strong>Caption</strong> (copied to Post to Buffer)<br>${esc(r.caption)}<br>${esc(r.hashtags.join(' '))}</p>${r.page ? `<p>Read: ${esc(r.page.title || r.page.url)}</p>` : ''}<p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
-    } catch (e) { $('writeOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+      note('writeOut', `${r.fits ? 'Done. The text is in the image and the caption is in Post to Buffer.' : 'Still too long after one rewrite. Shorten it by hand.'}${r.page ? `<br>Read: ${esc(r.page.title || r.page.url)}` : ''}<br>Cost £${r.cost_gbp.toFixed(4)}`, r.fits ? 'good' : 'bad');
+    } catch (e) { note('writeOut', esc(e.message), 'bad'); }
     loadSpend();
   });
 
@@ -288,8 +506,8 @@
     const p = await (await api('/prompts/' + name)).json();
     savedPrompt = $('promptBody').value = p.body;
     $('promptVersions').innerHTML = (await (await api(`/prompts/${name}/versions`)).json()).map(v =>
-      `<li>Version ${v.id}, ${esc(v.created_at)}${v.note ? ': ' + esc(v.note) : ''}
-       ${v.id === p.version ? ' <strong>(live)</strong>' : ` <button type="button" class="plain" data-v="${v.id}">Roll back</button>`}</li>`).join('');
+      `<li><span>Version ${v.id} · ${esc(v.created_at.slice(0, 16))}${v.note ? '<br><span class="muted">' + esc(v.note) + '</span>' : ''}</span>
+       ${v.id === p.version ? '<span class="badge sent">Live</span>' : `<button type="button" class="plain small" data-v="${v.id}">Roll back</button>`}</li>`).join('');
   }
   $('promptName').addEventListener('change', loadPrompt);
   $('promptTest').addEventListener('click', async () => {
@@ -317,7 +535,7 @@
 
   // Template designer
   $('designBtn').addEventListener('click', async () => {
-    $('designOut').textContent = 'Designing. This can take a minute...';
+    note('designOut', 'Designing. This can take a minute...');
     $('designSave').disabled = true;
     try {
       const r = await (await api('/templates/design', { method: 'POST', body: JSON.stringify({ description: $('designDesc').value, base: $('template').value }) })).json();
@@ -326,11 +544,8 @@
       for (const [k, v] of Object.entries(r.sample)) { const el = $('fields').querySelector(`[name="${k}"]`); if (el) el.value = v; }
       refresh();
       $('designSave').disabled = !r.ok;
-      $('designOut').innerHTML = (r.ok ? '<p class="good">Ready. Check the preview, edit the code below if you like, then save it.</p>'
-        : `<p class="bad">Still has problems after one fix up round:<br>${problemList(r.problems)}</p>`) + `<p>Cost £${r.cost_gbp.toFixed(4)}</p>`;
-      $('code').open = true;
-      window.scrollTo({ top: 0, behavior: 'smooth' }); // the preview is at the top
-    } catch (e) { $('designOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+      note('designOut', (r.ok ? 'Ready. Check the preview, edit the code below if you like, then save it.' : `Still has problems after one fix up round:<br>${problemList(r.problems)}`) + `<br>Cost £${r.cost_gbp.toFixed(4)}`, r.ok ? 'good' : 'bad');
+    } catch (e) { note('designOut', esc(e.message), 'bad'); }
     loadSpend();
   });
   $('designSave').addEventListener('click', async () => {
@@ -338,60 +553,138 @@
     try {
       await api('/templates/' + name, { method: 'PUT', body: JSON.stringify({ html: $('html').value, note: 'Designed with Claude' }) });
       $('designSave').disabled = true;
-      $('designOut').innerHTML = `<p class="good">Saved as ${esc(name)}.</p>`;
+      note('designOut', `Saved as ${esc(name)}.`, 'good');
       $('template').innerHTML += `<option>${esc(name)}</option>`;
       $('template').value = name;
       await loadTemplate(true);
-    } catch (e) { $('designOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    } catch (e) { note('designOut', esc(e.message), 'bad'); }
   });
 
   // Buffer posting
-  const STATUS = { pending_approval: 'Waiting for approval', sending: 'Sending', sent: 'Sent to Buffer', failed: 'Failed',
+  const STATUS = { pending_approval: 'Waiting for approval', sending: 'Sending', sent: 'In Buffer', failed: 'Failed',
     check_buffer: 'Unsure if it reached Buffer. Check Buffer, then mark it sent or send again', rejected: 'Rejected' };
+  const tone = p => p.status === 'pending_approval' || p.status === 'sending' ? 'pending' : p.status === 'failed' || p.status === 'check_buffer' ? 'bad'
+    : p.status === 'rejected' ? 'rejected' : p.mode === 'draft' ? 'draft' : 'sent';
+  const sqlTime = t => t && new Date(t.includes('T') ? t : t.replace(' ', 'T') + 'Z');
+  const when = p => sqlTime(p.mode === 'scheduled' ? p.due_at : p.sent_at || p.created_at);
+  const whenText = p => p.mode === 'scheduled' ? when(p).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : p.mode === 'draft' ? 'Buffer draft' : 'Next queue slot';
+  const SERVICES = { linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', twitter: 'X', threads: 'Threads', bluesky: 'Bluesky', tiktok: 'TikTok', youtube: 'YouTube', pinterest: 'Pinterest', googlebusiness: 'Google' };
+  const service = s => SERVICES[s] ?? s.replace(/^\w/, c => c.toUpperCase());
+  // Channel names are saved as "Name (service)"; show "Service · Name".
+  const chan = p => { const m = (p.channel_name || p.channel_id).match(/^(.*) \((\w+)\)$/); return m ? `${service(m[2])} · ${m[1]}` : p.channel_name || p.channel_id; };
+  const chanShort = p => { const m = (p.channel_name || '').match(/\((\w+)\)$/); return m ? service(m[1]) : p.channel_name || p.channel_id; };
+  const thumb = p => `<img src="/public/renders/${encodeURIComponent(p.render_id)}.png" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`;
+  let postList = [];
+
   async function loadChannels() {
     try {
       const list = await (await api('/buffer/channels')).json();
-      $('channels').innerHTML = list.length ? list.map(c => `<label style="display:flex;gap:6px;font-weight:400"><input type="checkbox" value="${esc(c.id)}" data-name="${esc(c.name + ' (' + c.service + ')')}"> ${esc(c.name)} (${esc(c.service)})</label>`).join('') : 'No channels in Buffer yet.';
+      $('channels').innerHTML = list.length ? list.map(c => `<label class="chip"><input type="checkbox" value="${esc(c.id)}" data-name="${esc(c.name + ' (' + c.service + ')')}">${esc(service(c.service))} <span class="muted">${esc(c.name)}</span></label>`).join('') : '<span class="muted">No channels in Buffer yet.</span>';
     } catch (e) { $('channels').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
   }
   async function loadPosts() {
     try {
-      const list = await (await api('/posts')).json();
-      $('posts').innerHTML = list.map(p => `<li><a href="/public/renders/${p.render_id}.png" target="_blank">image</a>
-        ${esc(p.channel_name || p.channel_id)}, ${p.mode === 'scheduled' ? esc(new Date(p.due_at).toLocaleString()) : p.mode === 'draft' ? 'draft' : 'queue'}:
-        <strong>${esc(STATUS[p.status] || p.status)}</strong>${p.error ? ` <span class="bad">${esc(p.error)}</span>` : ''}
-        <br><small>${esc(p.text.slice(0, 140))}</small><br>
-        ${['pending_approval', 'failed', 'check_buffer'].includes(p.status) ? `<button type="button" data-act="approve" data-id="${p.id}">${p.status === 'pending_approval' ? 'Approve and send' : 'Send again'}</button>
-          <button type="button" class="plain" data-act="reject" data-id="${p.id}">Reject</button>` : ''}
-        ${p.status === 'check_buffer' ? `<button type="button" class="plain" data-act="mark-sent" data-id="${p.id}">It is in Buffer, mark sent</button>` : ''}</li>`).join('') || '<li>No posts yet.</li>';
-    } catch (e) { $('posts').innerHTML = `<li class="bad">${esc(e.message)}</li>`; }
+      postList = await (await api('/posts')).json();
+      const open = postList.filter(p => ['pending_approval', 'failed', 'check_buffer'].includes(p.status));
+      $('posts').innerHTML = open.map(p => `<div class="item">${thumb(p)}<div class="fields" style="gap:6px">
+          <div class="row" style="justify-content:space-between"><strong style="font-size:13px">${esc(chan(p))}</strong><span class="badge ${tone(p)}">${esc(p.status === 'pending_approval' ? 'Waiting' : STATUS[p.status].split('.')[0])}</span></div>
+          <span class="muted">${esc(whenText(p))}</span>
+          <p>${esc(p.text)}</p>
+          <div class="row">${actions(p)}<button type="button" class="plain small" data-open="${p.id}">Open</button></div></div></div>`).join('')
+        || '<p class="muted">Nothing waiting. New posts appear here for you to approve.</p>';
+      drawCalendar();
+    } catch (e) { $('posts').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
-  $('buffer').addEventListener('toggle', () => { if ($('buffer').open && $('key').value) { loadChannels(); loadPosts(); } });
+  const actions = p => (['pending_approval', 'failed', 'check_buffer'].includes(p.status) ? `<button type="button" class="small" data-act="approve" data-id="${p.id}">${p.status === 'pending_approval' ? 'Approve' : 'Send again'}</button>
+      <button type="button" class="plain small" data-act="reject" data-id="${p.id}">Reject</button>` : '')
+    + (p.status === 'check_buffer' ? `<button type="button" class="plain small" data-act="mark-sent" data-id="${p.id}">It is in Buffer</button>` : '');
+
+  function openPost(id) {
+    const p = postList.find(x => x.id === Number(id));
+    if (!p) return;
+    $('postDetail').innerHTML = `<div class="card-head"><h2>${esc(chan(p))}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
+      <img class="big" src="/public/renders/${encodeURIComponent(p.render_id)}.png" alt="" onerror="this.hidden=true">
+      <div class="row"><span class="badge ${tone(p)}">${esc(STATUS[p.status] || p.status)}</span><span class="muted">${esc(whenText(p))}</span></div>
+      ${p.error ? `<div class="note bad">${esc(p.error)}</div>` : ''}
+      <pre>${esc(p.text)}</pre><div class="row">${actions(p)}</div>`;
+    $('postDialog').showModal();
+  }
+  $('postDialog').addEventListener('click', e => { if (e.target === $('postDialog') || e.target.dataset.close !== undefined) $('postDialog').close(); });
+
+  async function postAction(e) {
+    const { act, id, open } = e.target.dataset ?? {};
+    if (open) return openPost(open);
+    if (!act) return;
+    if (act === 'approve' && !confirm('Send this post to Buffer now?')) return;
+    e.target.disabled = true;
+    try { await api(`/posts/${id}/${act}`, { method: 'POST' }); } catch (err) { alert(err.message); }
+    if ($('postDialog').open) $('postDialog').close();
+    loadPosts();
+  }
+  $('posts').addEventListener('click', postAction);
+  $('postDetail').addEventListener('click', postAction);
   $('postsReload').addEventListener('click', loadPosts);
-  $('postMode').addEventListener('change', () => { $('dueWrap').hidden = $('postMode').value !== 'scheduled'; });
+
+  function setMode(mode) {
+    $('postMode').value = mode;
+    for (const b of $('modeSeg').children) b.classList.toggle('on', b.dataset.mode === mode);
+    $('dueWrap').hidden = mode !== 'scheduled';
+  }
+  $('modeSeg').addEventListener('click', e => { if (e.target.dataset.mode) setMode(e.target.dataset.mode); });
+
   $('postBtn').addEventListener('click', async () => {
     const channels = [...$('channels').querySelectorAll('input:checked')].map(c => ({ id: c.value, name: c.dataset.name }));
-    if (!channels.length) return $('postOut').innerHTML = '<span class="bad">Tick at least one channel.</span>';
+    if (!channels.length) return note('postOut', 'Pick at least one channel.', 'bad');
     const mode = $('postMode').value;
-    if (mode === 'scheduled' && !$('dueAt').value) return $('postOut').innerHTML = '<span class="bad">Pick a date and time.</span>';
-    $('postOut').textContent = 'Rendering...';
+    if (mode === 'scheduled' && !$('dueAt').value) return note('postOut', 'Pick a date and time.', 'bad');
+    note('postOut', 'Rendering...');
     try {
       const r = await (await api('/render?format=json', { method: 'POST', body: JSON.stringify({ template: $('template').value, fields: fieldValues() }) })).json();
       const body = { render_id: r.id, channels, text: $('postText').value, mode };
       if (mode === 'scheduled') body.due_at = new Date($('dueAt').value).toISOString();
       await api('/posts', { method: 'POST', body: JSON.stringify(body) });
-      $('postOut').innerHTML = '<span class="good">Added. Approve it below to send it to Buffer.</span>';
+      note('postOut', 'Added. Approve it on the right to send it to Buffer.', 'good');
       loadPosts();
-    } catch (e) { $('postOut').innerHTML = `<span class="bad">${e.body?.problems ? problemList(e.body.problems) : esc(e.message)}</span>`; }
+    } catch (e) { note('postOut', e.body?.problems ? problemList(e.body.problems) : esc(e.message), 'bad'); }
   });
-  $('posts').addEventListener('click', async e => {
-    const { act, id } = e.target.dataset ?? {};
-    if (!act) return;
-    if (act === 'approve' && !confirm('Send this post to Buffer now?')) return;
-    e.target.disabled = true;
-    try { await api(`/posts/${id}/${act}`, { method: 'POST' }); } catch (err) { alert(err.message); }
-    loadPosts();
+
+  // Calendar: a month, weeks starting Monday, posts on the day they go out
+  let calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  const dayKey = d => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  function drawCalendar() {
+    $('calTitle').textContent = calMonth.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+    const byDay = {};
+    for (const p of postList) { const d = when(p); if (d) (byDay[dayKey(d)] ??= []).push(p); }
+    const first = new Date(calMonth);
+    first.setDate(1 - (first.getDay() + 6) % 7);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    let html = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => `<div class="dow">${d}</div>`).join('');
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(first); d.setDate(first.getDate() + i);
+      if (i === 35 && d.getMonth() !== calMonth.getMonth()) break;
+      const cls = [d.getMonth() !== calMonth.getMonth() && 'other', d < today && 'past', d.getTime() === today.getTime() && 'today'].filter(Boolean).join(' ');
+      const evs = (byDay[dayKey(d)] ?? []).sort((a, b) => when(a) - when(b));
+      html += `<div class="day ${cls}" data-day="${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}">
+        <div class="row" style="gap:4px"><span class="num">${d.getDate()}</span><span class="add">+ Schedule</span></div>
+        ${evs.slice(0, 3).map(p => `<div class="ev ${tone(p)}" data-open="${p.id}" title="${esc(chan(p) + ': ' + p.text.slice(0, 120))}">${thumb(p)}<span>${p.mode === 'scheduled' ? esc(when(p).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) + ' ' : ''}${esc(chanShort(p))}</span></div>`).join('')}
+        ${evs.length > 3 ? `<span class="muted" style="font-size:12px">+${evs.length - 3} more</span>` : ''}</div>`;
+    }
+    $('cal').innerHTML = html;
+  }
+  $('cal').addEventListener('click', e => {
+    const ev = e.target.closest('[data-open]');
+    if (ev) return openPost(ev.dataset.open);
+    const day = e.target.closest('.day');
+    if (!day || day.classList.contains('past')) return;
+    setMode('scheduled');
+    $('dueAt').value = `${day.dataset.day}T09:00`;
+    $('buffer').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    note('postOut', `Set for ${new Date(day.dataset.day + 'T09:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} at 09:00. Change the time if you like.`);
   });
+  $('calPrev').addEventListener('click', () => { calMonth.setMonth(calMonth.getMonth() - 1); drawCalendar(); });
+  $('calNext').addEventListener('click', () => { calMonth.setMonth(calMonth.getMonth() + 1); drawCalendar(); });
+  $('calToday').addEventListener('click', () => { calMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1); drawCalendar(); });
+  drawCalendar();
 
   // Articles
   let article;
@@ -410,50 +703,50 @@
         : `<option value="site:${esc(a.slug)}">${esc(a.title)} (on the website)</option>`).join('');
       if (select) $('aList').value = select;
       await showArticle();
-    } catch (e) { $('aDraftOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    } catch (e) { note('aDraftOut', esc(e.message), 'bad'); }
   }
   async function showArticle(a) {
     if ($('aList').value.startsWith('site:')) {
-      $('aOut').textContent = 'Opening the page from the website...';
+      note('aOut', 'Opening the page from the website...');
+      $('aEditor').hidden = false;
       try {
         const imported = await (await api('/articles/import', { method: 'POST', body: JSON.stringify({ category: $('aCategory').value, slug: $('aList').value.slice(5) }) })).json();
-        $('aOut').textContent = '';
+        note('aOut', '');
         return loadArticles(imported.id);
-      } catch (e) { return $('aOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+      } catch (e) { return note('aOut', esc(e.message), 'bad'); }
     }
     const id = $('aList').value;
     $('aEditor').hidden = !id;
-    if (!id) return $('aPreview').srcdoc = '';
+    if (!id) return $('aPreview').srcdoc = '<p style="font:15px Archivo,system-ui;color:#8a8282;text-align:center;margin-top:30vh">Pick an article to see its page.</p>';
     article = a || await (await api('/articles/' + id)).json();
     const draft = article.status === 'draft';
     for (const k of ['Title', 'Summary', 'Slug', 'Body']) { $('a' + k).value = article[k.toLowerCase()]; $('a' + k).readOnly = !draft; }
-    $('aStatus').innerHTML = `<strong>${esc(A_STATUS[article.status])}</strong>. ${article.checks.words} words. Will live at <a href="${esc(article.url)}" target="_blank">${esc(article.url)}</a>`;
+    $('aStatus').innerHTML = `<span class="badge ${{ draft: 'pending', approved: 'draft', published: 'sent', rejected: '' }[article.status]}">${esc(A_STATUS[article.status])}</span> ${article.checks.words} words · <a href="${esc(article.url)}" target="_blank">${esc(article.url.replace(/^https?:\/\//, ''))}</a>`;
     const c = article.checks;
-    $('aChecks').innerHTML = (c.errors.length ? `<p class="bad"><strong>Fix before approving</strong><br>${c.errors.map(esc).join('<br>')}</p>` : '<p class="good">All checks pass.</p>')
-      + (c.warnings.length ? `<p><strong>Check these</strong><br>${c.warnings.map(esc).join('<br>')}</p>` : '');
+    $('aChecks').innerHTML = (c.errors.length ? `<div class="note bad"><strong>Fix before approving</strong><br>${c.errors.map(esc).join('<br>')}</div>` : '<div class="note good">All checks pass.</div>')
+      + (c.warnings.length ? `<div class="note" style="margin-top:8px"><strong>Check these</strong><br>${c.warnings.map(esc).join('<br>')}</div>` : '');
     const b = (act, label, cls = '') => `<button type="button" class="${cls}" data-act="${act}">${label}</button>`;
     $('aButtons').innerHTML = {
       draft: b('save', 'Save changes', 'plain') + b('approve', 'Approve') + b('reject', 'Reject', 'plain'),
       approved: b('publish', 'Publish') + b('reopen', 'Back to draft', 'plain') + b('reject', 'Reject', 'plain'),
-      published: b('social', 'Make a social post for Buffer') + b('publish', 'Publish again', 'plain') + b('reopen', 'Edit again', 'plain'),
+      published: b('reopen', 'Edit again') + b('publish', 'Publish again', 'plain') + b('social', 'Make a social post', 'plain'),
       rejected: b('reopen', 'Back to draft', 'plain'),
     }[article.status] + b('md', 'Download .md', 'plain') + b('html', 'Download .html', 'plain');
     // The page uses the live site's styles: <base> makes its relative links point at the real site.
     const page = await (await api(`/articles/${article.id}/download?format=html`)).text();
     $('aPreview').srcdoc = page.replace('<head>', `<head><base href="${esc(article.url)}">`);
   }
-  $('articles').addEventListener('toggle', () => { if ($('articles').open && $('key').value) loadArticles($('aList').value); });
   $('aList').addEventListener('change', () => showArticle());
-  $('aCategory').addEventListener('change', () => { if ($('key').value) loadArticles(); });
+  $('aCategory').addEventListener('change', () => loadArticles());
   $('aDraft').addEventListener('click', async () => {
-    $('aDraftOut').textContent = 'Drafting. This can take a minute or two...';
+    note('aDraftOut', 'Drafting. This can take a minute or two...');
     try {
       const body = { topic: $('aTopic').value, keyword: $('aKeyword').value, audience: $('aAudience').value, sources: $('aSources').value, category: $('aCategory').value };
       if ($('aUrl').value.trim()) body.url = $('aUrl').value.trim();
       const a = await (await api('/articles', { method: 'POST', body: JSON.stringify(body) })).json();
-      $('aDraftOut').innerHTML = `<span class="good">Drafted. Cost £${a.cost_gbp.toFixed(4)}</span>`;
+      note('aDraftOut', `Drafted. Cost £${a.cost_gbp.toFixed(4)}`, 'good');
       await loadArticles(a.id);
-    } catch (e) { $('aDraftOut').innerHTML = `<span class="bad">${esc(e.message)}</span>`; }
+    } catch (e) { note('aDraftOut', esc(e.message), 'bad'); }
     loadSpend();
   });
   $('aButtons').addEventListener('click', async e => {
@@ -465,29 +758,29 @@
       a.click(); return URL.revokeObjectURL(a.href);
     }
     if (act === 'publish' && !confirm('Put this article on the website now?')) return;
-    $('aOut').textContent = act === 'social' ? 'Writing and rendering the post...' : '';
+    note('aOut', act === 'social' ? 'Writing and rendering the post...' : '');
     try {
       if (act === 'save' || act === 'approve') {
         await api('/articles/' + article.id, { method: 'PUT', body: JSON.stringify({ title: $('aTitle').value, summary: $('aSummary').value, slug: $('aSlug').value, body: $('aBody').value }) });
       }
       if (act === 'social') {
         const channels = [...$('channels').querySelectorAll('input:checked')].map(c => ({ id: c.value, name: c.dataset.name }));
-        if (!channels.length) { $('buffer').open = true; return $('aOut').innerHTML = '<span class="bad">Tick at least one channel in Post to Buffer first. The image uses the template picked at the top.</span>'; }
+        if (!channels.length) return note('aOut', 'Pick at least one channel under Post to Buffer on the Social page first. The image uses the template picked there.', 'bad');
         const r = await (await api(`/articles/${article.id}/social`, { method: 'POST', body: JSON.stringify({ template: $('template').value, channels, mode: $('postMode').value }) })).json();
-        $('aOut').innerHTML = `<span class="good">${r.reused ? 'Already made earlier.' : `Made. Cost £${r.cost_gbp.toFixed(4)}.`} It is waiting for approval in Post to Buffer.</span>`;
-        $('buffer').open = true; loadPosts(); return;
+        note('aOut', `${r.reused ? 'Already made earlier.' : `Made. Cost £${r.cost_gbp.toFixed(4)}.`} It is waiting for approval on the <a href="#social">Social</a> page.`, 'good');
+        loadPosts(); return;
       }
       let published = false, result;
       if (act !== 'save') result = await (await api(`/articles/${article.id}/${act}`, { method: 'POST' })).json();
       if (act === 'publish') published = true;
       await loadArticles(article.id);
       if (published) { const p = result.published;
-        $('aOut').innerHTML = p.where === 'repo' ? `<span class="good">${p.files.length ? `Committed to the website repo: ${p.files.map(esc).join(', ')}. <a href="${esc(p.commit)}" target="_blank">See the commit</a>.` : 'Nothing changed since the last publish.'}</span>`
-          : `<span class="good">Saved to the publish folder: ${p.files.map(esc).join(', ')}</span>`; }
-    } catch (err) { $('aOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; if (act === 'approve') showArticle(); }
+        note('aOut', p.where === 'repo' ? (p.files.length ? `Committed to the website repo: ${p.files.map(esc).join(', ')}. <a href="${esc(p.commit)}" target="_blank">See the commit</a>.` : 'Nothing changed since the last publish.')
+          : `Saved to the publish folder: ${p.files.map(esc).join(', ')}`, 'good'); }
+    } catch (err) { note('aOut', esc(err.message), 'bad'); if (act === 'approve') showArticle(); }
   });
 
-  loadTemplates();
+  start();
 </script>
 </body>
 </html>

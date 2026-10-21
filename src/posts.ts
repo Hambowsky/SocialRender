@@ -24,7 +24,7 @@ const OPEN = ['pending_approval', 'approved', 'sending', 'failed', 'check_buffer
 export function list(status?: string) {
   return status
     ? db.prepare('SELECT * FROM posts WHERE status = ? ORDER BY id DESC LIMIT 200').all(status)
-    : db.prepare(`SELECT * FROM posts WHERE status IN (${OPEN.map(() => '?').join(',')}) OR created_at > datetime('now', '-7 days') ORDER BY id DESC LIMIT 200`).all(...OPEN);
+    : db.prepare(`SELECT * FROM posts WHERE status IN (${OPEN.map(() => '?').join(',')}) OR created_at > datetime('now', '-120 days') ORDER BY id DESC LIMIT 500`).all(...OPEN);
 }
 
 const get = (id: number) => (db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as Row | undefined) ?? fail(404, `There is no post ${id}`);

@@ -43,6 +43,7 @@ const buffer = serve(({ query }) => (bufferSent.push(query), { data: { createPos
 
 // A fake GitHub holding a tiny copy of the website repo.
 const repo: Record<string, string> = {
+  'guides/index.html': '<a class="guide-card" href="stories">\n<h3>Stories</h3>\n<span class="guide-card-count">1 guide</span>\n</a>\n<a class="guide-card" href="tools">\n<span class="guide-card-count guide-card-count--soon">Coming soon</span>\n</a>',
   'guides/stories/index.html': '<main>\n      <div class="guide-list">\n        <a class="guide-card" href="older-story">\n        </a>\n      </div>\n</main>',
   'sitemap.xml': '<urlset>\n  <url><loc>https://redcherryit.com/guides/stories/older-story</loc><lastmod>2026-09-01</lastmod></url>\n  <url><loc>https://redcherryit.com/pricing</loc></url>\n</urlset>',
 };
@@ -122,7 +123,9 @@ test('approve, publish to the site repo, then queue one social post for approval
   assert.equal(pub.status, 'published', JSON.stringify(pub));
   assert.equal(commits.length, 1);
   const page = `guides/stories/${pub.slug}.html`;
-  assert.deepEqual(commits[0].files.sort(), ['guides/stories/index.html', page, 'sitemap.xml'].sort());
+  assert.deepEqual(commits[0].files.sort(), ['guides/index.html', 'guides/stories/index.html', page, 'sitemap.xml'].sort());
+  assert.match(repo['guides/index.html'], /<span class="guide-card-count">2 guides<\/span>/);
+  assert.match(repo['guides/index.html'], /Coming soon/, 'other categories untouched');
   const html = repo[page];
   assert.match(html, /<title>Building an Information Portal for a Financial Services Business \| Red Cherry IT Guides<\/title>/);
   assert.match(html, /<strong>Short answer:<\/strong> A business in the financial sector/);
