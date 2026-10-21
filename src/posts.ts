@@ -22,16 +22,20 @@ type NewMode = PostInput['mode'];
 const OPEN = ['pending_approval', 'approved', 'sending', 'failed', 'check_buffer'];
 
 export function list(status?: string) {
-  return status
+  const rows = (status
     ? db.prepare('SELECT * FROM posts WHERE status = ? ORDER BY id DESC LIMIT 200').all(status)
-    : db.prepare(`SELECT * FROM posts WHERE status IN (${OPEN.map(() => '?').join(',')}) OR created_at > datetime('now', '-120 days') ORDER BY id DESC LIMIT 500`).all(...OPEN);
+    : db.prepare(`SELECT * FROM posts WHERE status IN (${OPEN.map(() => '?').join(',')}) OR created_at > datetime('now', '-120 days') ORDER BY id DESC LIMIT 500`).all(...OPEN)) as Row[];
+  return rows.map(r => ({ ...r, video: isVideo(r.render_id) }));
 }
+
+// Video renders have their own ids (the hash includes "mp4"), so the file on disk says which kind a post carries.
+const isVideo = (renderId: string) => fs.existsSync(renderPath(renderId, 'mp4'));
 
 const get = (id: number) => (db.prepare('SELECT * FROM posts WHERE id = ?').get(id) as Row | undefined) ?? fail(404, `There is no post ${id}`);
 
 // Same render, text, timing and channel as before: the existing row comes back, so a retry never adds a second post.
 export async function create(p: PostInput) {
-  if (!fs.existsSync(renderPath(p.render_id))) fail(404, 'That render does not exist or has been cleaned up. Render it again first.');
+  if (!fs.existsSync(renderPath(p.render_id)) && !isVideo(p.render_id)) fail(404, 'That render does not exist or has been cleaned up. Render it again first.');
   if (p.mode === 'scheduled' && !(p.due_at && Date.parse(p.due_at) > Date.now())) fail(400, 'A scheduled post needs a due_at time in the future');
   const key = p.idempotency_key || crypto.createHash('sha256').update(JSON.stringify([p.render_id, p.text, p.mode, p.due_at ?? null])).digest('hex').slice(0, 24);
   const ids: number[] = [];
@@ -71,7 +75,7 @@ export async function approve(id: number) {
   try {
     const bufferId = await createPost({
       channelId: post.channel_id, text: post.text, mode: post.mode, dueAt: post.due_at ?? undefined,
-      imageUrl: `${PUBLIC_URL}/public/renders/${post.render_id}.png`,
+      ...(isVideo(post.render_id) ? { videoUrl: `${PUBLIC_URL}/public/renders/${post.render_id}.mp4` } : { imageUrl: `${PUBLIC_URL}/public/renders/${post.render_id}.png` }),
     });
     db.prepare(`UPDATE posts SET status = 'sent', buffer_post_id = ?, sent_at = datetime('now') WHERE id = ?`).run(bufferId, id);
     markRenderPosted(post);

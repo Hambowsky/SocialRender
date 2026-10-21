@@ -59,8 +59,11 @@ const METADATA: Record<string, object> = {
   facebook: { facebook: { type: POST } },
   instagram: { instagram: { type: POST, shouldShareToFeed: true } },
 };
+// Instagram takes video as a reel (still shown in the feed). Facebook takes it as a normal post.
+const VIDEO_METADATA: Record<string, object> = { ...METADATA, instagram: { instagram: { type: new Enum('reel'), shouldShareToFeed: true } } };
 
-export type NewPost = { channelId: string; text: string; imageUrl: string; mode: 'queue' | 'scheduled' | 'draft'; dueAt?: string };
+// A post carries an image or a video, by public URL. Buffer fetches it from there.
+export type NewPost = { channelId: string; text: string; imageUrl?: string; videoUrl?: string; mode: 'queue' | 'scheduled' | 'draft'; dueAt?: string };
 
 export async function createPost(p: NewPost): Promise<string> {
   const input: Record<string, unknown> = {
@@ -68,9 +71,10 @@ export async function createPost(p: NewPost): Promise<string> {
     text: p.text,
     schedulingType: new Enum('automatic'),
     mode: new Enum(p.mode === 'scheduled' ? 'customScheduled' : 'addToQueue'),
-    assets: [{ image: { url: p.imageUrl } }],
+    // The cover frame is near the end of the clip, where all the text is showing.
+    assets: [p.videoUrl ? { video: { url: p.videoUrl, metadata: { thumbnailOffset: 11000 } } } : { image: { url: p.imageUrl } }],
   };
-  const metadata = METADATA[await serviceOf(p.channelId) ?? ''];
+  const metadata = (p.videoUrl ? VIDEO_METADATA : METADATA)[await serviceOf(p.channelId) ?? ''];
   if (metadata) input.metadata = metadata;
   if (p.mode === 'scheduled') input.dueAt = p.dueAt;
   if (p.mode === 'draft') input.saveToDraft = true;

@@ -121,7 +121,16 @@ export function buildApp() {
     schema: { params: { type: 'object', properties: { id: { type: 'string', pattern: '^[a-f0-9]{20}$' } } } },
   }, async (req, reply) => {
     const file = renderPath(req.params.id, 'mp4');
-    return fs.existsSync(file) ? reply.type('video/mp4').send(fs.createReadStream(file)) : reply.code(404).send({ error: 'Not found' });
+    if (!fs.existsSync(file)) return reply.code(404).send({ error: 'Not found' });
+    // Safari and iPhones only play a video when the server answers byte range requests.
+    const size = fs.statSync(file).size;
+    const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+    reply.type('video/mp4').header('accept-ranges', 'bytes');
+    if (!m || !m[1] && !m[2]) return reply.header('content-length', size).send(fs.createReadStream(file));
+    const start = m[1] ? +m[1] : Math.max(0, size - +m[2]), end = m[1] && m[2] ? Math.min(+m[2], size - 1) : size - 1;
+    if (start > end) return reply.code(416).header('content-range', `bytes */${size}`).send();
+    return reply.code(206).header('content-range', `bytes ${start}-${end}/${size}`).header('content-length', end - start + 1)
+      .send(fs.createReadStream(file, { start, end }));
   });
 
   // Buffer fetches images from here, so it needs no key. Render ids are 80 bit random looking hashes,
