@@ -21,7 +21,7 @@ const fake = http.createServer((req, res) => {
     const { query } = JSON.parse(body);
     const send = (data: unknown) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data })); };
     if (query.includes('organizations')) return send({ account: { organizations: [{ id: 'org1', name: 'Red Cherry IT' }] } });
-    if (query.includes('channels')) return send({ channels: [{ id: 'li1', name: 'rc', displayName: 'Red Cherry IT', service: 'linkedin' }] });
+    if (query.includes('channels')) return send({ channels: [{ id: 'li1', name: 'rc', displayName: 'Red Cherry IT', service: 'linkedin' }, { id: 'fb1', name: 'rc', displayName: 'Red Cherry IT', service: 'facebook' }] });
     if (next === 'down') { res.statusCode = 502; return res.end('bad gateway'); }
     if (next === 'error') return send({ createPost: { message: 'Channel is disconnected' } });
     created.push(query);
@@ -46,7 +46,8 @@ let renderId = '';
 
 test('channels come from every Buffer organisation', async () => {
   const res = await app.inject({ method: 'GET', url: '/buffer/channels', headers });
-  assert.deepEqual(res.json(), [{ id: 'li1', name: 'Red Cherry IT', service: 'linkedin', organization: 'Red Cherry IT' }]);
+  assert.deepEqual(res.json(), [{ id: 'li1', name: 'Red Cherry IT', service: 'linkedin', organization: 'Red Cherry IT' },
+    { id: 'fb1', name: 'Red Cherry IT', service: 'facebook', organization: 'Red Cherry IT' }]);
 });
 
 test('a post waits for approval, then goes to Buffer exactly once with a public image', async () => {
@@ -93,4 +94,13 @@ test('a scheduled post needs a future time, and the API needs a key', async () =
     payload: { render_id: renderId, channels: [{ id: 'li1' }], text: 'x', mode: 'scheduled', due_at: '2020-01-01T09:00:00Z' } });
   assert.equal(res.statusCode, 400);
   assert.equal((await app.inject({ method: 'GET', url: '/posts' })).statusCode, 401);
+});
+
+test('a Facebook post tells Buffer it is a post, and other networks send no metadata', async () => {
+  const post = { render_id: renderId, channels: [{ id: 'fb1', name: 'Facebook' }], text: 'Facebook needs a post type.', mode: 'queue' };
+  const [p] = (await app.inject({ method: 'POST', url: '/posts', headers, payload: post })).json();
+  const sent = (await app.inject({ method: 'POST', url: `/posts/${p.id}/approve`, headers })).json();
+  assert.equal(sent.status, 'sent', JSON.stringify(sent));
+  assert.match(created.at(-1)!, /metadata: \{ facebook: \{ type: post \} \}/);
+  assert.ok(!created.some(q => q.includes('li1') && q.includes('metadata')));
 });
