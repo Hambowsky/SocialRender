@@ -36,13 +36,14 @@ export function parsePrompt(body: string) {
   };
 }
 
+export const fillPromptVars = (text: string, vars: Record<string, string>) => fillVars(text, vars);
 export const varsOf = (body: string) => [...new Set([...parsePrompt(body).text.matchAll(/\{(\w+)\}/g)].map(m => m[1]))];
 
 // Single pass, so text inside a value is never treated as a placeholder.
 const fillVars = (text: string, vars: Record<string, string>) =>
   text.replace(/\{(\w+)\}/g, (_, k: string) => String(vars[k] ?? '').trim() || '(none given)');
 
-function systemPrompt() {
+export function systemPrompt() {
   const dir = path.join(PROMPTS_DIR, 'examples');
   const examples = fs.existsSync(dir)
     ? fs.readdirSync(dir).filter(f => f.endsWith('.md')).map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n\n---\n\n')
