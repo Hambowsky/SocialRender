@@ -64,6 +64,18 @@ after(async () => { await app.close(); await closeBrowser(); fake.close(); });
 
 const headers = { 'x-api-key': 'test-key' };
 
+// Template work answers 202 with a job, then the result comes from GET /jobs/<id>.
+async function runJob(url: string, payload: object) {
+  const start = await app.inject({ method: 'POST', url, headers, payload });
+  assert.equal(start.statusCode, 202, start.body);
+  for (;;) {
+    const res = await app.inject({ method: 'GET', url: `/jobs/${start.json().job}`, headers });
+    assert.equal(res.statusCode, 200, res.body);
+    if (res.json().done) return res.json().result;
+    await new Promise(r => setTimeout(r, 20));
+  }
+}
+
 test('copy writes fields, rewrites once when they do not fit, then writes a caption', async () => {
   const res = await app.inject({ method: 'POST', url: '/copy', headers, payload: { template: 'social-post', topic: 'Website speed' } });
   assert.equal(res.statusCode, 200, res.body);
@@ -125,10 +137,8 @@ test('prompts are versioned and can be rolled back', async () => {
 
 test('Claude designs a template, gets one fix up round, and nothing is saved until asked', async () => {
   db.prepare('DELETE FROM claude_usage').run(); // clear the cap test's spend
-  const res = await app.inject({ method: 'POST', url: '/templates/design', headers, payload: { description: 'An event card', base: 'social-post' } });
-  assert.equal(res.statusCode, 200, res.body);
-  const body = res.json();
-  assert.equal(body.ok, true, res.body);
+  const body = await runJob('/templates/design', { description: 'An event card', base: 'social-post' });
+  assert.equal(body.ok, true, JSON.stringify(body.problems));
   assert.equal(body.name, 'event-card');
   assert.match(JSON.stringify(calls.at(-1).messages.at(-1)), /loads something from outside the app/);
   assert.equal((await app.inject({ method: 'GET', url: '/templates/event-card', headers })).statusCode, 404);
@@ -158,11 +168,12 @@ test('a one off change makes a changed copy for one post and leaves the saved te
   const { sampleOf, current } = await import('../src/templates.ts');
   const before = current('social-post').body;
   const fields = sampleOf(before);
-  const res = await app.inject({ method: 'POST', url: '/templates/tweak', headers, payload: { template: 'social-post', change: 'Add snow', fields } });
-  assert.equal(res.statusCode, 200, res.body);
-  const t = res.json();
-  assert.equal(t.ok, true, res.body);
+  const t = await runJob('/templates/tweak', { template: 'social-post', change: 'Add snow', fields });
+  assert.equal(t.ok, true, JSON.stringify(t.problems));
   assert.match(t.html, /data-decor/, 'snow covering other blocks passes the layout check');
+  const bad = await app.inject({ method: 'POST', url: '/templates/tweak', headers, payload: { template: 'no-such-template', change: 'Add snow', fields } });
+  const failed = await (async () => { for (;;) { const r = await app.inject({ method: 'GET', url: `/jobs/${bad.json().job}`, headers }); if (r.statusCode !== 200 || !r.json().done) { if (r.statusCode !== 200) return r; await new Promise(res => setTimeout(res, 20)); } } })();
+  assert.equal(failed.statusCode, 404, 'a failed job gives its error');
   assert.equal(current('social-post').body, before, 'saved template unchanged');
   const plain = await app.inject({ method: 'POST', url: '/render?format=json', headers, payload: { template: 'social-post', fields } });
   const snowy = await app.inject({ method: 'POST', url: '/render?format=json', headers, payload: { template: 'social-post', fields, html: t.html } });
