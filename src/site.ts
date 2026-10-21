@@ -1,5 +1,5 @@
 // Publishing to the website. With SITE_REPO set, the page, its listing card and its sitemap entry go into
-// the website's GitHub repo as one commit, and the host deploys from there. Without it, the page is written
+// the website's GitHub repo as one commit (with the hub page's guide count), and the host deploys from there. Without it, the page is written
 // to PUBLISH_DIR to upload by hand.
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,6 +35,16 @@ export function addCard(index: string, l: Listing) {
   const tag = esc(l.category.split('/').filter(Boolean).at(-1)!.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
   const card = `\n        <a class="guide-card" href="${l.slug}">\n          <span class="guide-card-tag">${tag}</span>\n          <h3>${esc(l.title)}</h3>\n          <p>${esc(l.summary)}</p>\n        </a>`;
   return index.slice(0, end) + card + index.slice(end);
+}
+
+// Sets the "N guides" count on the hub page card for this category (guides/index.html links to it by folder name).
+export function setHubCount(hub: string, category: string, count: number) {
+  const folder = category.split('/').filter(Boolean).at(-1)!;
+  const start = hub.indexOf(`<a class="guide-card" href="${folder}">`);
+  if (start < 0) return hub;
+  const end = hub.indexOf('</a>', start);
+  const card = hub.slice(start, end).replace(/(<span class="guide-card-count)[^"]*(">)[^<]*/, `$1$2${count} guide${count === 1 ? '' : 's'}`);
+  return hub.slice(0, start) + card + hub.slice(end);
 }
 
 // Adds the page to the sitemap after the rest of its category, or updates its date.
@@ -111,7 +121,13 @@ export async function publishPage(l: Listing, html: string) {
     const page = `${dir}/${l.slug}.html`;
     const files: File[] = [{ path: page, content: keepExtras(html, await readRepoFile(page, head)) }];
     const index = await readRepoFile(`${dir}/index.html`, head);
-    if (index) files.push({ path: `${dir}/index.html`, content: addCard(index, l) });
+    if (index) {
+      const updated = addCard(index, l);
+      files.push({ path: `${dir}/index.html`, content: updated });
+      const hubPath = `${dir.split('/').slice(0, -1).join('/')}/index.html`;
+      const hub = dir.includes('/') ? await readRepoFile(hubPath, head) : undefined;
+      if (hub) files.push({ path: hubPath, content: setHubCount(hub, l.category, updated.match(/class="guide-card"/g)!.length) });
+    }
     const sitemap = await readRepoFile('sitemap.xml', head);
     if (sitemap) files.push({ path: 'sitemap.xml', content: addToSitemap(sitemap, l) });
     return files;
