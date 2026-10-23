@@ -52,7 +52,7 @@ export async function scrape(url: string): Promise<Page> {
 export async function scrapeShot(url: string, file: string) {
   // The key is never reused (the picture is saved here, not in the cache), but the call still counts towards the monthly cap.
   const r = await cached('scrape', { url, screenshot: Date.now() }, async () => {
-    const { screenshot, ...rest } = await firecrawl({ url, formats: ['rawHtml', { type: 'screenshot', quality: 70, viewport: { width: 1280, height: 800 } }] });
+    const { screenshot, ...rest } = await firecrawl({ url, waitFor: 5000, formats: ['rawHtml', { type: 'screenshot', quality: 70, viewport: { width: 1280, height: 800 } }] });
     const img = screenshot ? await fetch(screenshot, { signal: AbortSignal.timeout(30_000) }) : null;
     if (!img?.ok) fail(502, `the screenshot did not come back${img ? ` (error ${img.status})` : ''}`);
     fs.writeFileSync(file, Buffer.from(await img!.arrayBuffer()));
