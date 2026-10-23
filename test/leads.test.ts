@@ -94,7 +94,9 @@ test('the HTML checks find old, insecure and unfriendly sites and their contact 
   assert.equal(away.email, 'office@turns-servers-away.co.uk');
   assert.equal((await checkSite('turns-servers-away.invalid')).email, 'office@turns-servers-away.co.uk', 'second read comes from the cache');
   assert.equal((await import('../src/leads.ts')).usage().firecrawl_credits, 1);
-  assert.equal((await checkSite('no-such-site.invalid')).reachable, false, 'a failed read is not counted');
+  const gone = await checkSite('no-such-site.invalid');
+  assert.equal(gone.reachable, false, 'a failed read is not counted');
+  assert.match(gone.note!, /^Its address does not exist\. Firecrawl could not read it either: Could not load$/);
   assert.equal((await import('../src/leads.ts')).usage().firecrawl_credits, 1);
   (await import('../src/db.ts')).db.prepare(`DELETE FROM api_cache WHERE key LIKE 'scrape:%'`).run(); // keep the campaign cost checks below exact
   const old = analyse(`<html><head><title>Bob</title></head><body><img src=a.png><img src=b.png alt="">

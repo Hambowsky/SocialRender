@@ -31,17 +31,18 @@ async function load(url: string): Promise<Page> {
   } catch (err) { page = { ok: false, status: 0, url, html: '', error: (err as Error).message.replace(/^Could not load that page: /, '') }; }
   // Some sites will not answer this server (they block cloud servers, or the network drops them), so Firecrawl reads those for us.
   const blocked = page.error ? !/private address|not a valid|must start/.test(page.error) : page.status === 403 || isChallenge(page.html);
-  if (blocked && FIRECRAWL_API_KEY) return (await scrape(url).catch(() => null)) ?? page;
+  if (blocked && FIRECRAWL_API_KEY) return scrape(url).catch(err => page.error
+    ? { ...page, error: `${why(page.error)}. Firecrawl could not read it either: ${(err as Error).message}` } : page);
   return page;
 }
 
-async function scrape(url: string): Promise<Page | null> {
+async function scrape(url: string): Promise<Page> {
   const r = await cached('scrape', { url }, async () => {
     const res = await fetch(`${FIRECRAWL_API_URL}/v2/scrape`, { method: 'POST', signal: AbortSignal.timeout(60_000),
       headers: { 'content-type': 'application/json', authorization: `Bearer ${FIRECRAWL_API_KEY}` }, body: JSON.stringify({ url, formats: ['rawHtml'] }) });
     const json = await res.json().catch(() => ({})) as { data?: { rawHtml?: string; metadata?: { statusCode?: number; url?: string; creditsUsed?: number } } };
     const d = json.data;
-    if (!res.ok || !d?.rawHtml) fail(502, 'Firecrawl could not read it either'); // not cached, so not counted
+    if (!res.ok || !d?.rawHtml) fail(502, (json as { error?: string }).error ?? `error ${res.status}`); // not cached, so not counted
     // Scripts are dropped to keep the cache small; nothing the checks look for is inside them.
     return { creditsUsed: d?.metadata?.creditsUsed ?? 1, status: d?.metadata?.statusCode ?? res.status, url: d?.metadata?.url ?? url,
       html: (d?.rawHtml ?? '').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').slice(0, 500_000) };
@@ -49,7 +50,7 @@ async function scrape(url: string): Promise<Page | null> {
   return { ok: r.status < 400, status: r.status, url: r.url, html: r.html, error: '', firecrawl: true };
 }
 // Why a page would not load, in words David can act on.
-const why = (msg: string) => /timeout|aborted/i.test(msg) ? 'It took over 15 seconds to answer'
+const why = (msg: string) => msg.includes('Firecrawl') ? msg : /timeout|aborted/i.test(msg) ? 'It took over 15 seconds to answer'
   : /could not find|ENOTFOUND/i.test(msg) ? 'Its address does not exist' : /cert|ssl|tls/i.test(msg) ? 'Its security certificate is broken' : `Error: ${msg}`;
 
 // Cloudflare hides emails as hex, XORed with the first byte.
