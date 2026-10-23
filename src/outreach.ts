@@ -1,11 +1,11 @@
 // Sales outreach. Claude drafts an email to a lead, it waits for David's approval, and approved emails go out
 // from his own mailbox one at a time, within a daily cap. An email is sent at most once: a row is claimed as
 // "sending" before the SMTP call, and one whose result is unknown is never retried on its own.
-// PECR: limited companies only (checked at Companies House), an unsubscribe link in every email, and a suppression list.
+// Every email has an unsubscribe link, and a suppression list is checked before drafting and before sending.
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { db } from './db.ts';
-import { API_KEY, COMPANIES_HOUSE_API_KEY, COMPANIES_HOUSE_URL, fail, OUTREACH_DAILY_CAP, OUTREACH_DELAY_SECONDS, PUBLIC_URL,
+import { API_KEY, fail, OUTREACH_DAILY_CAP, OUTREACH_DELAY_SECONDS, PUBLIC_URL,
   SMTP_FROM, SMTP_HOST, SMTP_PASS, SMTP_PORT, SMTP_USER } from './config.ts';
 import { lead } from './leads.ts';
 import { runPrompt } from './copy.ts';
@@ -18,38 +18,15 @@ const norm = (email: string) => email.trim().toLowerCase();
 const suppressed = (email: string) => !!db.prepare('SELECT 1 FROM suppression WHERE email = ?').get(norm(email));
 const note = (leadId: number | null, text: string) => leadId && db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(leadId, text);
 
-// Company names match when they are the same once "Ltd", "Limited", punctuation and the like are set aside.
-const companyKey = (name: string) => ` ${name.toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ')} `
-  .replace(/ (ltd|limited|llp|plc|the|uk|co)(?= )/g, ' ').replace(/\s+/g, '');
-
-// A business with an active company of the same name is a limited company (or LLP), which PECR lets us email.
-// Anything else is likely a sole trader or partnership, treated as an individual, so it gets a call instead.
-export async function companyCheck(id: number) {
-  const l = lead(id) as any;
-  if (!COMPANIES_HOUSE_API_KEY) fail(503, 'Set COMPANIES_HOUSE_API_KEY first. Emails are only sent to limited companies, and Companies House is how that is checked.');
-  const res = await fetch(`${COMPANIES_HOUSE_URL}/search/companies?${new URLSearchParams({ q: l.company_name, items_per_page: '20' })}`, {
-    signal: AbortSignal.timeout(20_000), headers: { authorization: `Basic ${Buffer.from(`${COMPANIES_HOUSE_API_KEY}:`).toString('base64')}` } });
-  const json = await res.json().catch(() => ({})) as { items?: { title: string; company_number: string; company_status: string; company_type: string }[] };
-  if (!res.ok) fail(502, `Companies House answered with error ${res.status}`);
-  const key = companyKey(l.company_name);
-  const hit = json.items?.find(c => c.company_status === 'active' && companyKey(c.title) === key);
-  const check = hit ? { registered: true, name: hit.title, number: hit.company_number, type: hit.company_type } : { registered: false };
-  db.prepare('UPDATE leads SET company_check = ? WHERE id = ?').run(JSON.stringify(check), id);
-  return check;
-}
-
 // Claude's draft, waiting for approval. A lead has at most one open email, so asking twice gives back the same draft.
 export async function draft(leadId: number) {
-  let l = lead(leadId) as any;
+  const l = lead(leadId) as any;
   const open = db.prepare(`SELECT id FROM emails WHERE lead_id = ? AND status IN ('pending_approval', 'approved', 'sending')`).get(leadId) as { id: number } | undefined;
   if (open) return get(open.id);
   if (!l.email) fail(400, 'This lead has no email address');
   if (suppressed(l.email)) fail(409, `${l.email} is on the do not email list`);
   const before = db.prepare(`SELECT sent_at FROM emails WHERE to_email = ? AND status IN ('sent', 'check_sent') ORDER BY id DESC LIMIT 1`).get(norm(l.email)) as { sent_at: string } | undefined;
   if (before) fail(409, `${l.email} was already emailed on ${before.sent_at.slice(0, 10).split('-').reverse().join('/')}`);
-  const check = await companyCheck(leadId);
-  if (!check.registered) fail(409, `${l.company_name} is not a limited company at Companies House, so it is likely a sole trader or partnership. PECR treats them as individuals, so call them instead.`);
-  l = lead(leadId);
   const a = l.analysis, g = a.gbp;
   const describe = (o: Record<string, unknown>) => Object.entries(o).map(([k, v]) => v === true ? k.replace(/_/g, ' ') : `${k.replace(/_/g, ' ')}: ${v}`).join(', ') || 'none';
   const r = await runPrompt('outreach-email', {

@@ -1,4 +1,4 @@
-// Outreach against a fake Claude, a fake Companies House and a fake mail server, so nothing real is ever sent.
+// Outreach against a fake Claude and a fake mail server, so nothing real is ever sent.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -12,7 +12,6 @@ process.env.NODE_ENV = 'test';
 process.env.API_KEY = 'test-key';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-outreach-'));
 process.env.ANTHROPIC_API_KEY = 'fake';
-process.env.COMPANIES_HOUSE_API_KEY = 'ch-key';
 process.env.SMTP_FROM = 'David Hanmer <david@redcherryit.com>';
 process.env.PUBLIC_URL = 'https://studio.example';
 process.env.OUTREACH_DELAY_SECONDS = '0';
@@ -27,15 +26,6 @@ const fake = http.createServer((req, res) => {
       return sendStream(res, { id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'end_turn', stop_sequence: null,
         content: [{ type: 'text', text: JSON.stringify({ subject: 'A free website concept for you', body: 'Hello,\n\nYour reviews are great.\n\nDavid Hanmer\nRed Cherry IT' }) }],
         usage: { input_tokens: 2000, output_tokens: 200 } });
-    }
-    if (req.url?.startsWith('/search/companies')) {
-      assert.equal(req.headers.authorization, `Basic ${Buffer.from('ch-key:').toString('base64')}`);
-      const q = new URL(req.url, 'http://x').searchParams.get('q')!;
-      res.setHeader('content-type', 'application/json');
-      const items = q.includes('Bloggs') ? [{ title: 'BLOGGS HOLDINGS LIMITED', company_number: '1', company_status: 'active', company_type: 'ltd' }]
-        : [{ title: 'OLD NAME LTD', company_number: '9', company_status: 'dissolved', company_type: 'ltd' },
-           { title: `${q.toUpperCase()} LTD`, company_number: '01234567', company_status: 'active', company_type: 'ltd' }];
-      return res.end(JSON.stringify({ items }));
     }
     res.statusCode = 404;
     res.end();
@@ -67,7 +57,7 @@ const headers = { 'x-api-key': 'test-key' };
 before(async () => {
   await new Promise<void>(ok => fake.listen(0, '127.0.0.1', () => ok()));
   await new Promise<void>(ok => smtp.listen(0, '127.0.0.1', () => ok()));
-  process.env.ANTHROPIC_BASE_URL = process.env.COMPANIES_HOUSE_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
+  process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
   process.env.SMTP_HOST = '127.0.0.1';
   process.env.SMTP_PORT = String((smtp.address() as any).port);
   app = (await import('../src/server.ts')).buildApp();
@@ -100,20 +90,13 @@ test('the mail settings can be tested before any lead is drafted', async () => {
   assert.match(mail.pop()!, /Subject: \[Test\] Your studio can send email/);
 });
 
-test('only limited companies get a draft, and asking twice gives the same one', async () => {
+test('a lead with an email address gets a draft, and asking twice gives the same one', async () => {
   const smith = addLead('Smith Plumbing', 'Office@Smith.example');
   const first = (await draft(smith)).json().result;
   assert.equal(first.status, 'pending_approval');
   assert.equal(first.to_email, 'office@smith.example');
   assert.equal((await draft(smith)).json().result.id, first.id);
   assert.equal(claudeCalls, 1);
-  assert.match(db.prepare('SELECT company_check FROM leads WHERE id = ?').get(smith).company_check, /"number":"01234567"/);
-
-  const bloggs = addLead('Joe Bloggs Roofing', 'joe@bloggs.example');
-  const refused = await draft(bloggs);
-  assert.equal(refused.statusCode, 409);
-  assert.match(refused.json().error, /sole trader/);
-  assert.equal(claudeCalls, 1, 'no Claude call for a lead that cannot be emailed');
 });
 
 test('an approved email goes out once with an unsubscribe link, and the lead is marked contacted', async () => {

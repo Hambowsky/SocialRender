@@ -58,9 +58,6 @@ export const IMAP_HOST = env.IMAP_HOST ?? '';
 export const IMAP_PORT = Number(env.IMAP_PORT || 993);
 export const IMAP_USER = env.IMAP_USER || SMTP_USER;
 export const IMAP_PASS = env.IMAP_PASS || SMTP_PASS;
-// Companies House tells a limited company (fine to email) from a likely sole trader or partnership (PECR needs their consent).
-export const COMPANIES_HOUSE_API_KEY = env.COMPANIES_HOUSE_API_KEY ?? '';
-export const COMPANIES_HOUSE_URL = env.COMPANIES_HOUSE_URL || 'https://api.company-information.service.gov.uk';
 
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
