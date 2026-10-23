@@ -17,7 +17,7 @@ import * as articles from './articles.ts';
 import * as leads from './leads.ts';
 import { analyseCampaign, analyseLead } from './analyse.ts';
 import * as outreach from './outreach.ts';
-import { inboxState, startInbox } from './inbox.ts';
+import { inboxState, startInbox, testInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
 
 type Fields = Record<string, string>;
@@ -322,6 +322,7 @@ export function buildApp() {
   for (const act of ['approve', 'reject', 'test'] as const)
     app.post<{ Params: { id: number } }>(`/emails/:id/${act}`, { schema: { params: id } }, async req => outreach[act](req.params.id));
   app.post<{ Params: { id: number } }>('/emails/:id/mark-sent', { schema: { params: id } }, async req => outreach.markSent(req.params.id));
+  app.post('/emails/check', async () => ({ sent_to: await outreach.testSettings(), inbox: await testInbox() }));
   app.get('/suppression', async () => outreach.suppressionList());
   app.post<{ Body: { emails: string[] } }>('/suppression', { schema: { body: { type: 'object', required: ['emails'], additionalProperties: false,
     properties: { emails: { type: 'array', maxItems: 20000, items: { type: 'string', maxLength: 200 } } } } } }, async req => outreach.suppress(req.body.emails, 'added by hand'));

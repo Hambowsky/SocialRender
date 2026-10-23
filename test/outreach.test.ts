@@ -93,6 +93,13 @@ async function settle(id: number) {
   return email(id);
 }
 
+test('the mail settings can be tested before any lead is drafted', async () => {
+  const r = await app.inject({ method: 'POST', url: '/emails/check', headers });
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(r.json(), { sent_to: 'david@redcherryit.com', inbox: 'not set up (IMAP_HOST is blank)' });
+  assert.match(mail.pop()!, /Subject: \[Test\] Your studio can send email/);
+});
+
 test('only limited companies get a draft, and asking twice gives the same one', async () => {
   const smith = addLead('Smith Plumbing', 'Office@Smith.example');
   const first = (await draft(smith)).json().result;

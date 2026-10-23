@@ -54,6 +54,22 @@ export function handleMessage(raw: string): 'reply' | 'bounce' | 'ignored' {
   return 'reply';
 }
 
+// Logs in and opens the inbox, to prove the settings, without reading anything.
+export async function testInbox() {
+  if (!IMAP_HOST) return 'not set up (IMAP_HOST is blank)';
+  const client = new ImapFlow({ host: IMAP_HOST, port: IMAP_PORT, secure: IMAP_PORT === 993, auth: { user: IMAP_USER, pass: IMAP_PASS }, logger: false });
+  client.on('error', () => {});
+  try {
+    await client.connect();
+    await client.mailboxOpen('INBOX', { readOnly: true });
+    await client.logout();
+    return 'connected';
+  } catch (err) {
+    client.close();
+    return `failed: ${(err as Error).message}`;
+  }
+}
+
 // New messages since the last check. The first check goes back to the day of the oldest email sent.
 let checking = false;
 export async function checkInbox() {
