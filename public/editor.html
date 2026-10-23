@@ -640,7 +640,7 @@
     if (c.status === 'running' && p) return `${esc(p.stage)}. ${p.added} added so far, ${p.found} found, ${p.checked} website${p.checked === 1 ? '' : 's'} checked.`;
     if (!p) return 'Not run yet.';
     const counts = `${p.added} added, ${p.duplicates} already known, ${p.not_matching} did not fit. ${p.found} business${p.found === 1 ? '' : 'es'} found, ${p.checked} website${p.checked === 1 ? '' : 's'} checked.`;
-    const cost = p.google_searches === undefined ? '' : `<br><span class="muted">Cost: ${money(p.google_cost_gbp)} for ${plural(p.google_searches, 'Google search', 'Google searches')}${p.firecrawl_searches ? `, plus ${plural(p.firecrawl_credits, 'Firecrawl credit')}` : ''}. Repeat searches the same day are free.</span>`;
+    const cost = p.google_searches === undefined ? '' : `<br><span class="muted">Cost: ${money(p.google_cost_gbp)} for ${plural(p.google_searches, 'Google search', 'Google searches')}${p.firecrawl_credits ? `, plus ${plural(p.firecrawl_credits, 'Firecrawl credit')}` : ''}. Repeat searches the same day are free.</span>`;
     return (p.error ? `<span class="bad">${esc(p.error)}</span> ${p.found !== undefined ? counts : ''}` : counts) + cost;
   }
   function analysisLine(c) {
