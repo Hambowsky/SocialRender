@@ -45,6 +45,18 @@ export const FIRECRAWL_API_URL = env.FIRECRAWL_API_URL || 'https://api.firecrawl
 export const PAGESPEED_URL = env.PAGESPEED_URL || 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
 export const RDAP_URL = env.RDAP_URL || 'https://rdap.org';
 
+// Outreach. Emails send from David's own mailbox over SMTP, after approval, within a daily cap and with a pause between sends.
+export const SMTP_HOST = env.SMTP_HOST ?? '';
+export const SMTP_PORT = Number(env.SMTP_PORT || 465);
+export const SMTP_USER = env.SMTP_USER ?? '';
+export const SMTP_PASS = env.SMTP_PASS ?? '';
+export const SMTP_FROM = env.SMTP_FROM ?? ''; // e.g. David Hanmer <david@redcherryit.com>
+export const OUTREACH_DAILY_CAP = Number(env.OUTREACH_DAILY_CAP || 40);
+export const OUTREACH_DELAY_SECONDS = Number(env.OUTREACH_DELAY_SECONDS ?? 20);
+// Companies House tells a limited company (fine to email) from a likely sole trader or partnership (PECR needs their consent).
+export const COMPANIES_HOUSE_API_KEY = env.COMPANIES_HOUSE_API_KEY ?? '';
+export const COMPANIES_HOUSE_URL = env.COMPANIES_HOUSE_URL || 'https://api.company-information.service.gov.uk';
+
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
 
