@@ -106,13 +106,29 @@ export async function sitePage(category: string, slug: string) {
   return fs.existsSync(local) ? fs.readFileSync(local, 'utf8') : undefined;
 }
 
-// A page that is already live keeps its own Related Reading cards and banner heading when published again.
-const RELATED = /<div class="related-grid[\s\S]*?\n {6}<\/div>/;
+// The guides listed on a category's index page, for picking Related Reading.
+// ponytail: five minute cache per category, since the preview asks on every look; publishing adds its own card anyway.
+const cardCache = new Map<string, { at: number; cards: { category: string; slug: string; title: string; summary: string }[] }>();
+export async function guideCards(category: string) {
+  const hit = cardCache.get(category);
+  if (hit && Date.now() - hit.at < 300_000) return hit.cards;
+  const file = `${category.replace(/^\/|\/$/g, '')}/index.html`;
+  const html = SITE_REPO ? await readRepoFile(file, SITE_BRANCH) : fs.existsSync(path.join(PUBLISH_DIR, file)) ? fs.readFileSync(path.join(PUBLISH_DIR, file), 'utf8') : undefined;
+  const cards = [...(html ?? '').matchAll(/<a class="guide-card" href="([^"]+)">[\s\S]*?<h3>([\s\S]*?)<\/h3>\s*(?:<p>([\s\S]*?)<\/p>)?/g)]
+    .map(m => ({ category, slug: m[1], title: m[2].trim(), summary: (m[3] ?? '').trim() }));
+  cardCache.set(category, { at: Date.now(), cards });
+  return cards;
+}
+
+// A page that is already live keeps its own Related Reading cards and banner heading when published again,
+// unless they are still the three general cards every new page started with.
+export const RELATED = /<div class="related-grid[\s\S]*?\n {6}<\/div>/;
+const GENERIC = /href="\.\.\/\.\.\/case-studies"[\s\S]*href="\.\.\/\.\.\/industries"[\s\S]*href="\.\.\/\.\.\/pricing"/;
 const CTA_HEADING = /(<div class="cta-banner[^"]*">\s*<h2>)[\s\S]*?(<\/h2>)/;
 export function keepExtras(html: string, old: string | undefined) {
   if (!old) return html;
   const related = old.match(RELATED)?.[0], heading = old.match(CTA_HEADING);
-  if (related) html = html.replace(RELATED, () => related);
+  if (related && !GENERIC.test(related)) html = html.replace(RELATED, () => related);
   if (heading) html = html.replace(CTA_HEADING, (_, a, b) => a + old.match(CTA_HEADING)![0].slice(heading[1].length, -heading[2].length) + b);
   return html;
 }
