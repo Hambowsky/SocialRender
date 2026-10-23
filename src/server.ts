@@ -21,6 +21,7 @@ import * as dashboard from './dashboard.ts';
 import * as outreach from './outreach.ts';
 import { inboxState, startInbox, testInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
+import { registerMcp } from './mcp.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -375,6 +376,7 @@ export function buildApp() {
     recent: db.prepare('SELECT job, model, input_tokens, output_tokens, cost_usd, created_at FROM claude_usage ORDER BY id DESC LIMIT 20').all(),
   }));
 
+  registerMcp(app);
   return app;
 }
 
