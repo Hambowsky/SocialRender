@@ -199,6 +199,7 @@
       <a href="#prompts" data-view="prompts" data-section="marketing">Prompts</a>
       <a href="#campaigns" data-view="campaigns" data-section="sales">Campaigns</a>
       <a href="#leads" data-view="leads" data-section="sales">Leads</a>
+      <a href="#emails" data-view="emails" data-section="sales">Emails</a>
     </nav>
     <span class="pill" id="spend">Claude spend</span>
     <div class="keybox">
@@ -441,6 +442,22 @@
     </table></div>
   </div>
 </section>
+<section class="view" data-view="emails" hidden>
+  <div class="cols wide-left">
+    <div class="card">
+      <div class="card-head"><h2>Emails</h2><button type="button" class="plain small" id="eReload">Refresh</button></div>
+      <span class="muted" id="eToday"></span>
+      <div id="eList" class="queue"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Do not email</h2><span class="muted" id="sCount"></span></div>
+      <p class="muted">Addresses here are never emailed. Unsubscribes are added on their own. Paste the list from the old tool before sending anything.</p>
+      <label>Add addresses, one per line or separated by commas <textarea id="sAdd" rows="4"></textarea></label>
+      <div class="row"><button type="button" class="small" id="sSave">Add to the list</button><span id="sOut"></span></div>
+      <div id="sList" class="activity"></div>
+    </div>
+  </div>
+</section>
 <dialog id="leadDialog"><div class="card" id="leadDetail"></div></dialog>
 
 <section class="view" data-view="prompts" hidden>
@@ -524,6 +541,7 @@
     if (view === 'articles' && !loaded.articles) { loaded.articles = true; loadArticles(); }
     if (view === 'campaigns') loadCampaigns();
     if (view === 'leads') loadLeads();
+    if (view === 'emails') loadEmails();
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -705,6 +723,64 @@
     }
   });
 
+  // Emails: Claude's drafts wait here for approval, then send one at a time within the daily cap.
+  const EMAIL_STATUS = { pending_approval: ['Needs approval', 'pending'], approved: ['Waiting to send', 'draft'], sending: ['Sending', 'draft'], sent: ['Sent', 'sent'],
+    failed: ['Not sent', 'bad'], check_sent: ['Check if it went', 'bad'], rejected: ['Rejected', ''] };
+  async function loadEmails() {
+    try {
+      const r = await (await api('/emails')).json();
+      $('eToday').textContent = `${r.sent_today} of ${r.daily_cap} sent today. Approved emails go out one at a time; the rest wait for tomorrow.`;
+      $('eList').innerHTML = r.emails.map(m => {
+        const [label, cls] = EMAIL_STATUS[m.status];
+        const open = m.status === 'pending_approval';
+        return `<div class="camp" data-email="${m.id}" data-to="${esc(m.to_email)}">
+          <div class="row" style="justify-content:space-between"><h3>${esc(m.company_name ?? 'Lead deleted')}</h3><span class="badge ${cls}">${label}</span></div>
+          <span class="muted">To ${esc(m.to_email)}${m.sent_at && m.status === 'sent' ? ` · sent ${esc(m.sent_at.slice(0, 16))}` : ''}</span>
+          ${m.error ? `<span class="bad" style="font-size:13px">${esc(m.error)}${m.status === 'check_sent' ? '. Check with them or your mail provider whether it arrived.' : ''}</span>` : ''}
+          ${open ? `<label>Subject <input data-f="subject" value="${esc(m.subject)}" maxlength="200"></label>
+            <label>Email <textarea data-f="body" rows="9">${esc(m.body)}</textarea></label>
+            <span class="muted">An unsubscribe line is added at the bottom when it is sent.</span>`
+          : `<details><summary>${esc(m.subject)}</summary><p style="white-space:pre-wrap;font-size:14px">${esc(m.body)}</p></details>`}
+          <div class="row">
+            ${open ? `<button type="button" class="small" data-act="approve">Approve and send</button><button type="button" class="plain small" data-act="save">Save changes</button><button type="button" class="plain small" data-act="test">Send me a test</button>` : ''}
+            ${m.status === 'failed' ? '<button type="button" class="small" data-act="approve">Try again</button>' : ''}
+            ${m.status === 'check_sent' ? '<button type="button" class="plain small" data-act="mark-sent">It went</button>' : ''}
+            ${['pending_approval', 'approved', 'failed', 'check_sent'].includes(m.status) ? '<button type="button" class="plain small" data-act="reject">Reject</button>' : ''}
+            <span data-out></span>
+          </div></div>`;
+      }).join('') || '<p class="muted">No emails yet. Open a lead with an email address and choose Draft an email.</p>';
+      const list = await (await api('/suppression')).json();
+      $('sCount').textContent = plural(list.length, 'address', 'addresses');
+      $('sList').innerHTML = list.slice(0, 200).map(x => `<div>${esc(x.email)} <span class="muted">${esc(x.reason)}, ${esc(x.created_at.slice(0, 10))}</span></div>`).join('');
+    } catch (e) { $('eList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
+  }
+  $('eReload').addEventListener('click', loadEmails);
+  $('eList').addEventListener('click', async e => {
+    const act = e.target.dataset.act, box = e.target.closest('[data-email]');
+    if (!act) return;
+    const id = box.dataset.email, out = box.querySelector('[data-out]');
+    const edits = () => Object.fromEntries([...box.querySelectorAll('[data-f]')].map(f => [f.dataset.f, f.value]));
+    if (act === 'approve' && !confirm(`Send this to ${box.dataset.to}? It cannot be unsent.`)) return;
+    e.target.disabled = true;
+    try {
+      if (box.querySelector('[data-f]') && act !== 'reject') await api(`/emails/${id}`, { method: 'PUT', body: JSON.stringify(edits()) });
+      if (act === 'save') { out.textContent = 'Saved'; e.target.disabled = false; return; }
+      const r = await (await api(`/emails/${id}/${act}`, { method: 'POST' })).json();
+      if (act === 'test') { out.textContent = `Test sent to ${r.sent_to}`; e.target.disabled = false; return; }
+      loadEmails();
+    } catch (err) { out.textContent = err.message; e.target.disabled = false; }
+  });
+  $('sSave').addEventListener('click', async () => {
+    const emails = $('sAdd').value.split(/[\s,;]+/).filter(Boolean);
+    if (!emails.length) return;
+    try {
+      const r = await (await api('/suppression', { method: 'POST', body: JSON.stringify({ emails }) })).json();
+      $('sOut').textContent = `${plural(r.added, 'address', 'addresses')} added`;
+      $('sAdd').value = '';
+      loadEmails();
+    } catch (err) { $('sOut').textContent = err.message; }
+  });
+
   let leadTimer;
   async function loadLeads() {
     if (!campList.length) await loadCampaigns();
@@ -754,6 +830,12 @@
         <div class="row"><button type="button" class="plain small" id="ldAnalyse" data-id="${l.id}">Analyse again</button><span class="muted">Checked ${esc(l.analysed_at.slice(0, 10).split('-').reverse().join('/'))}</span></div>
       </div>`;
   }
+  function emailHtml(l) {
+    const c = l.company_check && JSON.parse(l.company_check);
+    const ch = !c ? '' : c.registered ? `Companies House: ${esc(c.name)} (${esc(c.number)})` : 'Not a limited company at Companies House, so likely a sole trader or partnership. Call them instead of emailing.';
+    if (!l.email) return ch ? `<span class="muted">${ch}</span>` : '';
+    return `<div class="row"><button type="button" class="plain" id="ldEmailDraft" data-id="${l.id}" ${c && !c.registered ? 'disabled' : ''}>Draft an email</button><span class="muted" id="ldEmailOut">${ch}</span></div>`;
+  }
   async function loadShot(id) {
     if (!$('ldShot')) return;
     try { $('ldShot').src = URL.createObjectURL(await (await api(`/leads/${id}/screenshot.jpg`)).blob()); } catch { $('ldShot').hidden = true; }
@@ -770,6 +852,7 @@
       ${Object.keys(l.seo_issues).length ? `<div class="fields" style="gap:6px"><strong>SEO</strong><div class="facts">${issueChips(l.seo_issues)}</div></div>` : ''}
       ${Object.keys(l.social_links).length ? `<div class="facts">${Object.entries(l.social_links).map(([k, v]) => `<a class="badge" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)}</a>`).join('')}</div>` : ''}
       ${analysisHtml(l)}
+      ${emailHtml(l)}
       <div class="cols two">
         <label>Contact name <input id="ldContact" value="${esc(l.contact_name)}"></label>
         <label>Phone <input id="ldPhone" value="${esc(l.phone)}"></label>
@@ -789,6 +872,14 @@
     const id = e.target.dataset.id;
     try {
       if (e.target.id === 'ldCopy') { await navigator.clipboard.writeText($('ldPitch').textContent); e.target.textContent = 'Copied'; return; }
+      if (e.target.id === 'ldEmailDraft') {
+        e.target.disabled = true;
+        $('ldEmailOut').textContent = 'Checking Companies House, then Claude writes it...';
+        try { await apiJob(`/leads/${id}/email`, {}); } catch (err) { await openLead(id); $('ldEmailOut').textContent = err.message; return; }
+        $('leadDialog').close();
+        location.hash = '#emails';
+        return;
+      }
       if (e.target.id === 'ldAnalyse') {
         e.target.disabled = true;
         e.target.textContent = 'Analysing, this takes up to a minute...';

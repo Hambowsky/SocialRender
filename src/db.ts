@@ -143,9 +143,32 @@ const migrations = [
   `ALTER TABLE leads ADD COLUMN analysis TEXT NOT NULL DEFAULT '{}'; -- PageSpeed, domain age, Business Profile, Claude's notes and pitch
    ALTER TABLE leads ADD COLUMN priority TEXT;                         -- hot, warm or cold, from Claude
    ALTER TABLE leads ADD COLUMN analysed_at TEXT;`,
+
+  `CREATE TABLE emails (                -- outreach: drafted by Claude, approved by David, sent at most once
+     id INTEGER PRIMARY KEY,
+     lead_id INTEGER REFERENCES leads (id) ON DELETE SET NULL,
+     to_email TEXT NOT NULL,
+     subject TEXT NOT NULL,
+     body TEXT NOT NULL,
+     status TEXT NOT NULL DEFAULT 'pending_approval', -- pending_approval, approved, sending, sent, failed, check_sent, rejected
+     error TEXT,
+     message_id TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     approved_at TEXT,
+     sent_at TEXT
+   );
+   CREATE UNIQUE INDEX emails_one_open ON emails (lead_id) WHERE status IN ('pending_approval', 'approved', 'sending');
+   CREATE TABLE suppression (           -- never email these: unsubscribed, bounced or added by hand
+     email TEXT PRIMARY KEY,
+     reason TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   -- JSON from Companies House: {registered, name, number} or {registered: false}
+   ALTER TABLE leads ADD COLUMN company_check TEXT`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
 for (let v = user_version; v < migrations.length; v++) {
-  db.exec(`BEGIN; ${migrations[v]}; PRAGMA user_version = ${v + 1}; COMMIT;`);
+  // On its own line, so a comment at the end of a migration cannot swallow the version bump and the commit.
+  db.exec(`BEGIN;\n${migrations[v]};\nPRAGMA user_version = ${v + 1};\nCOMMIT;`);
 }

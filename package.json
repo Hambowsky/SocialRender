@@ -7,16 +7,18 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning src/server.ts",
-    "test": "node --disable-warning=ExperimentalWarning --test test/render.test.ts test/copy.test.ts test/buffer.test.ts test/articles.test.ts test/leads.test.ts",
+    "test": "node --disable-warning=ExperimentalWarning --test test/render.test.ts test/copy.test.ts test/buffer.test.ts test/articles.test.ts test/leads.test.ts test/outreach.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "fastify": "^5.6.0",
+    "nodemailer": "^10.2.1",
     "playwright": "1.56.1"
   },
   "devDependencies": {
     "@types/node": "^22.18.0",
+    "@types/nodemailer": "^8.0.2",
     "typescript": "^5.9.0"
   }
 }

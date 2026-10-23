@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyReply } from 'fastify';
-import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
+import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, OUTREACH_DAILY_CAP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
 import { closeBrowser, publicFile, render, renderPath, renderVideo } from './render.ts';
 import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, sizesOf, versions } from './templates.ts';
@@ -16,6 +16,8 @@ import * as posts from './posts.ts';
 import * as articles from './articles.ts';
 import * as leads from './leads.ts';
 import { analyseCampaign, analyseLead } from './analyse.ts';
+import * as outreach from './outreach.ts';
+import { esc } from './markdown.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -45,9 +47,9 @@ export function buildApp() {
   // Everything else needs the key.
   app.addHook('onRequest', async (req, reply) => {
     const p = req.url.split('?')[0];
-    if (p === '/health' || p === '/' || publicFile(p) || p.startsWith('/public/renders/')) return;
+    if (p === '/health' || p === '/' || p === '/unsubscribe' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') ? 'claude' : 'other';
+    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') || p.endsWith('/email') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -309,6 +311,40 @@ export function buildApp() {
   app.post<{ Params: { id: number }; Body: { text: string } }>('/leads/:id/notes', { schema: { params: id, body: { type: 'object', required: ['text'],
     additionalProperties: false, properties: { text: { type: 'string', minLength: 1, maxLength: 5000 } } } } }, async req => leads.addNote(req.params.id, req.body.text));
 
+  // Outreach
+  app.post<{ Params: { id: number } }>('/leads/:id/email', { schema: { params: id } }, async (req, reply) => background(reply, () => outreach.draft(req.params.id)));
+  app.post<{ Params: { id: number } }>('/leads/:id/company-check', { schema: { params: id } }, async req => outreach.companyCheck(req.params.id));
+  app.get('/emails', async () => ({ emails: outreach.list(), sent_today: outreach.sentToday(), daily_cap: OUTREACH_DAILY_CAP }));
+  app.put<{ Params: { id: number }; Body: { subject?: string; body?: string } }>('/emails/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false,
+    properties: { subject: { type: 'string', minLength: 1, maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 10000 } } } } },
+  async req => outreach.edit(req.params.id, req.body));
+  for (const act of ['approve', 'reject', 'test'] as const)
+    app.post<{ Params: { id: number } }>(`/emails/:id/${act}`, { schema: { params: id } }, async req => outreach[act](req.params.id));
+  app.post<{ Params: { id: number } }>('/emails/:id/mark-sent', { schema: { params: id } }, async req => outreach.markSent(req.params.id));
+  app.get('/suppression', async () => outreach.suppressionList());
+  app.post<{ Body: { emails: string[] } }>('/suppression', { schema: { body: { type: 'object', required: ['emails'], additionalProperties: false,
+    properties: { emails: { type: 'array', maxItems: 20000, items: { type: 'string', maxLength: 200 } } } } } }, async req => outreach.suppress(req.body.emails, 'added by hand'));
+  app.delete<{ Querystring: { email: string } }>('/suppression', { schema: { querystring: { type: 'object', required: ['email'], properties: { email: { type: 'string', maxLength: 200 } } } } },
+    async req => outreach.unsuppress(req.query.email));
+
+  // The unsubscribe link in every email. Opening it only asks; the button (or a mail app's one click unsubscribe) does it,
+  // so a link scanner that opens every link cannot unsubscribe anyone.
+  app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => done(null, body));
+  const page = (reply: FastifyReply, text: string, form = '') => reply.type('text/html; charset=utf-8').send(`<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>Red Cherry IT</title>
+<body style="font:17px/1.5 system-ui,sans-serif;color:#1a1a1a;max-width:480px;margin:15vh auto;padding:0 20px">
+<p style="color:#b5333f;font-weight:800">Red Cherry IT</p><p>${text}</p>${form}</body>`);
+  const unsub = { querystring: { type: 'object', required: ['e', 't'], properties: { e: { type: 'string', maxLength: 200 }, t: { type: 'string', maxLength: 64 } } } };
+  const bad = 'That link is not complete. Reply to the email with "unsubscribe" and we will take you off our list.';
+  app.get<{ Querystring: { e: string; t: string } }>('/unsubscribe', { schema: unsub }, async (req, reply) => !outreach.validLink(req.query.e, req.query.t) ? page(reply.code(400), bad) : page(reply,
+    `Stop emails from Red Cherry IT to ${esc(req.query.e)}?`,
+    `<form method="post"><button style="font:inherit;padding:10px 18px;border:0;border-radius:8px;background:#b5333f;color:#fff;cursor:pointer">Unsubscribe</button></form>`));
+  app.post<{ Querystring: { e: string; t: string } }>('/unsubscribe', { schema: unsub }, async (req, reply) => {
+    if (!outreach.validLink(req.query.e, req.query.t)) return page(reply.code(400), bad);
+    outreach.unsubscribe(req.query.e, req.query.t);
+    return page(reply, `Done. ${esc(req.query.e)} will not get any more emails from us.`);
+  });
+
   app.get('/usage', async () => ({
     month_spend_gbp: monthSpendGbp(),
     cap_gbp: CLAUDE_MONTHLY_CAP_GBP,
@@ -326,6 +362,7 @@ export async function start() {
   seed();
   prompts.seed();
   startCleanup();
+  outreach.startOutreach();
   const app = buildApp();
   const stop = async () => { await app.close(); await closeBrowser(); process.exit(0); };
   process.on('SIGTERM', stop);
