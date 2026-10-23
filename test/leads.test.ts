@@ -87,6 +87,9 @@ async function runToEnd(id: number) {
 
 test('the HTML checks find old, insecure and unfriendly sites and their contact details', async () => {
   const { analyse, findEmail } = await import('../src/sitecheck.ts');
+  const { isPrivate } = await import('../src/page.ts');
+  for (const ip of ['185.151.30.181', '8.8.8.8', '2a07:7800::181', '::ffff:808:808']) assert.equal(isPrivate(ip), false, `${ip} is public`);
+  for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.0.1', '169.254.169.254', '::1', 'fd00::1', '::ffff:127.0.0.1', '::ffff:10.0.0.1', '::ffff:7f00:1']) assert.equal(isPrivate(ip), true, `${ip} is private`);
   // A live site this server cannot reach is read through Firecrawl instead, once a day, and counted as a credit.
   const { checkSite } = await import('../src/sitecheck.ts');
   const away = await checkSite('turns-servers-away.invalid');

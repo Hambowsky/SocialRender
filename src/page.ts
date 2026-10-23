@@ -7,7 +7,15 @@ import { fail } from './config.ts';
 const blocked = new net.BlockList();
 for (const [a, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.168.0.0', 16]] as const)
   blocked.addSubnet(a, bits, 'ipv4');
-for (const [a, bits] of [['::', 127], ['fc00::', 7], ['fe80::', 10], ['::ffff:0:0', 96]] as const) blocked.addSubnet(a, bits, 'ipv6');
+// No ::ffff:0:0/96 rule here: Node checks every IPv4 address against IPv6 rules in that mapped form, so it would block them all.
+// Mapped addresses are unwrapped and checked as IPv4 instead.
+for (const [a, bits] of [['::', 127], ['fc00::', 7], ['fe80::', 10]] as const) blocked.addSubnet(a, bits, 'ipv6');
+export const isPrivate = (ip: string) => {
+  const hex = ip.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i); // how URLs write [::ffff:127.0.0.1]
+  const v4 = hex ? [parseInt(hex[1], 16) >> 8, parseInt(hex[1], 16) & 255, parseInt(hex[2], 16) >> 8, parseInt(hex[2], 16) & 255].join('.')
+    : ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)?.[1];
+  return v4 ? blocked.check(v4, 'ipv4') : blocked.check(ip, net.isIP(ip) === 6 ? 'ipv6' : 'ipv4');
+};
 
 // ponytail: checks the address before fetching, so a DNS answer that changes in between could slip past. Pin the IP with a custom agent if that ever matters.
 export async function checkUrl(raw: string) {
@@ -16,7 +24,7 @@ export async function checkUrl(raw: string) {
   if (u.protocol !== 'https:' && u.protocol !== 'http:') fail(400, 'The link must start with http or https');
   const host = u.hostname.replace(/^\[|\]$/g, '');
   const addrs = net.isIP(host) ? [{ address: host, family: net.isIP(host) }] : await dns.lookup(host, { all: true }).catch(() => fail(400, `Could not find ${host}`));
-  if (addrs.some(a => blocked.check(a.address, a.family === 6 ? 'ipv6' : 'ipv4'))) fail(400, 'That link points to a private address');
+  if (addrs.some(a => isPrivate(a.address))) fail(400, 'That link points to a private address');
   return u;
 }
 
