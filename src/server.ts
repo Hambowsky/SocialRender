@@ -16,6 +16,7 @@ import * as posts from './posts.ts';
 import * as articles from './articles.ts';
 import * as leads from './leads.ts';
 import { analyseCampaign, analyseLead } from './analyse.ts';
+import { reportPdf } from './report.ts';
 import * as outreach from './outreach.ts';
 import { inboxState, startInbox, testInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
@@ -299,10 +300,18 @@ export function buildApp() {
   app.post<{ Params: { id: number } }>('/campaigns/:id/run', { schema: { params: id } }, async (req, reply) => reply.code(202).send(leads.run(req.params.id)));
 
   const yesNo = { enum: ['yes', 'no'] };
-  app.get<{ Querystring: Omit<leads.LeadFilter, 'search'> & { q?: string } }>('/leads', { schema: { querystring: { type: 'object', properties: {
+  const leadQuery = { schema: { querystring: { type: 'object', properties: {
     campaign: { type: 'integer' }, status: { enum: [...leads.STATUSES, 'active', 'contacted_plus'] }, priority: { enum: ['hot', 'warm', 'cold'] },
-    q: { type: 'string', maxLength: 100 }, has_website: yesNo, has_email: yesNo, has_phone: yesNo, sort: { enum: leads.LEAD_SORTS } } } } },
+    q: { type: 'string', maxLength: 100 }, has_website: yesNo, has_email: yesNo, has_phone: yesNo, sort: { enum: leads.LEAD_SORTS } } } } };
+  app.get<{ Querystring: Omit<leads.LeadFilter, 'search'> & { q?: string } }>('/leads', leadQuery,
   async req => leads.leads({ ...req.query, search: req.query.q }));
+  app.get<{ Querystring: Omit<leads.LeadFilter, 'search'> & { q?: string } }>('/leads.csv', leadQuery,
+  async (req, reply) => reply.type('text/csv; charset=utf-8').header('content-disposition', `attachment; filename="leads-${new Date().toISOString().slice(0, 10)}.csv"`)
+    .send(leads.leadsCsv({ ...req.query, search: req.query.q })));
+  app.get<{ Params: { id: number } }>('/leads/:id/report.pdf', { schema: { params: id } }, async (req, reply) => {
+    const name = String((leads.lead(req.params.id) as any).company_name).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+    return reply.type('application/pdf').header('content-disposition', `attachment; filename="website-report-${name}.pdf"`).send(await reportPdf(req.params.id));
+  });
   app.get<{ Params: { id: number } }>('/leads/:id', { schema: { params: id } }, async req => leads.lead(req.params.id));
   const str = (max: number) => ({ type: 'string', maxLength: max });
   app.put<{ Params: { id: number }; Body: leads.LeadChange }>('/leads/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false, properties: {

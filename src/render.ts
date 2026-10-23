@@ -176,6 +176,9 @@ export const screenshotSite = (url: string, file: string) => enqueue(async () =>
   }
 });
 
+// A page of HTML as an A4 PDF, such as a lead's SEO report.
+export const pdf = (html: string) => enqueue(() => withPage(html, page => page.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true })));
+
 export const render = (template: string, fields: Record<string, string>, size?: string, html?: string) => enqueue(() => renderNow(template, fields, 'png', size, html));
 export const renderVideo = (template: string, fields: Record<string, string>, size?: string, html?: string) => enqueue(() => renderNow(template, fields, 'mp4', size, html));
 

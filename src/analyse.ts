@@ -11,7 +11,7 @@ import { BROWSER, isChallenge } from './page.ts';
 import { runPrompt } from './copy.ts';
 
 type Analysis = {
-  pagespeed?: { score: number; lcp: string };
+  pagespeed?: { score: number; lcp: string; scores?: Record<string, number> };
   domain?: { registered: string; years: number };
   gbp?: { rating: number | null; reviews: number | null; has_hours?: boolean; photos?: number; maps_url?: string };
   screenshot?: boolean;
@@ -30,13 +30,17 @@ async function getJson(url: string, init?: RequestInit, ms = 20_000) {
 
 // Google's mobile score, the one people see when they test their own site.
 async function pageSpeed(site: string) {
-  const q = new URLSearchParams({ url: site, strategy: 'mobile', category: 'performance' });
+  const q = new URLSearchParams({ url: site, strategy: 'mobile' });
+  for (const c of ['performance', 'accessibility', 'best-practices', 'seo']) q.append('category', c);
   // Without a key Google shares one small daily allowance between everyone, so in practice the key needs the PageSpeed Insights API on.
   if (GOOGLE_PLACES_API_KEY) q.set('key', GOOGLE_PLACES_API_KEY);
   const json = await getJson(`${PAGESPEED_URL}?${q}`, undefined, 90_000);
   const score = json.lighthouseResult?.categories?.performance?.score;
   if (typeof score !== 'number') fail(502, 'no score came back');
-  return { score: Math.round(score * 100), lcp: json.lighthouseResult.audits?.['largest-contentful-paint']?.displayValue ?? '' };
+  // All four of Google's scores, for the SEO report.
+  const scores = Object.fromEntries(Object.entries(json.lighthouseResult.categories as Record<string, { score: number | null }>)
+    .filter(([, c]) => typeof c.score === 'number').map(([k, c]) => [k, Math.round(c.score! * 100)]));
+  return { score: Math.round(score * 100), lcp: json.lighthouseResult.audits?.['largest-contentful-paint']?.displayValue ?? '', scores };
 }
 
 // When the domain was first registered, from the public registry (RDAP), so a long established business stands out.

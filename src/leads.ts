@@ -305,6 +305,24 @@ export function leads(q: LeadFilter) {
 }
 export const LEAD_SORTS = Object.keys(SORTS);
 
+// The same list as a spreadsheet. A cell that starts like a formula gets a ' so Excel shows it as text instead of running it.
+const CSV_COLUMNS: [string, string][] = [['company_name', 'Company'], ['contact_name', 'Contact'], ['phone', 'Phone'], ['email', 'Email'],
+  ['website_url', 'Website'], ['industry', 'Industry'], ['town', 'Town'], ['priority', 'Priority'], ['status', 'Status'],
+  ['lead_reason', 'Why it is a lead'], ['notes', 'Notes'], ['pitch', 'Pitch'], ['rating', 'Google rating'], ['reviews', 'Reviews'],
+  ['campaign', 'Campaign'], ['created_at', 'Found on']];
+export function leadsCsv(q: LeadFilter) {
+  const ids = (leads(q) as { id: number }[]).map(r => r.id);
+  const rows = ids.length ? db.prepare(`SELECT l.*, json_extract(l.analysis, '$.notes') AS notes, json_extract(l.analysis, '$.pitch') AS pitch, c.name AS campaign
+    FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id WHERE l.id IN (${ids.join(',')})`).all() as Record<string, unknown>[] : [];
+  const order = new Map(ids.map((id, i) => [id, i]));
+  rows.sort((a, b) => order.get(a.id as number)! - order.get(b.id as number)!);
+  const cell = (v: unknown) => {
+    const s = String(v ?? '').replace(/^([=+\-@\t\r])/, "'$1");
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  return '\uFEFF' + [CSV_COLUMNS.map(([, h]) => h), ...rows.map(r => CSV_COLUMNS.map(([k]) => r[k]))].map(r => r.map(cell).join(',')).join('\r\n') + '\r\n';
+}
+
 export function lead(id: number) {
   const l = db.prepare('SELECT l.*, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id WHERE l.id = ?').get(id) as Record<string, unknown> | undefined;
   if (!l) fail(404, 'No lead with that id');
