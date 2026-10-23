@@ -39,6 +39,36 @@ export async function draft(leadId: number) {
   return get((db.prepare(`SELECT id FROM emails WHERE lead_id = ? AND status IN ('pending_approval', 'approved', 'sending')`).get(leadId) as { id: number }).id);
 }
 
+// Drafts for every new lead in a campaign that has an email address and no draft yet, one at a time.
+// Stops at the first error that is not about the lead itself, such as the monthly Claude cap.
+let drafting = false;
+export async function draftCampaign(campaignId: number) {
+  if (drafting) fail(409, 'Drafts are already being written. Wait for them to finish.');
+  drafting = true;
+  try {
+    const todo = db.prepare(`SELECT l.id FROM leads l WHERE l.campaign_id = ? AND l.status = 'new' AND COALESCE(l.email, '') != ''
+      AND NOT EXISTS (SELECT 1 FROM emails e WHERE e.lead_id = l.id AND e.status IN ('pending_approval', 'approved', 'sending'))
+      AND NOT EXISTS (SELECT 1 FROM suppression s WHERE s.email = lower(trim(l.email)))
+      AND NOT EXISTS (SELECT 1 FROM emails e WHERE e.to_email = lower(trim(l.email)) AND e.status IN ('sent', 'check_sent')) ORDER BY l.id`).all(campaignId) as { id: number }[];
+    let drafted = 0, skipped = 0;
+    for (const t of todo) {
+      try { await draft(t.id); drafted++; } catch (err: any) {
+        if (![400, 409].includes(err.statusCode)) return { drafted, skipped, error: err.message };
+        skipped++;
+      }
+    }
+    return { drafted, skipped };
+  } finally { drafting = false; }
+}
+
+// Every draft waiting for approval, approved at once. They still go one at a time within the daily cap.
+export function approveAll() {
+  ready();
+  const { changes } = db.prepare(`UPDATE emails SET status = 'approved', approved_at = datetime('now'), error = NULL WHERE status = 'pending_approval'`).run();
+  void pump();
+  return { approved: Number(changes) };
+}
+
 // Past clients. Claude picks one in the lead's line of business, if there is one, to mention in the email.
 type CaseStudy = { client: string; industry: string; blurb: string };
 export const caseStudies = () => db.prepare('SELECT * FROM case_studies ORDER BY client').all();
