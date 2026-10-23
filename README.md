@@ -119,6 +119,21 @@ Each motion template also comes in portrait 1080 by 1350 and square 1080 by 1080
 
 The logo is `assets/logo.png`. Replace that file (same name) and every template picks it up. An SVG version would stay sharper if you have one.
 
+## Hermes (MCP)
+
+`POST /mcp` is an MCP server (Streamable HTTP, plain JSON replies) for Hermes or any MCP client. It needs the same `x-api-key` header. Its tools are thin wrappers over the routes above (see `src/mcp.ts`), so the same checks, caps and approval queues apply. None of them approves, publishes or sends anything.
+
+In Hermes, put the key in `~/.hermes/.env` as `SOCIALRENDER_API_KEY=...`, then add to `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  studio:
+    url: "https://<your studio address>/mcp"
+    headers:
+      x-api-key: "${SOCIALRENDER_API_KEY}"
+    timeout: 600
+```
+
 ## Deploy on Coolify
 1. Push this folder to a Git repository and add it in Coolify as a Docker Compose resource. It uses `docker-compose.yml`.
 2. Set `API_KEY` (a long random string) in the resource's environment variables. The other settings are optional.
