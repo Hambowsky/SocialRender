@@ -9,8 +9,9 @@ const n = (sql: string, ...args: (string | number)[]) => (db.prepare(sql).get(..
 const MONTH = `datetime('now', 'start of month')`;
 
 // Claude spend this month, split by area: lead jobs are Sales, everything else is Marketing.
-function spend(sales: boolean) {
-  const usd = n(`SELECT COALESCE(SUM(cost_usd), 0) AS n FROM claude_usage WHERE created_at >= ${MONTH} AND (job LIKE 'lead:%') = ?`, sales ? 1 : 0);
+// With no area, the whole month, rounded once so it matches the top bar.
+function spend(sales?: boolean) {
+  const usd = n(`SELECT COALESCE(SUM(cost_usd), 0) AS n FROM claude_usage WHERE created_at >= ${MONTH} AND (? IS NULL OR (job LIKE 'lead:%') = ?)`, ...Array(2).fill(sales === undefined ? null : +sales));
   return +(usd * GBP_PER_USD).toFixed(2);
 }
 
@@ -43,7 +44,7 @@ export function marketing() {
     articles_this_month: n(`SELECT COUNT(*) AS n FROM articles WHERE status = 'published' AND published_at >= ${MONTH}`),
     articles_published: n(`SELECT COUNT(*) AS n FROM articles WHERE status = 'published'`),
     images_this_month: n(`SELECT COUNT(*) AS n FROM renders WHERE created_at >= ${MONTH}`),
-    spend_gbp: spend(false), cap_gbp: CLAUDE_MONTHLY_CAP_GBP, all_spend_gbp: +(spend(false) + spend(true)).toFixed(2),
+    spend_gbp: spend(false), cap_gbp: CLAUDE_MONTHLY_CAP_GBP, all_spend_gbp: spend(),
     posts_by_week: series('posts', 'sent_at', `status = 'sent'`, 56, 'week'),
     upcoming: db.prepare(`SELECT channel_name, text, due_at FROM posts WHERE status = 'sent' AND due_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ORDER BY due_at LIMIT 5`).all(),
     recent_articles: db.prepare(`SELECT title, category, slug, published_at FROM articles WHERE status = 'published' ORDER BY published_at DESC LIMIT 5`).all(),
@@ -75,7 +76,7 @@ export function sales() {
       AND status NOT IN ('converted', 'not_interested', 'not_a_fit', 'archived') ORDER BY follow_up_date LIMIT 8`).all(),
     recent_replies: db.prepare(`SELECT a.lead_id AS id, l.company_name, a.created_at FROM lead_activity a JOIN leads l ON l.id = a.lead_id
       WHERE a.text LIKE 'Replied from %' ORDER BY a.id DESC LIMIT 5`).all(),
-    spend_gbp: spend(true), cap_gbp: CLAUDE_MONTHLY_CAP_GBP, all_spend_gbp: +(spend(false) + spend(true)).toFixed(2),
+    spend_gbp: spend(true), cap_gbp: CLAUDE_MONTHLY_CAP_GBP, all_spend_gbp: spend(),
     usage: usage(),
   };
 }
