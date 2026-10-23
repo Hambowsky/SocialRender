@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { fetchPage, isChallenge } from './page.ts';
 import { fail, FIRECRAWL_API_KEY, FIRECRAWL_API_URL } from './config.ts';
-import { cached } from './leads.ts';
+import { cached, firecrawlSearch } from './leads.ts';
 
 export type SiteCheck = {
   reachable: boolean;
@@ -43,7 +43,7 @@ async function firecrawl(body: object) {
     html: d!.rawHtml!.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').slice(0, 500_000), screenshot: d!.screenshot };
 }
 
-async function scrape(url: string): Promise<Page> {
+export async function scrape(url: string): Promise<Page> {
   const r = await cached('scrape', { url }, async () => { const { screenshot, ...rest } = await firecrawl({ url, formats: ['rawHtml'] }); return rest; });
   return { ok: r.status < 400, status: r.status, url: r.url ?? url, html: r.html, error: '', firecrawl: true };
 }
@@ -93,6 +93,27 @@ export function findEmail(raw: string) {
 }
 
 const SOCIAL: [string, RegExp][] = [['facebook', /(?:facebook\.com|fb\.com)/], ['instagram', /instagram\.com/], ['linkedin', /linkedin\.com/], ['twitter', /(?:twitter\.com|\/\/(?:www\.)?x\.com)/]];
+
+const NAME_STOP = new Set(['ltd', 'limited', 'the', 'and', 'company', 'services', 'group', 'llp', 'plc']);
+// A profile page, not a post, group, photo or search on the network.
+const PROFILE = /^https:\/\/(?:[a-z]+\.)?(?:facebook\.com\/(?:profile\.php\?id=\d+|(?!groups\/|events\/|photo|watch|share|people\/|hashtag)[^/?#]+)|instagram\.com\/(?!p\/|reel|explore|stories)[^/?#]+|linkedin\.com\/(?:company|in)\/[^/?#]+|(?:twitter|x)\.com\/(?!search|hashtag|i\/)[^/?#]+)\/?$/i;
+
+// Social profiles found by searching for the business by name, for leads whose website does not link them or that have none.
+// A result only counts when its title or summary has the business name in it (one word may be missing from a long name).
+export async function findSocial(company: string, town: string) {
+  const words = company.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(w => w.length > 2 && !NAME_STOP.has(w));
+  const data = await firecrawlSearch({ query: `"${company}" ${town} (site:facebook.com OR site:instagram.com OR site:linkedin.com OR site:x.com)`,
+    limit: 10, location: 'United Kingdom', country: 'GB' });
+  const social: Record<string, string> = {};
+  for (const r of data.data?.web ?? []) {
+    const url = /profile\.php\?id=\d+/.test(r.url) ? r.url.replace(/&.*/, '') : r.url.split(/[?#]/)[0];
+    const text = `${r.title ?? ''} ${r.description ?? ''}`.toLowerCase();
+    if (!words.length || !PROFILE.test(url) || words.filter(w => !text.includes(w)).length > (words.length > 2 ? 1 : 0)) continue;
+    const name = SOCIAL.find(([, re]) => re.test(url))?.[0];
+    if (name && !social[name]) social[name] = url;
+  }
+  return social;
+}
 
 function links(html: string, base: string) {
   const out: { href: string; text: string }[] = [];

@@ -162,19 +162,22 @@ export async function towns(q: string): Promise<{ name: string; area: string }[]
   });
 }
 
+type Hit = { title?: string; description?: string; url: string };
+export const firecrawlSearch = (req: object) => cached('firecrawl', req, async () => {
+  const res = await fetch(`${FIRECRAWL_API_URL}/v2/search`, { method: 'POST', signal: AbortSignal.timeout(30_000),
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${FIRECRAWL_API_KEY}` }, body: JSON.stringify(req) });
+  const json = await res.json().catch(() => ({})) as { data?: { web?: Hit[] }; error?: string };
+  if (!res.ok) fail(502, `Firecrawl said: ${json.error ?? res.status}`);
+  return json;
+});
+
 // Directory listings are businesses that advertise somewhere other than their own site: a strong no website signal.
 async function directories(industry: string, town: string, want: number): Promise<Found[]> {
   const limit = Math.min(20, Math.max(5, Math.ceil(want / DIRECTORIES.length)));
   const out: Found[] = [];
   for (const site of DIRECTORIES) {
     const req = { query: `${industry} ${town} site:${site}`, limit, location: 'United Kingdom', country: 'GB' };
-    const data = await cached('firecrawl', req, async () => {
-      const res = await fetch(`${FIRECRAWL_API_URL}/v2/search`, { method: 'POST', signal: AbortSignal.timeout(30_000),
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${FIRECRAWL_API_KEY}` }, body: JSON.stringify(req) });
-      const json = await res.json().catch(() => ({})) as { data?: { web?: { title?: string; description?: string; url: string }[] }; error?: string };
-      if (!res.ok) fail(502, `Firecrawl said: ${json.error ?? res.status}`);
-      return json;
-    });
+    const data = await firecrawlSearch(req);
     for (const r of data.data?.web ?? []) {
       const name = (r.title ?? '').replace(/\s*[-|–].*(yell|freeindex|scoot|checkatrade|rated ?people|my ?builder|facebook|linkedin).*/i, '').trim();
       if (!name) continue;
