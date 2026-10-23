@@ -48,3 +48,12 @@ test('MCP tools call the normal routes', async () => {
   assert.equal(bad.isError, true);
   assert.match(bad.content[0].text, /does not fit/);
 });
+
+test('Hermes can create and read a campaign', async () => {
+  const args = { name: 'Plumbers, Newcastle and Durham', industries: 'plumbers', towns: 'Newcastle upon Tyne, Durham', lead_type: 'both', max_leads: 50, sources: ['places', 'directories'] };
+  const made = (await rpc({ id: 1, method: 'tools/call', params: { name: 'create_campaign', arguments: args } })).json().result;
+  assert.equal(made.isError, false, made.content[0].text);
+  const id = JSON.parse(made.content[0].text).id;
+  const got = (await rpc({ id: 2, method: 'tools/call', params: { name: 'get_campaign', arguments: { id } } })).json().result;
+  assert.match(got.content[0].text, /Durham/);
+});
