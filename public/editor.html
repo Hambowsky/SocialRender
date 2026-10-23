@@ -425,7 +425,7 @@
 
 <section class="view" data-view="leads" hidden>
   <div class="card">
-    <div class="card-head"><h2>Leads</h2><span class="muted" id="lCount"></span></div>
+    <div class="card-head"><h2>Leads</h2><div class="row"><span class="muted" id="lCount"></span><button type="button" class="plain small" id="lCsv">Download CSV</button></div></div>
     <div class="row">
       <label>Campaign <select id="lCampaign"><option value="">All</option></select></label>
       <label>Status <select id="lStatus"><option value="active">Active</option><option value="contacted_plus">Contacted or later</option><option value="">All</option></select></label>
@@ -869,6 +869,14 @@
   });
 
   let leadTimer;
+  let leadQuery = new URLSearchParams();
+  // Downloads go through fetch so the API key travels in a header, never in a link.
+  async function download(path, name) {
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(await (await api(path)).blob()), download: name });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+  }
+  $('lCsv').addEventListener('click', () => download(`/leads.csv?${leadQuery}`, `leads-${new Date().toISOString().slice(0, 10)}.csv`).catch(err => alert(err.message)));
   async function loadLeads() {
     if (!campList.length) await loadCampaigns();
     const q = new URLSearchParams();
@@ -878,6 +886,7 @@
     if ($('lSearch').value.trim()) q.set('q', $('lSearch').value.trim());
     for (const [id, key] of [['lWebsite', 'has_website'], ['lEmail', 'has_email'], ['lPhone', 'has_phone']]) if ($(id).value) q.set(key, $(id).value);
     q.set('sort', $('lSort').value);
+    leadQuery = q;
     try {
       const rows = await (await api(`/leads?${q}`)).json();
       $('lCount').textContent = `${rows.length}${rows.length === 500 ? '+' : ''} lead${rows.length === 1 ? '' : 's'}`;
@@ -914,7 +923,7 @@
         <div class="facts">${facts.map(f => `<span class="badge">${f}</span>`).join('')}${g?.maps_url ? `<a class="badge" href="${esc(g.maps_url)}" target="_blank" rel="noopener">Google Maps</a>` : ''}</div>
         ${a.screenshot ? `<img class="shot" id="ldShot" alt="Their homepage">` : ''}
         ${a.errors?.length ? `<span class="muted">Could not get: ${esc(a.errors.join('; '))}</span>` : ''}
-        <div class="row"><button type="button" class="plain small" id="ldAnalyse" data-id="${l.id}">Analyse again</button><span class="muted">Checked ${esc(l.analysed_at.slice(0, 10).split('-').reverse().join('/'))}</span></div>
+        <div class="row"><button type="button" class="plain small" id="ldAnalyse" data-id="${l.id}">Analyse again</button>${l.website_url ? `<button type="button" class="plain small" id="ldReport" data-id="${l.id}">Website report (PDF)</button>` : ''}<span class="muted">Checked ${esc(l.analysed_at.slice(0, 10).split('-').reverse().join('/'))}</span></div>
       </div>`;
   }
   const emailHtml = l => l.email ? `<div class="row"><button type="button" class="plain" id="ldEmailDraft" data-id="${l.id}">Draft an email</button><span class="muted" id="ldEmailOut"></span></div>` : '';
@@ -960,6 +969,13 @@
         try { await apiJob(`/leads/${id}/email`, {}); } catch (err) { await openLead(id); $('ldEmailOut').textContent = err.message; return; }
         $('leadDialog').close();
         location.hash = '#emails';
+        return;
+      }
+      if (e.target.id === 'ldReport') {
+        e.target.disabled = true;
+        e.target.textContent = 'Making the report...';
+        const name = $('leadDetail').querySelector('h2').textContent.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
+        try { await download(`/leads/${id}/report.pdf`, `website-report-${name}.pdf`); } finally { e.target.disabled = false; e.target.textContent = 'Website report (PDF)'; }
         return;
       }
       if (e.target.id === 'ldAnalyse') {

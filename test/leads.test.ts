@@ -237,6 +237,25 @@ test('analysing a lead whose site was unreachable updates its website details on
   db.prepare('DELETE FROM leads WHERE id = ?').run(lastInsertRowid);
 });
 
+test('a lead with a website gets a PDF report of its checks, and the lead list downloads as a spreadsheet', async () => {
+  const { db } = await import('../src/db.ts');
+  const { reportHtml } = await import('../src/report.ts');
+  const { lastInsertRowid: id } = db.prepare(`INSERT INTO leads (dedup_key, company_name, website_url, source, has_website, lead_reason, website_issues, seo_issues, analysis, analysed_at)
+    VALUES ('report', '=Report Roofing', 'http://report.example', 'places', 1, 'Outdated website', '{"old_copyright_year":2019}', '{"images_missing_alt":3}',
+    '{"pagespeed":{"score":41,"lcp":"5.1 s","scores":{"performance":41,"seo":70}},"errors":[]}', datetime('now'))`).run();
+  const html = reportHtml(Number(id));
+  assert.match(html, /2 of 10 checks need attention/);
+  assert.match(html, /The footer still says 2019/);
+  assert.match(html, /3 images have none/);
+  const pdf = await app.inject({ method: 'GET', url: `/leads/${id}/report.pdf`, headers });
+  assert.equal(pdf.statusCode, 200);
+  assert.equal(pdf.rawPayload.subarray(0, 4).toString(), '%PDF');
+  const csv = await app.inject({ method: 'GET', url: '/leads.csv?q=Report', headers });
+  assert.match(csv.body, /^\uFEFFCompany,Contact/);
+  assert.match(csv.body, /\r\n'=Report Roofing,/, 'a formula is shown as text in Excel');
+  db.prepare('DELETE FROM leads WHERE id = ?').run(id);
+});
+
 test('a lead keeps its status changes and notes, and survives deleting its campaign once worked on', async () => {
   const [first, second] = (await app.inject({ method: 'GET', url: '/leads', headers })).json();
   let l = (await app.inject({ method: 'PUT', url: `/leads/${first.id}`, headers, payload: { status: 'contacted', follow_up_date: '2026-11-02' } })).json();
