@@ -205,3 +205,17 @@ test('the inbox check marks replies and hard bounces, and ignores out of office 
   assert.equal(db.prepare(`SELECT reason FROM suppression WHERE email = 'hi@jones.example'`).get().reason, 'bounced');
   assert.equal(handleMessage(msg('From: someone@else.example\nSubject: Hello')), 'ignored', 'mail that is not about outreach is left alone');
 });
+
+test('a whole campaign can be drafted at once, skipping leads already emailed, and every draft approved together', async () => {
+  const camp = Number(db.prepare(`INSERT INTO campaigns (name, lead_type, industries, towns, max_leads, sources) VALUES ('Leeds roofers', 'no_website', 'Roofers', 'Leeds', 50, 'places')`).run().lastInsertRowid);
+  const add = (name: string, email: string) => db.prepare(`UPDATE leads SET campaign_id = ? WHERE id = ?`).run(camp, addLead(name, email));
+  add('Roof One', 'one@roof.example'); add('Roof Two', 'two@roof.example'); add('Roof None', ''); add('Roof Smith', 'office@smith.example');
+  assert.equal((await app.inject({ method: 'GET', url: `/campaigns/${camp}`, headers })).json().to_draft, 3);
+  const { job } = (await app.inject({ method: 'POST', url: `/campaigns/${camp}/email`, headers })).json();
+  let r;
+  do { await new Promise(ok => setTimeout(ok, 20)); r = (await app.inject({ method: 'GET', url: `/jobs/${job}`, headers })).json(); } while (r.done === false);
+  assert.deepEqual(r.result, { drafted: 2, skipped: 0 }, 'the lead with no address and the address already emailed are left out');
+  const waiting = db.prepare(`SELECT COUNT(*) AS n FROM emails WHERE status = 'pending_approval'`).get().n;
+  assert.equal((await app.inject({ method: 'POST', url: '/emails/approve-all', headers })).json().approved, waiting);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM emails WHERE status = 'pending_approval'`).get().n, 0);
+});

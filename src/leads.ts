@@ -43,7 +43,10 @@ export const busy = () => running.size > 0 || analysing.size > 0;
 function view(c: Campaign) {
   const leads = (db.prepare('SELECT COUNT(*) AS n FROM leads WHERE campaign_id = ?').get(c.id) as { n: number }).n;
   const analysed = (db.prepare('SELECT COUNT(*) AS n FROM leads WHERE campaign_id = ? AND analysed_at IS NOT NULL').get(c.id) as { n: number }).n;
-  return { ...c, sources: c.sources.split(','), last_run_summary: c.last_run_summary ? JSON.parse(c.last_run_summary) : null, leads, analysed,
+  // New leads with an email address and no email yet: the ones "Draft emails" would write to.
+  const to_draft = (db.prepare(`SELECT COUNT(*) AS n FROM leads l WHERE campaign_id = ? AND status = 'new' AND COALESCE(email, '') != ''
+    AND NOT EXISTS (SELECT 1 FROM emails e WHERE e.lead_id = l.id)`).get(c.id) as { n: number }).n;
+  return { ...c, sources: c.sources.split(','), last_run_summary: c.last_run_summary ? JSON.parse(c.last_run_summary) : null, leads, analysed, to_draft,
     progress: running.get(c.id) ?? null, analysis_progress: analysing.get(c.id) ?? null };
 }
 const getRow = (id: number) => (db.prepare('SELECT * FROM campaigns WHERE id = ?').get(id) as Campaign | undefined) ?? fail(404, 'No campaign with that id');

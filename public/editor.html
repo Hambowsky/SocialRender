@@ -445,7 +445,7 @@
 <section class="view" data-view="emails" hidden>
   <div class="cols wide-left">
     <div class="card">
-      <div class="card-head"><h2>Emails</h2><div class="row"><button type="button" class="plain small" id="eCheck">Send me a test email</button><button type="button" class="plain small" id="eReload">Refresh</button></div></div>
+      <div class="card-head"><h2>Emails</h2><div class="row"><button type="button" class="small" id="eApproveAll" hidden>Approve all and send</button><button type="button" class="plain small" id="eCheck">Send me a test email</button><button type="button" class="plain small" id="eReload">Refresh</button></div></div>
       <span class="muted" id="eToday"></span>
       <span id="eCheckOut" style="font-size:13px"></span>
       <div id="eList" class="queue"></div>
@@ -699,6 +699,7 @@
             <button type="button" class="small" data-run="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>${c.status === 'draft' ? 'Run' : 'Run again'}</button>
             ${c.leads > c.analysed ? `<button type="button" class="plain small" data-analyse="${c.id}" ${c.analysis_progress || c.status === 'running' ? 'disabled' : ''}>Analyse leads</button>` : ''}
             ${c.analysed ? `<button type="button" class="plain small" data-analyse="${c.id}" data-all="1" ${c.analysis_progress || c.status === 'running' ? 'disabled' : ''}>Analyse all again</button>` : ''}
+            ${c.to_draft ? `<button type="button" class="plain small" data-draft="${c.id}">Draft emails (${c.to_draft})</button>` : ''}
             <a class="muted" href="#leads" data-leads="${c.id}">${c.leads} lead${c.leads === 1 ? '' : 's'}</a>
             <button type="button" class="plain small" data-edit="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Edit</button>
             <button type="button" class="plain small" data-del="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Delete</button>
@@ -713,7 +714,18 @@
   }
   $('cReload').addEventListener('click', loadCampaigns);
   $('cList').addEventListener('click', async e => {
-    const { run, edit, del, leads, analyse, all } = e.target.dataset;
+    const { run, edit, del, leads, analyse, all, draft } = e.target.dataset;
+    if (draft) {
+      const c = campList.find(x => x.id === Number(draft));
+      if (!confirm(`Draft emails for ${plural(c.to_draft, 'lead')} in ${c.name}? Claude writes each one, at a penny or two each within your monthly cap. Nothing is sent: they wait on Emails for you to approve.`)) return;
+      e.target.disabled = true;
+      e.target.textContent = 'Drafting...';
+      try {
+        const r = await apiJob(`/campaigns/${draft}/email`);
+        alert(`${plural(r.drafted, 'email')} drafted and waiting on Emails${r.skipped ? `, ${r.skipped} skipped (no longer suitable)` : ''}.${r.error ? ` Stopped early: ${r.error}` : ''}`);
+      } catch (err) { alert(err.message); }
+      return loadCampaigns();
+    }
     if (analyse) {
       const c = campList.find(x => x.id === Number(analyse));
       const n = all ? c.leads : c.leads - c.analysed; // archived leads are skipped, so this can be a few high
@@ -765,6 +777,9 @@
             <span data-out></span>
           </div></div>`;
       }).join('') || '<p class="muted">No emails yet. Open a lead with an email address and choose Draft an email.</p>';
+      const waiting = r.emails.filter(m => m.status === 'pending_approval').length;
+      $('eApproveAll').hidden = !waiting;
+      $('eApproveAll').textContent = `Approve all and send (${waiting})`;
       const list = await (await api('/suppression')).json();
       $('sCount').textContent = plural(list.length, 'address', 'addresses');
       loadCases();
@@ -772,6 +787,18 @@
     } catch (e) { $('eList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
   $('eReload').addEventListener('click', loadEmails);
+  $('eApproveAll').addEventListener('click', async e => {
+    const boxes = [...$('eList').querySelectorAll('[data-email]')].filter(b => b.querySelector('[data-f]'));
+    if (!confirm(`Approve and send all ${plural(boxes.length, 'draft')}? They go one at a time, up to the daily limit, and the rest go tomorrow. They cannot be unsent.`)) return;
+    e.target.disabled = true;
+    try {
+      // Keep any edits made on the page but not saved yet.
+      for (const b of boxes) await api(`/emails/${b.dataset.email}`, { method: 'PUT', body: JSON.stringify(Object.fromEntries([...b.querySelectorAll('[data-f]')].map(f => [f.dataset.f, f.value]))) });
+      await api('/emails/approve-all', { method: 'POST' });
+    } catch (err) { alert(err.message); }
+    e.target.disabled = false;
+    loadEmails();
+  });
   $('eCheck').addEventListener('click', async e => {
     e.target.disabled = true;
     $('eCheckOut').textContent = 'Sending...';
