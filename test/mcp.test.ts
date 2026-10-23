@@ -29,7 +29,7 @@ test('MCP handshake, tool list and a notification', async () => {
   assert.equal((await rpc({ method: 'notifications/initialized' })).statusCode, 202);
   const tools = (await rpc({ id: 2, method: 'tools/list' })).json().result.tools;
   assert.ok(tools.some((t: any) => t.name === 'render_image' && t.inputSchema.required.includes('fields')));
-  assert.ok(!tools.some((t: any) => /approve|publish|send/.test(t.name)), 'nothing that approves, publishes or sends');
+  for (const t of tools.filter((t: any) => /approve|publish/.test(t.name))) assert.match(t.description, /only do it when David has asked/, t.name);
   assert.equal((await rpc({ id: 3, method: 'nope' })).json().error.code, -32601);
 });
 

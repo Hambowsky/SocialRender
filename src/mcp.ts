@@ -1,6 +1,6 @@
 // An MCP endpoint so Hermes (or any MCP client) can use the studio. Each tool is one of the normal HTTP routes,
-// called from inside the app, so the same checks, caps and approval queues apply. Nothing here approves, publishes
-// or sends: posts and emails still wait for David on their pages.
+// called from inside the app, so the same checks, caps and daily email limit apply. David chose (2026-10-23) to let
+// Hermes approve, send and publish too; those tools say to use them only when he asks in that conversation.
 // ponytail: plain JSON responses, no SSE stream or sessions; add them if a client ever needs server pushes.
 import type { FastifyInstance } from 'fastify';
 import { PUBLIC_URL } from './config.ts';
@@ -14,6 +14,7 @@ const int = (description: string) => ({ type: 'integer', description });
 const channels = { type: 'array', description: 'Buffer channels, from list_buffer_channels', items: { type: 'object', required: ['id'], properties: { id: { type: 'string' }, name: { type: 'string' } } } };
 const qs = (a: Args) => { const q = new URLSearchParams(Object.entries(a).filter(([, v]) => v !== undefined && v !== '').map(([k, v]) => [k, String(v)])).toString(); return q ? `?${q}` : ''; };
 const id = int('Id');
+const ON_WORD = ' This reaches the public, so only do it when David has asked for it in this conversation.';
 const pick = (a: Args, keys: string[]) => Object.fromEntries(keys.filter(k => a[k] !== undefined).map(k => [k, a[k]]));
 
 export const TOOLS: Tool[] = [
@@ -115,6 +116,12 @@ export const TOOLS: Tool[] = [
     props: { id, template: str('Template'), channels, mode: { enum: ['queue', 'scheduled', 'draft'] }, due_at: str('ISO date and time, for scheduled') },
     required: ['id', 'template', 'channels', 'mode'], call: a => ({ method: 'POST', url: `/articles/${Number(a.id)}/social`, body: pick(a, ['template', 'channels', 'mode', 'due_at']) }) },
   { name: 'claude_spend', read: true, description: 'Claude spend this month against the cap, and the latest calls.', call: () => ({ method: 'GET', url: '/usage' }) },
+  // Public steps, on David's word only
+  { name: 'approve_email', description: 'Approves one email, which sends it (within the daily limit).' + ON_WORD, props: { id }, required: ['id'], call: a => ({ method: 'POST', url: `/emails/${Number(a.id)}/approve` }) },
+  { name: 'approve_all_emails', description: 'Approves every email waiting for approval, which sends them (within the daily limit).' + ON_WORD, call: () => ({ method: 'POST', url: '/emails/approve-all' }) },
+  { name: 'approve_post', description: 'Approves a social post, which sends it to Buffer.' + ON_WORD, props: { id }, required: ['id'], call: a => ({ method: 'POST', url: `/posts/${Number(a.id)}/approve` }) },
+  { name: 'approve_article', description: 'Approves an article, ready to publish.' + ON_WORD, props: { id }, required: ['id'], call: a => ({ method: 'POST', url: `/articles/${Number(a.id)}/approve` }) },
+  { name: 'publish_article', description: 'Publishes an approved article to redcherryit.com.' + ON_WORD, props: { id }, required: ['id'], call: a => ({ method: 'POST', url: `/articles/${Number(a.id)}/publish` }) },
 ];
 
 const VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
@@ -136,7 +143,7 @@ export function registerMcp(app: FastifyInstance) {
         const asked = m.params?.protocolVersion;
         return ok({ protocolVersion: VERSIONS.includes(asked) ? asked : VERSIONS[0], capabilities: { tools: {} },
           serverInfo: { name: 'red-cherry-studio', version: '1.0.0' },
-          instructions: 'The Red Cherry IT studio. Use it to make social images and copy, draft articles and outreach emails, and see what is waiting on David. Nothing is posted, published or emailed until David approves it in the studio.' });
+          instructions: 'The Red Cherry IT studio: social images and copy, articles, lead finding campaigns, leads and outreach emails. Approving, sending and publishing reach the public, so only do them when David asks.' });
       }
       case 'ping': return ok({});
       case 'tools/list': return ok({ tools: toolList });
