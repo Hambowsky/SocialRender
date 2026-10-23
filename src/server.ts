@@ -314,7 +314,6 @@ export function buildApp() {
 
   // Outreach
   app.post<{ Params: { id: number } }>('/leads/:id/email', { schema: { params: id } }, async (req, reply) => background(reply, () => outreach.draft(req.params.id)));
-  app.post<{ Params: { id: number } }>('/leads/:id/company-check', { schema: { params: id } }, async req => outreach.companyCheck(req.params.id));
   app.get('/emails', async () => ({ emails: outreach.list(), sent_today: outreach.sentToday(), daily_cap: OUTREACH_DAILY_CAP, inbox: IMAP_HOST ? inboxState() : null }));
   app.put<{ Params: { id: number }; Body: { subject?: string; body?: string } }>('/emails/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false,
     properties: { subject: { type: 'string', minLength: 1, maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 10000 } } } } },

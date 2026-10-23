@@ -842,12 +842,7 @@
         <div class="row"><button type="button" class="plain small" id="ldAnalyse" data-id="${l.id}">Analyse again</button><span class="muted">Checked ${esc(l.analysed_at.slice(0, 10).split('-').reverse().join('/'))}</span></div>
       </div>`;
   }
-  function emailHtml(l) {
-    const c = l.company_check && JSON.parse(l.company_check);
-    const ch = !c ? '' : c.registered ? `Companies House: ${esc(c.name)} (${esc(c.number)})` : 'Not a limited company at Companies House, so likely a sole trader or partnership. Call them instead of emailing.';
-    if (!l.email) return ch ? `<span class="muted">${ch}</span>` : '';
-    return `<div class="row"><button type="button" class="plain" id="ldEmailDraft" data-id="${l.id}" ${c && !c.registered ? 'disabled' : ''}>Draft an email</button><span class="muted" id="ldEmailOut">${ch}</span></div>`;
-  }
+  const emailHtml = l => l.email ? `<div class="row"><button type="button" class="plain" id="ldEmailDraft" data-id="${l.id}">Draft an email</button><span class="muted" id="ldEmailOut"></span></div>` : '';
   async function loadShot(id) {
     if (!$('ldShot')) return;
     try { $('ldShot').src = URL.createObjectURL(await (await api(`/leads/${id}/screenshot.jpg`)).blob()); } catch { $('ldShot').hidden = true; }
@@ -886,7 +881,7 @@
       if (e.target.id === 'ldCopy') { await navigator.clipboard.writeText($('ldPitch').textContent); e.target.textContent = 'Copied'; return; }
       if (e.target.id === 'ldEmailDraft') {
         e.target.disabled = true;
-        $('ldEmailOut').textContent = 'Checking Companies House, then Claude writes it...';
+        $('ldEmailOut').textContent = 'Claude is writing it...';
         try { await apiJob(`/leads/${id}/email`, {}); } catch (err) { await openLead(id); $('ldEmailOut').textContent = err.message; return; }
         $('leadDialog').close();
         location.hash = '#emails';
