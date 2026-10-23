@@ -267,7 +267,7 @@ export function buildApp() {
   }, async (req, reply) => {
     const a = articles.show(req.params.id);
     return reply.type(req.query.format === 'md' ? 'text/markdown; charset=utf-8' : 'text/html; charset=utf-8')
-      .header('content-disposition', `attachment; filename="${a.slug}.${req.query.format}"`).send(articles.download(a.id, req.query.format));
+      .header('content-disposition', `attachment; filename="${a.slug}.${req.query.format}"`).send(await articles.download(a.id, req.query.format));
   });
   app.post<{ Params: { id: number }; Body: Parameters<typeof articles.social>[1] }>('/articles/:id/social', {
     schema: { params: articleId, body: { type: 'object', required: ['template', 'channels', 'mode'], additionalProperties: false, properties: {

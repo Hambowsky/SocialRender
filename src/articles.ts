@@ -10,7 +10,7 @@ import { readPage } from './page.ts';
 import { esc, fromHtml, inline, toHtml, unesc } from './markdown.ts';
 import { render } from './render.ts';
 import * as posts from './posts.ts';
-import { publishPage, sitePage, sitePages } from './site.ts';
+import { guideCards, publishPage, RELATED, sitePage, sitePages } from './site.ts';
 
 type Article = { id: number; slug: string; category: string; title: string; summary: string; body: string; topic: string; keyword: string; sources: string; status: string; published_at: string | null };
 export type DraftInput = { topic: string; keyword?: string; audience?: string; sources?: string; url?: string; category?: string };
@@ -228,7 +228,42 @@ const DEFAULT_CTA = 'Want something similar for your business? Get in touch for 
 // It is not shown on the page (David prefers the page without it); link previews, Google and the Article schema use it.
 const imagePath = (a: Pick<Article, 'category' | 'slug'>) => `/images${a.category}${a.slug}.png`;
 
-export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' | 'slug'>, date: string, published = date, image = false) {
+// Related Reading: the two guides on the site that share the most words with this one, and the service page
+// that fits its subject. Plain word matching, no AI. Links are relative, like the rest of the page.
+const SERVICES: [RegExp, string, string, string][] = [
+  [/\bseo\b|google|search|rank/, 'seo', 'SEO', 'How We Help You Get Found On Google'],
+  [/cost|price|pricing|budget|£|quote/, 'pricing', 'Pricing', 'See Our Fixed-Price Website Packages'],
+  [/convert|conversion|enquir|booking|\bleads?\b/, 'conversion-rate-optimisation', 'Conversions', 'Turn More Visitors Into Enquiries'],
+  [/maintenance|hosting|updates?\b|secur|care plan/, 'website-care-plans', 'Care Plans', 'Keep Your Website Safe And Up To Date'],
+  [/process|how long|launch|build|redesign/, 'how-it-works', 'How It Works', 'How The Process Works, Start To Finish'],
+];
+const STOP = new Set('about after also because before being business businesses could does from have here into just like make more most need only other over should some than that their them then there these they this what when where which while will with without your yours website websites guide small'.split(' '));
+const words = (t: string) => new Set(t.toLowerCase().replace(/&[a-z]+;/g, ' ').split(/[^a-z0-9£]+/).filter(w => w.length > 3 && !STOP.has(w)));
+const folderName = (category: string) => category.split('/').filter(Boolean).at(-1)!.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+export async function relatedCards(a: Pick<Article, 'title' | 'summary' | 'category' | 'slug' | 'keyword' | 'topic'>) {
+  const text = `${a.title} ${a.summary} ${a.keyword} ${a.keyword} ${a.topic}`;
+  const mine = words(text);
+  const own = db.prepare(`SELECT category, slug, title, summary FROM articles WHERE status = 'published'`).all() as { category: string; slug: string; title: string; summary: string }[];
+  const listed = (await Promise.all(categories().map(c => guideCards(c.category).catch(() => [])))).flat();
+  const seen = new Set<string>();
+  const guides = [...listed, ...own].filter(g => g.slug !== a.slug && !seen.has(g.category + g.slug) && seen.add(g.category + g.slug))
+    .map(g => ({ ...g, score: [...words(`${g.title} ${g.summary}`)].filter(w => mine.has(w)).length + (g.category === a.category ? 0.5 : 0) }))
+    .filter(g => g.score >= 1).sort((x, y) => y.score - x.score).slice(0, 2);
+  const cards = guides.map(g => [g.category === a.category ? g.slug : `../${g.category.split('/').filter(Boolean).at(-1)}/${g.slug}`, folderName(g.category), g.title]);
+  if (cards.length < 2) cards.push(['.', 'Guide', `More ${folderName(a.category)} Guides`]);
+  const lower = text.toLowerCase();
+  const [, ...service] = a.category.includes('/stories/') ? [/./, 'case-studies', 'Case Studies', 'See More Of Our Client Success Stories']
+    : SERVICES.find(([re]) => re.test(lower)) ?? SERVICES[1];
+  cards.push([`../../${service[0]}`, service[1], service[2]]);
+  if (cards.length < 3 && service[0] !== 'case-studies') cards.push(['../../case-studies', 'Case Studies', 'See More Of Our Client Success Stories']);
+  return `<div class="related-grid reveal">\n${cards.map(([href, kicker, title]) => `        <a class="related-card" href="${esc(href)}">
+          <span class="related-card-kicker">${esc(kicker)}</span>
+          <span class="related-card-title">${esc(title)}</span>
+        </a>`).join('\n')}\n      </div>`;
+}
+
+export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' | 'slug'>, date: string, published = date, image = false, related?: string) {
   const blocks = a.body.replace(/\r/g, '').split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
   if (blocks[0]?.startsWith('# ')) blocks.shift();
   const shortAnswer = blocks[0] && !blocks[0].startsWith('#') ? blocks.shift()! : a.summary;
@@ -273,7 +308,8 @@ export function page(a: Pick<Article, 'title' | 'summary' | 'body' | 'category' 
       ['Home', `${SITE_URL}/`], ['Guides', `${SITE_URL}/guides`], [section, sectionUrl], [a.title, url],
     ].map(([name, item], i) => ({ '@type': 'ListItem', position: i + 1, name, item })) }),
   };
-  return fs.readFileSync(SHELL, 'utf8').replace(/^<!--[\s\S]*?-->\n/, '').replace(/\{\{(\w+)\}\}/g, (m, k: string) => vars[k] ?? m);
+  const html = fs.readFileSync(SHELL, 'utf8').replace(/^<!--[\s\S]*?-->\n/, '').replace(/\{\{(\w+)\}\}/g, (m, k: string) => vars[k] ?? m);
+  return related ? html.replace(RELATED, () => related) : html;
 }
 
 // Front matter like David's example, for keeping a copy. It is never put on the site.
@@ -290,7 +326,7 @@ export async function publish(id: number) {
   const date = today();
   const header = await headerImage(a);
   const images = header.ok ? [{ path: imagePath(a).slice(1), content: header.png }] : [];
-  const result = await publishPage({ category: a.category, slug: a.slug, title: a.title, summary: a.summary, date }, page(a, date, firstPublished(a), header.ok), images);
+  const result = await publishPage({ category: a.category, slug: a.slug, title: a.title, summary: a.summary, date }, page(a, date, firstPublished(a), header.ok, await relatedCards(a)), images);
   db.prepare(`UPDATE articles SET status = 'published', published_at = COALESCE(published_at, datetime('now')), updated_at = datetime('now') WHERE id = ?`).run(id);
   return { ...show(id), published: result, image: header.ok ? `${SITE_URL}${imagePath(a)}` : header.problem };
 }
@@ -306,9 +342,9 @@ async function headerImage(a: Article): Promise<{ ok: true; png: Buffer } | { ok
   return { ok: true, png: fs.readFileSync(r.file) };
 }
 
-export function download(id: number, format: 'md' | 'html') {
+export async function download(id: number, format: 'md' | 'html') {
   const a = get(id);
-  return format === 'md' ? markdown(a, today()) : page(a, today(), firstPublished(a), a.status === 'published');
+  return format === 'md' ? markdown(a, today()) : page(a, today(), firstPublished(a), a.status === 'published', await relatedCards(a));
 }
 
 // One social post per template for a published article, added to the Buffer approval queue.

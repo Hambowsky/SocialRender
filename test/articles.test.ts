@@ -70,6 +70,19 @@ const buffer = serve(({ query }) => (bufferSent.push(query), { data: { createPos
 // A fake GitHub holding a tiny copy of the website repo.
 const repo: Record<string, string> = {
   'guides/index.html': '<a class="guide-card" href="stories">\n<h3>Stories</h3>\n<span class="guide-card-count">1 guide</span>\n</a>\n<a class="guide-card" href="tools">\n<span class="guide-card-count guide-card-count--soon">Coming soon</span>\n</a>',
+  // Read once and cached, so it is set up front.
+  'guides/marketing/index.html': `<div class="guide-list">
+        <a class="guide-card" href="what-seo-actually-means">
+          <span class="guide-card-tag">Marketing</span>
+          <h3>What SEO Actually Means, In Plain English</h3>
+          <p>How Google decides which pages to show, without the jargon.</p>
+        </a>
+        <a class="guide-card" href="do-you-need-social-media">
+          <span class="guide-card-tag">Marketing</span>
+          <h3>Do You Need Social Media?</h3>
+          <p>Which platforms are worth your time.</p>
+        </a>
+      </div>`,
   'guides/stories/index.html': '<main>\n      <div class="guide-list">\n        <a class="guide-card" href="older-story">\n        </a>\n      </div>\n</main>',
   'sitemap.xml': '<urlset>\n  <url><loc>https://redcherryit.com/guides/stories/older-story</loc><lastmod>2026-09-01</lastmod></url>\n  <url><loc>https://redcherryit.com/pricing</loc></url>\n</urlset>',
 };
@@ -201,6 +214,15 @@ test('each category drafts with its own structure prompt', async () => {
   assert.match(res.json().url, /\/guides\/learn\//);
   const a = (await call('PUT', `/articles/${res.json().id}`, { body: exampleBody.replace('## The challenge', '## Background') })).json();
   assert.deepEqual(a.checks.errors, [], 'learn articles do not need the story headings');
+});
+
+test('Related Reading picks the closest guides on the site and a service page that fits the subject', async () => {
+  const { relatedCards } = await import('../src/articles.ts');
+  const html = await relatedCards({ title: 'How Google Reviews Help Your Local Ranking', summary: 'Why reviews matter on Google.', category: '/guides/learn/', slug: 'reviews', keyword: 'google reviews', topic: 'reviews' });
+  assert.match(html, /href="\.\.\/marketing\/what-seo-actually-means"[\s\S]*What SEO Actually Means/);
+  assert.doesNotMatch(html, /do-you-need-social-media/, 'a guide with nothing in common is left out');
+  assert.match(html, /href="\.\.\/\.\.\/seo"/);
+  assert.equal(html.match(/related-card"/g)!.length, 3);
 });
 
 test('a page already on the site can be opened, edited and published again, keeping its own extras', async () => {
