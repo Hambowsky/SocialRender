@@ -121,7 +121,7 @@ The logo is `assets/logo.png`. Replace that file (same name) and every template 
 
 ## Hermes (MCP)
 
-`POST /mcp` is an MCP server (Streamable HTTP, plain JSON replies) for Hermes or any MCP client. It needs the same `x-api-key` header. Its tools are thin wrappers over the routes above (see `src/mcp.ts`), so the same checks, caps and approval queues apply. None of them approves, publishes or sends anything.
+`POST /mcp` is an MCP server (Streamable HTTP, plain JSON replies) for Hermes or any MCP client. It needs the same `x-api-key` header. Its tools are thin wrappers over the routes above (see `src/mcp.ts`), so the same checks, caps and daily email limit apply. The approve, send and publish tools tell Hermes to use them only when David asks.
 
 In Hermes, put the key in `~/.hermes/.env` as `STUDIO_API_KEY=...`, then add to `~/.hermes/config.yaml`:
 
