@@ -450,12 +450,25 @@
       <span id="eCheckOut" style="font-size:13px"></span>
       <div id="eList" class="queue"></div>
     </div>
+    <div class="cols">
     <div class="card">
       <div class="card-head"><h2>Do not email</h2><span class="muted" id="sCount"></span></div>
       <p class="muted">Addresses here are never emailed. Unsubscribes are added on their own. Paste the list from the old tool before sending anything.</p>
       <label>Add addresses, one per line or separated by commas <textarea id="sAdd" rows="4"></textarea></label>
       <div class="row"><button type="button" class="small" id="sSave">Add to the list</button><span id="sOut"></span></div>
       <div id="sList" class="activity"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Case studies</h2><span class="muted" id="csCount"></span></div>
+      <p class="muted">When a lead is in the same line of work as one of these clients, the email draft mentions that client.</p>
+      <label>Client <input id="csClient" maxlength="120"></label>
+      <label>Industry <input id="csIndustry" maxlength="120" placeholder="Roofers"></label>
+      <label>Blurb <textarea id="csBlurb" rows="2" maxlength="600" placeholder="We built ..."></textarea></label>
+      <div class="row"><button type="button" class="small" id="csAdd">Add case study</button></div>
+      <label>Or add many: one per line as client, industry and blurb, separated by tabs (pasted from a spreadsheet) or by | <textarea id="csBulk" rows="4"></textarea></label>
+      <div class="row"><button type="button" class="small" id="csUpload">Add all</button><span id="csOut"></span></div>
+      <div id="csList" class="activity"></div>
+    </div>
     </div>
   </div>
 </section>
@@ -754,6 +767,7 @@
       }).join('') || '<p class="muted">No emails yet. Open a lead with an email address and choose Draft an email.</p>';
       const list = await (await api('/suppression')).json();
       $('sCount').textContent = plural(list.length, 'address', 'addresses');
+      loadCases();
       $('sList').innerHTML = list.slice(0, 200).map(x => `<div>${esc(x.email)} <span class="muted">${esc(x.reason)}, ${esc(x.created_at.slice(0, 10))}</span></div>`).join('');
     } catch (e) { $('eList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
@@ -782,6 +796,40 @@
       loadEmails();
     } catch (err) { out.textContent = err.message; e.target.disabled = false; }
   });
+  async function loadCases() {
+    const list = await (await api('/case-studies')).json();
+    $('csCount').textContent = plural(list.length, 'client', 'clients');
+    $('csList').innerHTML = list.map(c => `<div><b>${esc(c.client)}</b> <span class="muted">${esc(c.industry)}</span>
+      <button type="button" class="plain small" data-case="${c.id}">Remove</button><br>${esc(c.blurb)}</div>`).join('');
+  }
+  async function saveCases(rows) {
+    const r = await (await api('/case-studies', { method: 'POST', body: JSON.stringify({ rows }) })).json();
+    $('csOut').textContent = `${plural(r.saved, 'case study', 'case studies')} saved`;
+    loadCases();
+  }
+  $('csAdd').addEventListener('click', async () => {
+    try {
+      await saveCases([{ client: $('csClient').value, industry: $('csIndustry').value, blurb: $('csBlurb').value }]);
+      $('csClient').value = $('csIndustry').value = $('csBlurb').value = '';
+    } catch (err) { $('csOut').textContent = err.message; }
+  });
+  $('csUpload').addEventListener('click', async () => {
+    const lines = $('csBulk').value.split('\n').filter(l => l.trim());
+    // A table copied from a web page can bring its Remove button along as a fourth cell.
+    const rows = lines.map(l => l.split(l.includes('\t') ? '\t' : '|').map(x => x.trim()).filter((x, i) => !(i > 2 && /^(remove)?$/i.test(x))));
+    const bad = rows.findIndex(r => r.length !== 3 || r.some(x => !x));
+    if (bad >= 0) { $('csOut').textContent = `Line ${bad + 1} needs a client, industry and blurb: ${lines[bad]}`; return; }
+    try {
+      await saveCases(rows.map(([client, industry, blurb]) => ({ client, industry, blurb })));
+      $('csBulk').value = '';
+    } catch (err) { $('csOut').textContent = err.message; }
+  });
+  $('csList').addEventListener('click', async e => {
+    const id = e.target.dataset.case;
+    if (!id || !confirm('Remove this case study?')) return;
+    try { await api(`/case-studies/${id}`, { method: 'DELETE' }); loadCases(); } catch (err) { $('csOut').textContent = err.message; }
+  });
+
   $('sSave').addEventListener('click', async () => {
     const emails = $('sAdd').value.split(/[\s,;]+/).filter(Boolean);
     if (!emails.length) return;

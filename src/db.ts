@@ -170,6 +170,34 @@ const migrations = [
      key TEXT PRIMARY KEY,
      value TEXT NOT NULL
    )`,
+
+  `CREATE TABLE case_studies (         -- David's past clients, so an outreach email can name one in the lead's line of business
+     id INTEGER PRIMARY KEY,
+     client TEXT NOT NULL UNIQUE COLLATE NOCASE,
+     industry TEXT NOT NULL,
+     blurb TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   INSERT INTO case_studies (client, industry, blurb) VALUES
+     ('Alston Hostel', 'Hostels and accommodation', 'We built Alston Hostel, an independent hostel on the Pennine Way in Cumbria, a booking friendly website.'),
+     ('Apex Data Intelligence', 'IT consultancies', 'We built Apex Data Intelligence, a Databricks consultancy, a clear website that explains its complex services and is designed to win enquiries.'),
+     ('Autobarn Garage', 'Garages and MOT centres', 'We built Autobarn Garage, a BMW, Mini and Mercedes specialist, a website focused on driving service and MOT bookings.'),
+     ('Balls of Prudhoe', 'Restaurants and takeaways', 'We built a website for Balls of Prudhoe, an award winning fish and chip restaurant, to match its reputation and win more bookings.'),
+     ('Carousel Gifts', 'Retailers and gift shops', 'We built Carousel Gifts, a Darras Hall gift shop with over 21 years of trading, a full ecommerce store that accepts gift cards and coupons and has built in email marketing.'),
+     ('Elliott Spoors Roofing and Solar Panels', 'Roofers', 'We built Elliott Spoors Roofing and Solar Panels, trusted roofing and solar experts in the North East, a lead generating website.'),
+     ('Greener Miles Running', 'Event organisers', 'We built a website for Greener Miles Running, an eco friendly trail running events company in the North East, to promote and fill its events.'),
+     ('Johnson Decorators', 'Painters and decorators', 'We built Johnson Decorators, a painting and decorating firm in Newcastle upon Tyne, a website designed to generate quote requests.'),
+     ('Metro Security Services', 'Security and alarm installers', 'We built a professional website for Metro Security Services, a North East alarm, CCTV and fire safety installer with over 30 years of experience.'),
+     ('North East Damp Control', 'Damp proofing specialists', 'We built North East Damp Control, specialists in damp proofing, condensation control and timber treatments, a lead generating website.'),
+     ('On Tyne Remedials', 'Damp proofing specialists', 'We built On Tyne Remedials, specialists in damp proofing and timber treatments across Tyneside, a lead generating website.'),
+     ('OPUS Building Services', 'Building services contractors', 'We built a website for OPUS Building Services, a leading mechanical, electrical and building services contractor working across the UK.'),
+     ('Orangutan Landscapes', 'Landscapers and gardeners', 'We built Orangutan Landscapes, a garden and landscaping business in County Durham, a lead generating website.'),
+     ('Skywave Communications', 'Telecoms providers', 'We built a website for Skywave Communications, a specialist telecoms and auto dialling provider, that explains its technology clearly.'),
+     ('Time To Shine', 'Cleaning companies', 'We built Time To Shine, a domestic and commercial cleaning company in the North East, a website with online booking.'),
+     ('True Precision Engineering', 'Engineering and machining', 'We built a website for True Precision Engineering, an ISO accredited sub contract precision machining specialist.'),
+     ('Tyneside Damp Specialists', 'Damp proofing specialists', 'We built Tyneside Damp Specialists, experts in damp proofing and timber treatments, a lead generating website.'),
+     ('Tyne Tees Woodworm', 'Pest control and woodworm treatment', 'We built Tyne Tees Woodworm, professional woodworm and pest treatment specialists across the North East, a lead generating website.'),
+     ('Whites Building and Groundworks', 'Builders and groundworkers', 'We built Whites Building and Groundworks, a general building contractor based in Blaydon-on-Tyne, a lead generating website.')`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

@@ -17,10 +17,12 @@ process.env.PUBLIC_URL = 'https://studio.example';
 process.env.OUTREACH_DELAY_SECONDS = '0';
 process.env.OUTREACH_DAILY_CAP = '2';
 
-let claudeCalls = 0;
+let claudeCalls = 0, lastPrompt = '';
 const fake = http.createServer((req, res) => {
-  req.resume();
+  let body = '';
+  req.on('data', c => body += c);
   req.on('end', () => {
+    lastPrompt = body;
     if (req.url === '/v1/messages') {
       claudeCalls++;
       return sendStream(res, { id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'end_turn', stop_sequence: null,
@@ -97,6 +99,20 @@ test('a lead with an email address gets a draft, and asking twice gives the same
   assert.equal(first.to_email, 'office@smith.example');
   assert.equal((await draft(smith)).json().result.id, first.id);
   assert.equal(claudeCalls, 1);
+  assert.match(lastPrompt, /Elliott Spoors Roofing and Solar Panels \(Roofers\)/, 'case studies are in the prompt');
+});
+
+test('case studies can be added one at a time or many at once, updated by name and removed', async () => {
+  const save = (rows: object[]) => app.inject({ method: 'POST', url: '/case-studies', headers, payload: { rows } });
+  assert.equal((await save([{ client: 'Smith Plumbing', industry: 'Plumbers', blurb: 'We built a site.' }])).statusCode, 200);
+  assert.equal((await save([{ client: 'smith plumbing', industry: 'Plumbers', blurb: 'We built a better site.' },
+    { client: 'Jones Electrics', industry: 'Electricians', blurb: 'We built a site.' }])).json().saved, 2);
+  assert.equal((await save([{ client: ' ', industry: 'x', blurb: 'y' }])).statusCode, 400);
+  const list = (await app.inject({ method: 'GET', url: '/case-studies', headers })).json();
+  const smith = list.filter((c: any) => /smith/i.test(c.client));
+  assert.deepEqual(smith.map((c: any) => c.blurb), ['We built a better site.']);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/case-studies/${smith[0].id}`, headers })).statusCode, 200);
+  assert.equal((await app.inject({ method: 'GET', url: '/case-studies', headers })).json().length, list.length - 1);
 });
 
 test('an approved email goes out once with an unsubscribe link, and the lead is marked contacted', async () => {
