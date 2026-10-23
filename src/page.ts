@@ -46,7 +46,7 @@ export function pageText(html: string) {
 const MAX_CHARS = 15000;
 
 // Many small business sites (Wix, Cloudflare) turn away or strip pages for anything that does not look like a browser.
-const BROWSER = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
+export const BROWSER = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 
 // Follows redirects by hand so every hop is checked against the private address list.
 export async function fetchPage(raw: string, accept = 'text/html,text/plain') {

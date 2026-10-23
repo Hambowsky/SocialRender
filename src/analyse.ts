@@ -6,8 +6,8 @@ import { db } from './db.ts';
 import { fail, FIRECRAWL_API_KEY, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL, PAGESPEED_URL, RDAP_URL } from './config.ts';
 import { analysing, busy, cached, lead, screenshotPath } from './leads.ts';
 import { screenshotSite } from './render.ts';
-import { checkSite, findEmail, scrapeShot } from './sitecheck.ts';
-import { isChallenge } from './page.ts';
+import { checkSite, findEmail, findSocial, scrape, scrapeShot } from './sitecheck.ts';
+import { BROWSER, isChallenge } from './page.ts';
 import { runPrompt } from './copy.ts';
 
 type Analysis = {
@@ -42,7 +42,13 @@ async function pageSpeed(site: string) {
 // When the domain was first registered, from the public registry (RDAP), so a long established business stands out.
 async function domainAge(site: string) {
   const domain = new URL(site).hostname.replace(/^www\./, '');
-  const json = await getJson(`${RDAP_URL}/domain/${encodeURIComponent(domain)}`, { headers: { accept: 'application/rdap+json' } });
+  const url = `${RDAP_URL}/domain/${encodeURIComponent(domain)}`;
+  const json = await getJson(url, { headers: { accept: 'application/rdap+json', 'user-agent': BROWSER } }).catch(async (err: Error) => {
+    // rdap.org and some registries turn cloud servers away (403), so Firecrawl fetches the record instead.
+    if (!FIRECRAWL_API_KEY) throw err;
+    const page = await scrape(url);
+    try { return JSON.parse(page.html); } catch { fail(502, `${err.message}, and Firecrawl got no record either`); }
+  });
   const date = json.events?.find((e: any) => e.eventAction === 'registration')?.eventDate;
   if (!date) fail(502, 'the registry gave no registration date');
   return { registered: date.slice(0, 10), years: Math.floor((Date.now() - Date.parse(date)) / (365.25 * 86_400_000)) };
@@ -82,6 +88,11 @@ export async function analyseLead(id: number) {
       .run(JSON.stringify(check.issues), JSON.stringify(check.seo), JSON.stringify(check.social), dead ? 1 : 0, reason, id);
     if (dead) db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Website loads now. ${reason}`);
     dead = false;
+  });
+  // No profiles linked from a website (or no website), so search for them by name. One Firecrawl search, cached for the day.
+  if (FIRECRAWL_API_KEY && !Object.keys((check as { social?: object } | null)?.social ?? l.social_links).length) await step('Social profiles', async () => {
+    const social = await findSocial(l.company_name, l.town);
+    if (Object.keys(social).length) db.prepare('UPDATE leads SET social_links = ? WHERE id = ?').run(JSON.stringify(social), id);
   });
   if (site && !dead) {
     await step('PageSpeed', async () => { a.pagespeed = await pageSpeed(site); });

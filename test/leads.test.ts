@@ -57,6 +57,11 @@ const fake = http.createServer((req, res) => {
         metadata: { statusCode: 200, url: 'https://turns-servers-away.invalid/', creditsUsed: 1 } } }));
     }
     if (req.url === '/shot.jpg') return res.end('jpeg bytes');
+    if (req.url === '/v2/search' && body.includes('Falcus')) return res.end(JSON.stringify({ success: true, creditsUsed: 2, data: { web: [
+      { url: 'https://www.facebook.com/groups/164/posts/444/', title: 'Roofing companies - Facebook', description: 'Falcus Roofing did a great job' },
+      { url: 'https://www.facebook.com/Falcusroofingnewcastle?locale=af_ZA', title: 'Falcus roofing contractors | Gateshead - Facebook', description: '' },
+      { url: 'https://www.instagram.com/someoneelse/', title: 'Other Roofing (@someoneelse)', description: 'Roofers in Newcastle' },
+      { url: 'https://uk.linkedin.com/company/falcus-roofing', title: 'Falcus Roofing Ltd | LinkedIn', description: '' }] } }));
     if (req.url === '/v2/search') {
       calls.firecrawl++;
       const { query } = JSON.parse(body);
@@ -105,6 +110,9 @@ test('the HTML checks find old, insecure and unfriendly sites and their contact 
   assert.equal(gone.reachable, false, 'a failed read is not counted');
   assert.match(gone.note!, /^Its address does not exist\. Firecrawl could not read it either: Could not load$/);
   assert.equal((await import('../src/leads.ts')).usage().firecrawl_credits, 1);
+  // Profiles found by name: posts, groups and other businesses are left out.
+  assert.deepEqual(await (await import('../src/sitecheck.ts')).findSocial('Falcus Roofing Ltd', 'Newcastle'),
+    { facebook: 'https://www.facebook.com/Falcusroofingnewcastle', linkedin: 'https://uk.linkedin.com/company/falcus-roofing' });
   // A site stuck on its bot check is photographed by Firecrawl instead.
   const { isChallenge } = await import('../src/page.ts');
   assert.ok(isChallenge('<p>To access this website, please wait while we complete a security check.</p>'));
@@ -112,7 +120,7 @@ test('the HTML checks find old, insecure and unfriendly sites and their contact 
   assert.equal(await (await import('../src/sitecheck.ts')).scrapeShot('https://bot-check.example/', shot), '<html><body>Real site</body></html>');
   assert.equal(fs.readFileSync(shot, 'utf8'), 'jpeg bytes');
   fs.rmSync(shot);
-  (await import('../src/db.ts')).db.prepare(`DELETE FROM api_cache WHERE key LIKE 'scrape:%'`).run(); // keep the campaign cost checks below exact
+  (await import('../src/db.ts')).db.prepare(`DELETE FROM api_cache WHERE key LIKE 'scrape:%' OR key LIKE 'firecrawl:%'`).run(); // keep the campaign cost checks below exact
   const old = analyse(`<html><head><title>Bob</title></head><body><img src=a.png><img src=b.png alt="">
     <a href="https://www.facebook.com/bobsplumbing">fb</a><a href="https://www.facebook.com/sharer/sharer.php?u=x">share</a>
     <a href="mailto:bob@bobsplumbing.co.uk">Email</a><footer>&copy; 2019 Bob</footer></body></html>`, 'http://bob.example', 2026);
