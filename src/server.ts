@@ -328,6 +328,13 @@ export function buildApp() {
   app.delete<{ Querystring: { email: string } }>('/suppression', { schema: { querystring: { type: 'object', required: ['email'], properties: { email: { type: 'string', maxLength: 200 } } } } },
     async req => outreach.unsuppress(req.query.email));
 
+  const field = (max: number) => ({ type: 'string', minLength: 1, maxLength: max, pattern: '\\S' });
+  app.get('/case-studies', async () => outreach.caseStudies());
+  app.post<{ Body: { rows: { client: string; industry: string; blurb: string }[] } }>('/case-studies', { schema: { body: { type: 'object', required: ['rows'], additionalProperties: false,
+    properties: { rows: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'object', required: ['client', 'industry', 'blurb'], additionalProperties: false,
+      properties: { client: field(120), industry: field(120), blurb: field(600) } } } } } } }, async req => outreach.saveCaseStudies(req.body.rows));
+  app.delete<{ Params: { id: number } }>('/case-studies/:id', { schema: { params: id } }, async req => outreach.deleteCaseStudy(req.params.id));
+
   // The unsubscribe link in every email. Opening it only asks; the button (or a mail app's one click unsubscribe) does it,
   // so a link scanner that opens every link cannot unsubscribe anyone.
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (_req, body, done) => done(null, body));

@@ -33,9 +33,25 @@ export async function draft(leadId: number) {
     company: l.company_name, contact: l.contact_name || 'not known', industry: l.industry, town: l.town, website: l.website_url || 'none',
     website_issues: describe(l.website_issues), seo_issues: describe(l.seo_issues), pagespeed: a.pagespeed ? String(a.pagespeed.score) : 'not checked',
     gbp: g ? `${g.rating ?? 'no'} stars from ${g.reviews ?? 0} reviews` : 'not found', notes: a.notes ?? l.lead_reason, pitch: a.pitch ?? 'none',
+    case_studies: (caseStudies() as CaseStudy[]).map(c => `${c.client} (${c.industry}): ${c.blurb}`).join('\n') || 'none',
   }, { job: 'lead:email' });
   db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`).run(leadId, norm(l.email), r.output.subject, r.output.body);
   return get((db.prepare(`SELECT id FROM emails WHERE lead_id = ? AND status IN ('pending_approval', 'approved', 'sending')`).get(leadId) as { id: number }).id);
+}
+
+// Past clients. Claude picks one in the lead's line of business, if there is one, to mention in the email.
+type CaseStudy = { client: string; industry: string; blurb: string };
+export const caseStudies = () => db.prepare('SELECT * FROM case_studies ORDER BY client').all();
+// Adds new clients and updates ones already there (matched by name).
+export function saveCaseStudies(rows: CaseStudy[]) {
+  const up = db.prepare(`INSERT INTO case_studies (client, industry, blurb) VALUES (?, ?, ?)
+    ON CONFLICT (client) DO UPDATE SET industry = excluded.industry, blurb = excluded.blurb`);
+  for (const r of rows) up.run(r.client.trim(), r.industry.trim(), r.blurb.trim());
+  return { saved: rows.length };
+}
+export function deleteCaseStudy(id: number) {
+  if (!db.prepare('DELETE FROM case_studies WHERE id = ?').run(id).changes) fail(404, `There is no case study ${id}`);
+  return { deleted: id };
 }
 
 export function list() {
