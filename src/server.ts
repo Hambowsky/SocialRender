@@ -17,6 +17,7 @@ import * as articles from './articles.ts';
 import * as leads from './leads.ts';
 import { analyseCampaign, analyseLead } from './analyse.ts';
 import { reportPdf } from './report.ts';
+import * as dashboard from './dashboard.ts';
 import * as outreach from './outreach.ts';
 import { inboxState, startInbox, testInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
@@ -366,6 +367,8 @@ export function buildApp() {
     return page(reply, `Done. ${esc(req.query.e)} will not get any more emails from us.`);
   });
 
+  app.get('/dashboard/marketing', async () => dashboard.marketing());
+  app.get('/dashboard/sales', async () => dashboard.sales());
   app.get('/usage', async () => ({
     month_spend_gbp: monthSpendGbp(),
     cap_gbp: CLAUDE_MONTHLY_CAP_GBP,

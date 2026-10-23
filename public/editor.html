@@ -40,6 +40,23 @@
   .keybox { position: relative; }
   .keybox .pop { position: absolute; right: 0; top: 46px; width: 300px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px; display: grid; gap: 8px; }
 
+  /* Dashboards */
+  .dash { display: grid; gap: 20px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
+  .tile { gap: 4px; text-decoration: none; color: inherit; }
+  .tile .big { font-weight: 900; font-size: 32px; color: var(--ink); line-height: 1.1; }
+  .todo { display: grid; gap: 8px; }
+  .todo a { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 10px; background: var(--red-soft); color: var(--ink); text-decoration: none; font-weight: 500; }
+  .todo a b { color: var(--red); font-size: 18px; min-width: 28px; }
+  .bars { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding-top: 18px; }
+  .bars div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; font-size: 11px; color: var(--muted); gap: 4px; min-width: 0; }
+  .bars i { display: block; width: 100%; background: var(--red); border-radius: 4px 4px 0 0; min-height: 2px; }
+  .bars i.zero { background: var(--line); }
+  .meter { height: 8px; border-radius: 999px; background: var(--grey-soft); overflow: hidden; }
+  .meter i { display: block; height: 100%; background: var(--red); }
+  .list { display: grid; gap: 8px; font-size: 14px; }
+  .list > * { display: flex; justify-content: space-between; gap: 12px; }
+
   /* Layout */
   main { max-width: 1440px; margin: 0 auto; padding: 24px; }
   .view { display: grid; gap: 20px; }
@@ -189,14 +206,16 @@
   <div class="bar">
     <a href="#social"><img src="/assets/logo.png" alt="Red Cherry IT" width="159" height="30"></a>
     <div class="sections" role="group" aria-label="Area">
-      <a href="#social" data-section="marketing">Marketing</a>
-      <a href="#campaigns" data-section="sales">Sales</a>
+      <a href="#dashboard" data-section="marketing">Marketing</a>
+      <a href="#sales" data-section="sales">Sales</a>
     </div>
     <nav aria-label="Pages">
+      <a href="#dashboard" data-view="dashboard" data-section="marketing">Dashboard</a>
       <a href="#social" data-view="social" data-section="marketing">Social</a>
       <a href="#articles" data-view="articles" data-section="marketing">Articles</a>
       <a href="#templates" data-view="templates" data-section="marketing">Templates</a>
       <a href="#prompts" data-view="prompts" data-section="marketing">Prompts</a>
+      <a href="#sales" data-view="sales" data-section="sales">Dashboard</a>
       <a href="#campaigns" data-view="campaigns" data-section="sales">Campaigns</a>
       <a href="#leads" data-view="leads" data-section="sales">Leads</a>
       <a href="#emails" data-view="emails" data-section="sales">Emails</a>
@@ -221,7 +240,9 @@
 </section>
 
 <!-- Social: make the image, write the text, post to Buffer, see the calendar -->
-<section class="view" data-view="social">
+<section class="view" data-view="dashboard" hidden><div id="mDash" class="dash"></div></section>
+<section class="view" data-view="sales" hidden><div id="sDash" class="dash"></div></section>
+<section class="view" data-view="social" hidden>
   <div class="cols social-top">
     <form class="card" id="f">
       <div class="card-head"><h2>Image</h2></div>
@@ -553,6 +574,8 @@
     if (checkPending && $('preview').offsetParent) $('preview').onload();
     if (!ok) return;
     if (view === 'articles' && !loaded.articles) { loaded.articles = true; loadArticles(); }
+    if (view === 'dashboard') loadDashboard('marketing');
+    if (view === 'sales') loadDashboard('sales');
     if (view === 'campaigns') loadCampaigns();
     if (view === 'leads') loadLeads();
     if (view === 'emails') loadEmails();
@@ -884,6 +907,51 @@
   });
 
   let leadTimer;
+  // Dashboards. "Needs you" links to the page where each thing is done.
+  const todo = items => {
+    const shown = items.filter(([n]) => n).map(([n, text, href]) => [n, typeof text === 'string' ? text : text[n === 1 ? 0 : 1], href]);
+    return `<div class="card"><h2>Needs you</h2>${shown.length ? `<div class="todo">${shown.map(([n, text, href]) => `<a href="${href}"><b>${n}</b>${esc(text)}</a>`).join('')}</div>` : '<p class="muted">Nothing is waiting on you.</p>'}</div>`;
+  };
+  const tile = (big, label, sub = '', href = '') => `<${href ? `a href="${href}"` : 'div'} class="card tile"><span class="muted">${esc(label)}</span><span class="big">${big}</span>${sub ? `<span class="muted">${sub}</span>` : ''}</${href ? 'a' : 'div'}>`;
+  const bars = (rows, label) => {
+    const max = Math.max(1, ...rows.map(r => r.count));
+    return `<div class="bars">${rows.map(r => `<div title="${esc(r.count)}">${r.count || ''}<i class="${r.count ? '' : 'zero'}" style="height:${r.count / max * 100}%"></i>${esc(label(r.date))}</div>`).join('')}</div>`;
+  };
+  const dm = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  const spendCard = d => `<div class="card"><div class="card-head"><h2>Claude this month</h2><span class="muted">${money(d.all_spend_gbp)} of ${money(d.cap_gbp)} in total</span></div>
+    <div class="meter"><i style="width:${Math.min(100, d.all_spend_gbp / d.cap_gbp * 100)}%"></i></div><span class="muted">${money(d.spend_gbp)} of that was for this area.</span></div>`;
+  async function loadDashboard(area) {
+    const box = $(area === 'sales' ? 'sDash' : 'mDash');
+    try {
+      const d = await (await api(`/dashboard/${area}`)).json();
+      if (area === 'marketing') {
+        const nd = d.needs;
+        box.innerHTML = todo([[nd.posts_to_approve, ['post waiting for your approval', 'posts waiting for your approval'], '#social'], [nd.posts_to_check, ['post that failed or needs checking in Buffer', 'posts that failed or need checking in Buffer'], '#social'],
+            [nd.articles_to_review, ['article draft to review', 'article drafts to review'], '#articles'], [nd.articles_to_publish, ['approved article to publish', 'approved articles to publish'], '#articles']])
+          + `<div class="tiles">${tile(d.posts_this_month, 'Posts sent to Buffer this month', '', '#social')}${tile(d.posts_scheduled, 'Posts scheduled ahead', '', '#social')}
+            ${tile(d.articles_this_month, 'Articles published this month', `${d.articles_published} in total`, '#articles')}${tile(d.images_this_month, 'Images made this month')}</div>
+          <div class="cols wide-left"><div class="card"><h2>Posts sent, by week</h2>${bars(d.posts_by_week, dm)}</div>${spendCard(d)}</div>
+          <div class="cols two"><div class="card"><h2>Coming up</h2><div class="list">${d.upcoming.map(p => `<div><span>${esc(p.text.slice(0, 70))}${p.text.length > 70 ? '...' : ''}</span><span class="muted">${esc(p.channel_name)}, ${esc(new Date(p.due_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</span></div>`).join('') || '<p class="muted">Nothing scheduled.</p>'}</div></div>
+            <div class="card"><h2>Latest articles</h2><div class="list">${d.recent_articles.map(a => `<div><span>${esc(a.title)}</span><span class="muted">${esc(dm(a.published_at))}</span></div>`).join('') || '<p class="muted">None published yet.</p>'}</div></div></div>`;
+      } else {
+        const nd = d.needs, s = d.status, pr = d.priority;
+        box.innerHTML = todo([[nd.replies_to_answer, ['lead has replied', 'leads have replied'], '#leads'], [nd.emails_to_approve, ['email waiting for your approval', 'emails waiting for your approval'], '#emails'],
+            [nd.follow_ups_due, ['lead ready for a follow up email', 'leads ready for a follow up email'], '#emails'], [nd.call_backs_due, ['follow up date due today or earlier', 'follow up dates due today or earlier'], '#leads'],
+            [nd.emails_to_check, ['email that failed or needs checking', 'emails that failed or need checking'], '#emails']])
+          + `<div class="tiles">${tile(d.leads, 'Leads', `${d.leads_this_month} found this month`, '#leads')}${tile(`${d.sent_today}<small class="muted"> of ${d.daily_cap}</small>`, 'Emails sent today', `${d.sent_this_month} this month`, '#emails')}
+            ${tile(d.reply_rate === null ? 'n/a' : `${d.reply_rate}%`, 'Reply rate', `${d.replied} of ${d.emailed} emailed`)}${tile(d.bounce_rate === null ? 'n/a' : `${d.bounce_rate}%`, 'Bounce rate', 'Keep this under 5%')}
+            ${tile(s.converted ?? 0, 'Won', '', '#leads')}</div>
+          <div class="cols wide-left"><div class="card"><h2>Emails sent, last 14 days</h2>${bars(d.sent_by_day, x => new Date(x).getDate())}</div>
+            <div class="card"><h2>Leads</h2><div class="list">${[['New', s.new], ['Contacted', s.contacted], ['Replied', s.replied], ['Won', s.converted], ['Bounced', s.bounced], ['Not interested', s.not_interested]].map(([k, v]) => `<div><span>${k}</span><b>${v ?? 0}</b></div>`).join('')}
+              <div><span>Hot, warm and cold</span><b>${pr.hot ?? 0} · ${pr.warm ?? 0} · ${pr.cold ?? 0}</b></div></div></div></div>
+          <div class="cols two"><div class="card"><h2>Follow up dates this week</h2><div class="list">${d.call_backs.map(l => `<div><a href="#leads" data-open-lead="${l.id}">${esc(l.company_name)}</a><span class="muted">${esc(dm(l.follow_up_date))}</span></div>`).join('') || '<p class="muted">None set for this week.</p>'}</div></div>
+            <div class="card"><h2>Latest replies</h2><div class="list">${d.recent_replies.map(l => `<div><a href="#leads" data-open-lead="${l.id}">${esc(l.company_name)}</a><span class="muted">${esc(dm(l.created_at))}</span></div>`).join('') || '<p class="muted">No replies yet.</p>'}</div></div></div>
+          <div class="cols two">${spendCard(d)}<div class="card"><h2>Lead search this month</h2><span>${d.usage.google_searches} of ${d.usage.google_free.toLocaleString('en-GB')} free Google searches${d.usage.google_cost_gbp ? `, ${money(d.usage.google_cost_gbp)} beyond that` : ''}</span><span>${plural(d.usage.firecrawl_credits, 'Firecrawl credit')}</span></div></div>`;
+      }
+    } catch (e) { box.innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
+  }
+  $('sDash').addEventListener('click', e => { const id = e.target.dataset.openLead; if (id) openLead(Number(id)); });
+
   let leadQuery = new URLSearchParams();
   // Downloads go through fetch so the API key travels in a header, never in a link.
   async function download(path, name) {

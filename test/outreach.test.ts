@@ -256,3 +256,13 @@ test('a first email with no reply gets one follow up in the same thread, which i
   assert.equal(dropped.status, 'rejected');
   assert.match(dropped.error, /answered the first email/);
 });
+
+test('the sales dashboard counts what needs David and how outreach is going', async () => {
+  const d = (await app.inject({ method: 'GET', url: '/dashboard/sales', headers })).json();
+  assert.equal(d.needs.replies_to_answer, db.prepare(`SELECT COUNT(*) AS n FROM leads WHERE status = 'replied'`).get().n);
+  assert.equal(d.sent_by_day.length, 14);
+  assert.ok(d.emailed > 0 && d.reply_rate >= 0);
+  const m = (await app.inject({ method: 'GET', url: '/dashboard/marketing', headers })).json();
+  assert.equal(m.posts_by_week.length, 8);
+  assert.ok(Math.abs(m.spend_gbp + d.spend_gbp - m.all_spend_gbp) < 0.011);
+});
