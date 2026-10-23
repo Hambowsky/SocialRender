@@ -285,7 +285,8 @@ export function buildApp() {
   app.get<{ Params: { id: number } }>('/campaigns/:id', { schema: { params: id } }, async req => leads.campaign(req.params.id));
   app.put<{ Params: { id: number }; Body: leads.CampaignInput }>('/campaigns/:id', { schema: { params: id, body: campaignBody } }, async req => leads.updateCampaign(req.params.id, req.body));
   app.delete<{ Params: { id: number } }>('/campaigns/:id', { schema: { params: id } }, async req => leads.deleteCampaign(req.params.id));
-  app.post<{ Params: { id: number } }>('/campaigns/:id/analyse', { schema: { params: id } }, async (req, reply) => { leads.campaign(req.params.id); return reply.code(202).send(analyseCampaign(req.params.id)); });
+  app.post<{ Params: { id: number }; Querystring: { all?: boolean } }>('/campaigns/:id/analyse', { schema: { params: id, querystring: { type: 'object', properties: { all: { type: 'boolean' } } } } },
+    async (req, reply) => { leads.campaign(req.params.id); return reply.code(202).send(analyseCampaign(req.params.id, req.query.all)); });
   app.post<{ Params: { id: number } }>('/leads/:id/analyse', { schema: { params: id } }, async req => analyseLead(req.params.id));
   app.get<{ Params: { id: number } }>('/leads/:id/screenshot.jpg', { schema: { params: id } }, async (req, reply) => {
     const file = leads.screenshotPath(req.params.id);

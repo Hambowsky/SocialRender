@@ -666,6 +666,7 @@
           <div class="row">
             <button type="button" class="small" data-run="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>${c.status === 'draft' ? 'Run' : 'Run again'}</button>
             ${c.leads > c.analysed ? `<button type="button" class="plain small" data-analyse="${c.id}" ${c.analysis_progress || c.status === 'running' ? 'disabled' : ''}>Analyse leads</button>` : ''}
+            ${c.analysed ? `<button type="button" class="plain small" data-analyse="${c.id}" data-all="1" ${c.analysis_progress || c.status === 'running' ? 'disabled' : ''}>Analyse all again</button>` : ''}
             <a class="muted" href="#leads" data-leads="${c.id}">${c.leads} lead${c.leads === 1 ? '' : 's'}</a>
             <button type="button" class="plain small" data-edit="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Edit</button>
             <button type="button" class="plain small" data-del="${c.id}" ${c.status === 'running' ? 'disabled' : ''}>Delete</button>
@@ -680,12 +681,13 @@
   }
   $('cReload').addEventListener('click', loadCampaigns);
   $('cList').addEventListener('click', async e => {
-    const { run, edit, del, leads, analyse } = e.target.dataset;
+    const { run, edit, del, leads, analyse, all } = e.target.dataset;
     if (analyse) {
       const c = campList.find(x => x.id === Number(analyse));
-      if (!confirm(`Analyse ${c.leads - c.analysed} lead${c.leads - c.analysed === 1 ? '' : 's'}? Each gets a PageSpeed test, a screenshot and Claude's view, at well under a penny of Claude each, within your monthly cap.`)) return;
+      const n = all ? c.leads : c.leads - c.analysed; // archived leads are skipped, so this can be a few high
+      if (!confirm(`Analyse ${all ? 'all ' : ''}${n} lead${n === 1 ? '' : 's'}${all ? ' again' : ''}? Each gets a fresh website check, a PageSpeed test, a screenshot and Claude's view, at well under a penny of Claude each, within your monthly cap.`)) return;
       e.target.disabled = true;
-      try { await api(`/campaigns/${analyse}/analyse`, { method: 'POST' }); } catch (err) { alert(err.message); }
+      try { await api(`/campaigns/${analyse}/analyse${all ? '?all=true' : ''}`, { method: 'POST' }); } catch (err) { alert(err.message); }
       return loadCampaigns();
     }
     if (leads) { $('lCampaign').value = leads; return; }

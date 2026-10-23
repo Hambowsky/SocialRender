@@ -124,9 +124,11 @@ export async function analyseLead(id: number) {
 }
 
 // Every lead in a campaign not yet analysed, one at a time in the background.
-export function analyseCampaign(id: number) {
+// `all` analyses every lead again, not just the new ones, to pick up changes to the sites or to the checks.
+export function analyseCampaign(id: number, all = false) {
   if (busy()) fail(409, 'A campaign is already running or being analysed. Wait for it to finish.');
-  const todo = db.prepare(`SELECT id, company_name FROM leads WHERE campaign_id = ? AND analysed_at IS NULL AND status != 'archived' ORDER BY id`).all(id) as { id: number; company_name: string }[];
+  const todo = db.prepare(`SELECT id, company_name FROM leads WHERE campaign_id = ? AND (? OR analysed_at IS NULL) AND status != 'archived' ORDER BY id`)
+    .all(id, all ? 1 : 0) as { id: number; company_name: string }[];
   if (!todo.length) fail(400, 'Every lead in this campaign has been analysed already');
   const p = { done: 0, total: todo.length, current: '' };
   analysing.set(id, p);

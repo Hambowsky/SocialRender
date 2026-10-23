@@ -202,6 +202,9 @@ test('analysing a lead adds its Business Profile and Claude\'s priority, note an
   const dead = (await app.inject({ method: 'GET', url: '/leads?q=Dead', headers })).json()[0];
   assert.match((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors.join(), /^Website check: .*Screenshot: /);
   assert.equal((await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse`, headers })).statusCode, 400, 'nothing left to analyse');
+  const again = (await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse?all=true`, headers })).json();
+  assert.equal(again.total, 3, 'all again includes analysed leads');
+  for (let i = 0; i < 100 && (await app.inject({ method: 'GET', url: `/campaigns/${smith.campaign_id}`, headers })).json().analysis_progress; i++) await new Promise(r => setTimeout(r, 50));
 });
 
 test('analysing a lead whose site was unreachable updates its website details once the site loads', async () => {
