@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyReply } from 'fastify';
-import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, OUTREACH_DAILY_CAP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
+import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, IMAP_HOST, OUTREACH_DAILY_CAP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
 import { closeBrowser, publicFile, render, renderPath, renderVideo } from './render.ts';
 import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, sizesOf, versions } from './templates.ts';
@@ -17,6 +17,7 @@ import * as articles from './articles.ts';
 import * as leads from './leads.ts';
 import { analyseCampaign, analyseLead } from './analyse.ts';
 import * as outreach from './outreach.ts';
+import { inboxState, startInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
 
 type Fields = Record<string, string>;
@@ -314,7 +315,7 @@ export function buildApp() {
   // Outreach
   app.post<{ Params: { id: number } }>('/leads/:id/email', { schema: { params: id } }, async (req, reply) => background(reply, () => outreach.draft(req.params.id)));
   app.post<{ Params: { id: number } }>('/leads/:id/company-check', { schema: { params: id } }, async req => outreach.companyCheck(req.params.id));
-  app.get('/emails', async () => ({ emails: outreach.list(), sent_today: outreach.sentToday(), daily_cap: OUTREACH_DAILY_CAP }));
+  app.get('/emails', async () => ({ emails: outreach.list(), sent_today: outreach.sentToday(), daily_cap: OUTREACH_DAILY_CAP, inbox: IMAP_HOST ? inboxState() : null }));
   app.put<{ Params: { id: number }; Body: { subject?: string; body?: string } }>('/emails/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false,
     properties: { subject: { type: 'string', minLength: 1, maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 10000 } } } } },
   async req => outreach.edit(req.params.id, req.body));
@@ -363,6 +364,7 @@ export async function start() {
   prompts.seed();
   startCleanup();
   outreach.startOutreach();
+  startInbox();
   const app = buildApp();
   const stop = async () => { await app.close(); await closeBrowser(); process.exit(0); };
   process.on('SIGTERM', stop);

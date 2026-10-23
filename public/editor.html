@@ -725,11 +725,13 @@
 
   // Emails: Claude's drafts wait here for approval, then send one at a time within the daily cap.
   const EMAIL_STATUS = { pending_approval: ['Needs approval', 'pending'], approved: ['Waiting to send', 'draft'], sending: ['Sending', 'draft'], sent: ['Sent', 'sent'],
-    failed: ['Not sent', 'bad'], check_sent: ['Check if it went', 'bad'], rejected: ['Rejected', ''] };
+    failed: ['Not sent', 'bad'], check_sent: ['Check if it went', 'bad'], rejected: ['Rejected', ''], bounced: ['Bounced', 'bad'] };
   async function loadEmails() {
     try {
       const r = await (await api('/emails')).json();
-      $('eToday').textContent = `${r.sent_today} of ${r.daily_cap} sent today. Approved emails go out one at a time; the rest wait for tomorrow.`;
+      const ib = r.inbox, at = ib?.checked_at && new Date(ib.checked_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      $('eToday').textContent = `${r.sent_today} of ${r.daily_cap} sent today. Approved emails go out one at a time; the rest wait for tomorrow. `
+        + (!ib ? 'Replies and bounces are not being read: set IMAP_HOST.' : ib.error ? `The inbox check failed at ${at}: ${ib.error}` : at ? `Inbox checked for replies and bounces at ${at}.` : 'The inbox is checked for replies and bounces every 15 minutes once an email has gone.');
       $('eList').innerHTML = r.emails.map(m => {
         const [label, cls] = EMAIL_STATUS[m.status];
         const open = m.status === 'pending_approval';
