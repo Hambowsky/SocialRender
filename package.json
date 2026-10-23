@@ -13,6 +13,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.135.0",
     "fastify": "^5.6.0",
+    "imapflow": "^2.9.1",
     "nodemailer": "^10.2.1",
     "playwright": "1.56.1"
   },

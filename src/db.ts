@@ -150,7 +150,7 @@ const migrations = [
      to_email TEXT NOT NULL,
      subject TEXT NOT NULL,
      body TEXT NOT NULL,
-     status TEXT NOT NULL DEFAULT 'pending_approval', -- pending_approval, approved, sending, sent, failed, check_sent, rejected
+     status TEXT NOT NULL DEFAULT 'pending_approval', -- pending_approval, approved, sending, sent, failed, check_sent, rejected, bounced
      error TEXT,
      message_id TEXT,
      created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -165,6 +165,11 @@ const migrations = [
    );
    -- JSON from Companies House: {registered, name, number} or {registered: false}
    ALTER TABLE leads ADD COLUMN company_check TEXT`,
+
+  `CREATE TABLE settings (             -- small bits of state, such as how far the inbox has been read
+     key TEXT PRIMARY KEY,
+     value TEXT NOT NULL
+   )`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

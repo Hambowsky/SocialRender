@@ -169,3 +169,33 @@ test('unsubscribing needs a valid link and a click, and stops every email to tha
   assert.equal(added.json().added, 2);
   assert.equal((await app.inject({ method: 'GET', url: '/suppression', headers })).json().length, 3);
 });
+
+test('the inbox check marks replies and hard bounces, and ignores out of office and delay notices', async () => {
+  const { handleMessage } = await import('../src/inbox.ts');
+  const smith = db.prepare(`SELECT id, lead_id, message_id FROM emails WHERE to_email = 'office@smith.example'`).get();
+  const status = (id: number) => db.prepare('SELECT status FROM leads WHERE id = ?').get(id).status;
+  const msg = (headers: string, body = 'Hi') => `${headers.trim().split('\n').map(l => l.trim()).join('\r\n')}\r\n\r\n${body}`;
+
+  assert.equal(handleMessage(msg(`From: Office <office@smith.example>
+    Subject: Automatic reply: A website concept for Smith Plumbing
+    Auto-Submitted: auto-replied
+    In-Reply-To: ${smith.message_id}`)), 'ignored');
+  assert.equal(status(smith.lead_id), 'contacted');
+  assert.equal(handleMessage(msg(`From: Sam Smith <office@smith.example>
+    Subject: Re: A website concept for Smith Plumbing
+    In-Reply-To:
+     ${smith.message_id}`, 'Yes please')), 'reply');
+  assert.equal(status(smith.lead_id), 'replied');
+
+  const jones = db.prepare(`SELECT id, lead_id, message_id FROM emails WHERE to_email = 'hi@jones.example'`).get();
+  const report = (code: string) => msg(`From: Mail Delivery System <MAILER-DAEMON@mx.example>
+    Subject: Undelivered Mail Returned to Sender
+    Content-Type: multipart/report; report-type=delivery-status; boundary="b"`,
+    `--b\r\nContent-Type: message/delivery-status\r\n\r\nFinal-Recipient: rfc822; hi@jones.example\r\nAction: ${code.startsWith('5') ? 'failed' : 'delayed'}\r\nStatus: ${code}\r\n\r\n--b\r\nContent-Type: text/rfc822-headers\r\n\r\nMessage-ID: ${jones.message_id}\r\n--b--`);
+  assert.equal(handleMessage(report('4.4.7')), 'ignored');
+  assert.equal(handleMessage(report('5.1.1')), 'bounce');
+  assert.equal(db.prepare('SELECT status FROM emails WHERE id = ?').get(jones.id).status, 'bounced');
+  assert.equal(status(jones.lead_id), 'bounced');
+  assert.equal(db.prepare(`SELECT reason FROM suppression WHERE email = 'hi@jones.example'`).get().reason, 'bounced');
+  assert.equal(handleMessage(msg('From: someone@else.example\nSubject: Hello')), 'ignored', 'mail that is not about outreach is left alone');
+});

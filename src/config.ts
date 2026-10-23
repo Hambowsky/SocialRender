@@ -53,6 +53,11 @@ export const SMTP_PASS = env.SMTP_PASS ?? '';
 export const SMTP_FROM = env.SMTP_FROM ?? ''; // e.g. David Hanmer <david@redcherryit.com>
 export const OUTREACH_DAILY_CAP = Number(env.OUTREACH_DAILY_CAP || 40);
 export const OUTREACH_DELAY_SECONDS = Number(env.OUTREACH_DELAY_SECONDS ?? 20);
+// Replies and bounces are read from the same mailbox over IMAP. Blank IMAP_HOST turns it off.
+export const IMAP_HOST = env.IMAP_HOST ?? '';
+export const IMAP_PORT = Number(env.IMAP_PORT || 993);
+export const IMAP_USER = env.IMAP_USER || SMTP_USER;
+export const IMAP_PASS = env.IMAP_PASS || SMTP_PASS;
 // Companies House tells a limited company (fine to email) from a likely sole trader or partnership (PECR needs their consent).
 export const COMPANIES_HOUSE_API_KEY = env.COMPANIES_HOUSE_API_KEY ?? '';
 export const COMPANIES_HOUSE_URL = env.COMPANIES_HOUSE_URL || 'https://api.company-information.service.gov.uk';
