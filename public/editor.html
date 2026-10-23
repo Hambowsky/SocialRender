@@ -445,8 +445,9 @@
 <section class="view" data-view="emails" hidden>
   <div class="cols wide-left">
     <div class="card">
-      <div class="card-head"><h2>Emails</h2><button type="button" class="plain small" id="eReload">Refresh</button></div>
+      <div class="card-head"><h2>Emails</h2><div class="row"><button type="button" class="plain small" id="eCheck">Send me a test email</button><button type="button" class="plain small" id="eReload">Refresh</button></div></div>
       <span class="muted" id="eToday"></span>
+      <span id="eCheckOut" style="font-size:13px"></span>
       <div id="eList" class="queue"></div>
     </div>
     <div class="card">
@@ -757,6 +758,15 @@
     } catch (e) { $('eList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
   $('eReload').addEventListener('click', loadEmails);
+  $('eCheck').addEventListener('click', async e => {
+    e.target.disabled = true;
+    $('eCheckOut').textContent = 'Sending...';
+    try {
+      const r = await (await api('/emails/check', { method: 'POST' })).json();
+      $('eCheckOut').textContent = `Test email sent to ${r.sent_to}. Inbox for replies: ${r.inbox}.`;
+    } catch (err) { $('eCheckOut').textContent = err.message; }
+    e.target.disabled = false;
+  });
   $('eList').addEventListener('click', async e => {
     const act = e.target.dataset.act, box = e.target.closest('[data-email]');
     if (!act) return;

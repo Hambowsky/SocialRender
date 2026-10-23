@@ -124,6 +124,15 @@ export async function test(id: number) {
   return { sent_to: own };
 }
 
+// Proves the mailbox settings work before any lead is drafted: one plain email to David's own address.
+export async function testSettings() {
+  ready();
+  const own = SMTP_FROM.match(/<([^>]+)>/)?.[1] ?? SMTP_FROM;
+  await transport().sendMail(message(own, '[Test] Your studio can send email', 'This is a test from the studio. Outreach emails will come from this address and look like this, with the unsubscribe line below.'))
+    .catch((err: Error) => fail(502, `The mail server said: ${err.message}`));
+  return own;
+}
+
 export function sentToday() {
   return (db.prepare(`SELECT COUNT(*) AS n FROM emails WHERE status IN ('sent', 'sending', 'check_sent') AND sent_at >= date('now')`).get() as { n: number }).n;
 }
