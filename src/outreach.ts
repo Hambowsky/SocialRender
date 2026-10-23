@@ -5,13 +5,13 @@
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { db } from './db.ts';
-import { API_KEY, fail, OUTREACH_DAILY_CAP, OUTREACH_DELAY_SECONDS, PUBLIC_URL,
+import { API_KEY, fail, OUTREACH_DAILY_CAP, OUTREACH_DELAY_SECONDS, OUTREACH_FOLLOW_UP_DAYS, PUBLIC_URL,
   SMTP_FROM, SMTP_HOST, SMTP_PASS, SMTP_PORT, SMTP_USER } from './config.ts';
 import { lead } from './leads.ts';
 import { runPrompt } from './copy.ts';
 
 type Email = { id: number; lead_id: number | null; to_email: string; subject: string; body: string; status: string; error: string | null;
-  message_id: string | null; created_at: string; approved_at: string | null; sent_at: string | null };
+  message_id: string | null; created_at: string; approved_at: string | null; sent_at: string | null; follow_up_of: number | null };
 
 const get = (id: number) => (db.prepare('SELECT * FROM emails WHERE id = ?').get(id) as Email | undefined) ?? fail(404, `There is no email ${id}`);
 const norm = (email: string) => email.trim().toLowerCase();
@@ -58,6 +58,34 @@ export async function draftCampaign(campaignId: number) {
       }
     }
     return { drafted, skipped };
+  } finally { drafting = false; }
+}
+
+// First emails sent long enough ago with no answer: the lead is still only "contacted", and nothing else is open for it.
+// Each first email gets one follow up at most; a rejected follow up is not offered again.
+const DUE = `FROM emails e JOIN leads l ON l.id = e.lead_id WHERE e.follow_up_of IS NULL AND e.status = 'sent' AND l.status = 'contacted'
+  AND e.sent_at <= datetime('now', ?) AND NOT EXISTS (SELECT 1 FROM emails f WHERE f.follow_up_of = e.id)
+  AND NOT EXISTS (SELECT 1 FROM emails o WHERE o.lead_id = e.lead_id AND o.status IN ('pending_approval', 'approved', 'sending'))
+  AND NOT EXISTS (SELECT 1 FROM suppression s WHERE s.email = e.to_email)`;
+const since = () => `-${OUTREACH_FOLLOW_UP_DAYS} days`;
+export const followUpsDue = () => (db.prepare(`SELECT COUNT(*) AS n ${DUE}`).get(since()) as { n: number }).n;
+
+// A short second email for each one due, in the same thread as the first. Waits for approval like any other.
+export async function draftFollowUps() {
+  if (drafting) fail(409, 'Drafts are already being written. Wait for them to finish.');
+  drafting = true;
+  try {
+    const due = db.prepare(`SELECT e.*, l.company_name, l.contact_name ${DUE} ORDER BY e.id`).all(since()) as (Email & { company_name: string; contact_name: string })[];
+    let drafted = 0;
+    for (const e of due) {
+      try {
+        const r = await runPrompt('outreach-follow-up', { company: e.company_name, contact: e.contact_name || 'not known',
+          days: String(Math.round((Date.now() - Date.parse(`${e.sent_at}Z`)) / 86_400_000)), subject: e.subject, first_email: e.body }, { job: 'lead:follow-up' });
+        drafted += Number(db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, follow_up_of) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`)
+          .run(e.lead_id, e.to_email, /^re:/i.test(e.subject) ? e.subject : `Re: ${e.subject}`, r.output.body, e.id).changes);
+      } catch (err: any) { return { drafted, error: err.message }; }
+    }
+    return { drafted };
   } finally { drafting = false; }
 }
 
@@ -178,10 +206,16 @@ export async function pump() {
       const e = db.prepare(`SELECT * FROM emails WHERE status = 'approved' ORDER BY approved_at, id LIMIT 1`).get() as Email | undefined;
       if (!e) return;
       if (suppressed(e.to_email)) { db.prepare(`UPDATE emails SET status = 'rejected', error = 'On the do not email list' WHERE id = ?`).run(e.id); continue; }
+      // A follow up only goes while there has been no answer: a reply or bounce since it was drafted stops it.
+      const first = e.follow_up_of ? get(e.follow_up_of) : null;
+      if (first && (db.prepare('SELECT status FROM leads WHERE id = ?').get(e.lead_id) as { status: string } | undefined)?.status !== 'contacted') {
+        db.prepare(`UPDATE emails SET status = 'rejected', error = 'They answered the first email, so the follow up was not sent' WHERE id = ?`).run(e.id); continue;
+      }
       const messageId = `<outreach-${e.id}-${crypto.randomBytes(6).toString('hex')}@${(SMTP_FROM.match(/@([^>\s]+)/)?.[1] ?? 'redcherryit.com')}>`;
       if (!db.prepare(`UPDATE emails SET status = 'sending', sent_at = datetime('now'), message_id = ? WHERE id = ? AND status = 'approved'`).run(messageId, e.id).changes) continue;
       try {
-        await transport().sendMail({ ...message(e.to_email, e.subject, e.body), messageId });
+        const thread = first?.message_id ? { inReplyTo: first.message_id, references: first.message_id } : {};
+        await transport().sendMail({ ...message(e.to_email, e.subject, e.body), messageId, ...thread });
         db.prepare(`UPDATE emails SET status = 'sent' WHERE id = ?`).run(e.id);
         contacted(e);
       } catch (err: any) {

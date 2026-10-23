@@ -219,3 +219,40 @@ test('a whole campaign can be drafted at once, skipping leads already emailed, a
   assert.equal((await app.inject({ method: 'POST', url: '/emails/approve-all', headers })).json().approved, waiting);
   assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM emails WHERE status = 'pending_approval'`).get().n, 0);
 });
+
+test('a first email with no reply gets one follow up in the same thread, which is dropped if they reply first', async () => {
+  // Brown unsubscribed and Jones bounced earlier; Smith replied. A fresh lead that was emailed a week ago and never answered:
+  const id = addLead('Quiet Glazing', 'hi@quiet.example');
+  db.prepare(`UPDATE leads SET status = 'contacted' WHERE id = ?`).run(id);
+  const first = Number(db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, status, message_id, sent_at)
+    VALUES (?, 'hi@quiet.example', 'A website concept for Quiet Glazing', 'Hello', 'sent', '<outreach-99-ab@redcherryit.com>', datetime('now', '-6 days'))`).run(id).lastInsertRowid);
+  const recent = addLead('Recent Glazing', 'hi@recent.example');
+  db.prepare(`UPDATE leads SET status = 'contacted' WHERE id = ?`).run(recent);
+  db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, status, sent_at) VALUES (?, 'hi@recent.example', 'Hi', 'Hello', 'sent', datetime('now', '-1 days'))`).run(recent);
+  db.prepare(`UPDATE emails SET status = 'rejected' WHERE status = 'approved'`).run(); // nothing else queued
+  db.prepare(`UPDATE emails SET sent_at = datetime('now', '-1 days') WHERE sent_at >= date('now')`).run(); // free the daily cap
+
+  assert.equal((await app.inject({ method: 'GET', url: '/emails', headers })).json().follow_ups_due, 1);
+  const { job } = (await app.inject({ method: 'POST', url: '/emails/follow-ups', headers })).json();
+  let r;
+  do { await new Promise(ok => setTimeout(ok, 20)); r = (await app.inject({ method: 'GET', url: `/jobs/${job}`, headers })).json(); } while (r.done === false);
+  assert.deepEqual(r.result, { drafted: 1 });
+  assert.match(lastPrompt, /A website concept for Quiet Glazing/);
+  const f = db.prepare('SELECT * FROM emails WHERE follow_up_of = ?').get(first);
+  assert.equal(f.subject, 'Re: A website concept for Quiet Glazing');
+  assert.equal((await app.inject({ method: 'GET', url: '/emails', headers })).json().follow_ups_due, 0, 'one follow up only');
+
+  mail.length = 0;
+  await app.inject({ method: 'POST', url: `/emails/${f.id}/approve`, headers });
+  assert.equal((await settle(f.id)).status, 'sent');
+  assert.match(mail[0], /In-Reply-To: <outreach-99-ab@redcherryit\.com>/);
+  assert.match(mail[0], /References: <outreach-99-ab@redcherryit\.com>/);
+
+  // A follow up approved after the lead replied is not sent.
+  const later = Number(db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, follow_up_of) VALUES (?, 'hi@recent.example', 'Re: Hi', 'Hello again', (SELECT id FROM emails WHERE to_email = 'hi@recent.example'))`).run(recent).lastInsertRowid);
+  db.prepare(`UPDATE leads SET status = 'replied' WHERE id = ?`).run(recent);
+  await app.inject({ method: 'POST', url: `/emails/${later}/approve`, headers });
+  const dropped = await settle(later);
+  assert.equal(dropped.status, 'rejected');
+  assert.match(dropped.error, /answered the first email/);
+});

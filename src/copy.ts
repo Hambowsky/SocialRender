@@ -79,6 +79,11 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     required: ['subject', 'body'],
     properties: { subject: str, body: str },
   },
+  'outreach-follow-up': {
+    type: 'object', additionalProperties: false,
+    required: ['body'],
+    properties: { body: str },
+  },
   'lead-review': {
     type: 'object', additionalProperties: false,
     required: ['priority', 'notes', 'pitch'],
