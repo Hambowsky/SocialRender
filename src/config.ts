@@ -53,6 +53,7 @@ export const SMTP_PASS = env.SMTP_PASS ?? '';
 export const SMTP_FROM = env.SMTP_FROM ?? ''; // e.g. David Hanmer <david@redcherryit.com>
 export const OUTREACH_DAILY_CAP = Number(env.OUTREACH_DAILY_CAP || 40);
 export const OUTREACH_DELAY_SECONDS = Number(env.OUTREACH_DELAY_SECONDS ?? 20);
+export const OUTREACH_FOLLOW_UP_DAYS = Number(env.OUTREACH_FOLLOW_UP_DAYS || 5);
 // Replies and bounces are read from the same mailbox over IMAP. Blank IMAP_HOST turns it off.
 export const IMAP_HOST = env.IMAP_HOST ?? '';
 export const IMAP_PORT = Number(env.IMAP_PORT || 993);

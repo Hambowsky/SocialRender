@@ -198,6 +198,9 @@ const migrations = [
      ('Tyneside Damp Specialists', 'Damp proofing specialists', 'We built Tyneside Damp Specialists, experts in damp proofing and timber treatments, a lead generating website.'),
      ('Tyne Tees Woodworm', 'Pest control and woodworm treatment', 'We built Tyne Tees Woodworm, professional woodworm and pest treatment specialists across the North East, a lead generating website.'),
      ('Whites Building and Groundworks', 'Builders and groundworkers', 'We built Whites Building and Groundworks, a general building contractor based in Blaydon-on-Tyne, a lead generating website.')`,
+
+  `ALTER TABLE emails ADD COLUMN follow_up_of INTEGER REFERENCES emails (id); -- the first email this one follows up, or null
+   CREATE UNIQUE INDEX emails_one_follow_up ON emails (follow_up_of)`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

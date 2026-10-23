@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyReply } from 'fastify';
-import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, IMAP_HOST, OUTREACH_DAILY_CAP, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
+import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, IMAP_HOST, OUTREACH_DAILY_CAP, OUTREACH_FOLLOW_UP_DAYS, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
 import { closeBrowser, publicFile, render, renderPath, renderVideo } from './render.ts';
 import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, sizesOf, versions } from './templates.ts';
@@ -326,7 +326,8 @@ export function buildApp() {
   app.post<{ Params: { id: number } }>('/campaigns/:id/email', { schema: { params: id } },
     async (req, reply) => { leads.campaign(req.params.id); return background(reply, () => outreach.draftCampaign(req.params.id)); });
   app.post('/emails/approve-all', async () => outreach.approveAll());
-  app.get('/emails', async () => ({ emails: outreach.list(), sent_today: outreach.sentToday(), daily_cap: OUTREACH_DAILY_CAP, inbox: IMAP_HOST ? inboxState() : null }));
+  app.post('/emails/follow-ups', async (_req, reply) => background(reply, () => outreach.draftFollowUps()));
+  app.get('/emails', async () => ({ emails: outreach.list(), sent_today: outreach.sentToday(), daily_cap: OUTREACH_DAILY_CAP, follow_ups_due: outreach.followUpsDue(), follow_up_days: OUTREACH_FOLLOW_UP_DAYS, inbox: IMAP_HOST ? inboxState() : null }));
   app.put<{ Params: { id: number }; Body: { subject?: string; body?: string } }>('/emails/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false,
     properties: { subject: { type: 'string', minLength: 1, maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 10000 } } } } },
   async req => outreach.edit(req.params.id, req.body));

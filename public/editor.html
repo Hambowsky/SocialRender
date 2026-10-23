@@ -445,7 +445,7 @@
 <section class="view" data-view="emails" hidden>
   <div class="cols wide-left">
     <div class="card">
-      <div class="card-head"><h2>Emails</h2><div class="row"><button type="button" class="small" id="eApproveAll" hidden>Approve all and send</button><button type="button" class="plain small" id="eCheck">Send me a test email</button><button type="button" class="plain small" id="eReload">Refresh</button></div></div>
+      <div class="card-head"><h2>Emails</h2><div class="row"><button type="button" class="plain small" id="eFollow" hidden></button><button type="button" class="small" id="eApproveAll" hidden>Approve all and send</button><button type="button" class="plain small" id="eCheck">Send me a test email</button><button type="button" class="plain small" id="eReload">Refresh</button></div></div>
       <span class="muted" id="eToday"></span>
       <span id="eCheckOut" style="font-size:13px"></span>
       <div id="eList" class="queue"></div>
@@ -453,7 +453,7 @@
     <div class="cols">
     <div class="card">
       <div class="card-head"><h2>Do not email</h2><span class="muted" id="sCount"></span></div>
-      <p class="muted">Addresses here are never emailed. Unsubscribes are added on their own. Paste the list from the old tool before sending anything.</p>
+      <p class="muted">Addresses here are never emailed. Unsubscribes and bounces are added on their own.</p>
       <label>Add addresses, one per line or separated by commas <textarea id="sAdd" rows="4"></textarea></label>
       <div class="row"><button type="button" class="small" id="sSave">Add to the list</button><span id="sOut"></span></div>
       <div id="sList" class="activity"></div>
@@ -762,12 +762,12 @@
         const [label, cls] = EMAIL_STATUS[m.status];
         const open = m.status === 'pending_approval';
         return `<div class="camp" data-email="${m.id}" data-to="${esc(m.to_email)}">
-          <div class="row" style="justify-content:space-between"><h3>${esc(m.company_name ?? 'Lead deleted')}</h3><span class="badge ${cls}">${label}</span></div>
+          <div class="row" style="justify-content:space-between"><h3>${esc(m.company_name ?? 'Lead deleted')}</h3><span class="row">${m.follow_up_of ? '<span class="badge">Follow up</span>' : ''}<span class="badge ${cls}">${label}</span></span></div>
           <span class="muted">To ${esc(m.to_email)}${m.sent_at && m.status === 'sent' ? ` · sent ${esc(m.sent_at.slice(0, 16))}` : ''}</span>
           ${m.error ? `<span class="bad" style="font-size:13px">${esc(m.error)}${m.status === 'check_sent' ? '. Check with them or your mail provider whether it arrived.' : ''}</span>` : ''}
           ${open ? `<label>Subject <input data-f="subject" value="${esc(m.subject)}" maxlength="200"></label>
             <label>Email <textarea data-f="body" rows="9">${esc(m.body)}</textarea></label>
-            <span class="muted">An unsubscribe line is added at the bottom when it is sent.</span>`
+            <span class="muted">An unsubscribe line is added at the bottom when it is sent.${m.follow_up_of ? ' It goes in the same thread as the first email, and is dropped if they reply first.' : ''}</span>`
           : `<details><summary>${esc(m.subject)}</summary><p style="white-space:pre-wrap;font-size:14px">${esc(m.body)}</p></details>`}
           <div class="row">
             ${open ? `<button type="button" class="small" data-act="approve">Approve and send</button><button type="button" class="plain small" data-act="save">Save changes</button><button type="button" class="plain small" data-act="test">Send me a test</button>` : ''}
@@ -779,6 +779,9 @@
       }).join('') || '<p class="muted">No emails yet. Open a lead with an email address and choose Draft an email.</p>';
       const waiting = r.emails.filter(m => m.status === 'pending_approval').length;
       $('eApproveAll').hidden = !waiting;
+      $('eFollow').hidden = !r.follow_ups_due;
+      $('eFollow').textContent = `Draft follow ups (${r.follow_ups_due})`;
+      $('eFollow').dataset.days = r.follow_up_days;
       $('eApproveAll').textContent = `Approve all and send (${waiting})`;
       const list = await (await api('/suppression')).json();
       $('sCount').textContent = plural(list.length, 'address', 'addresses');
@@ -787,6 +790,18 @@
     } catch (e) { $('eList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
   $('eReload').addEventListener('click', loadEmails);
+  $('eFollow').addEventListener('click', async e => {
+    const n = e.target.textContent.match(/\d+/)[0];
+    if (!confirm(`Draft a short follow up for ${n} ${n === '1' ? 'lead' : 'leads'} with no reply after ${e.target.dataset.days} days? Claude writes each one, at a penny or two each. Nothing is sent until you approve it, and a follow up is dropped if they reply first.`)) return;
+    e.target.disabled = true;
+    e.target.textContent = 'Drafting...';
+    try {
+      const r = await apiJob('/emails/follow-ups');
+      if (r.error) alert(`${plural(r.drafted, 'follow up')} drafted. Stopped early: ${r.error}`);
+    } catch (err) { alert(err.message); }
+    e.target.disabled = false;
+    loadEmails();
+  });
   $('eApproveAll').addEventListener('click', async e => {
     const boxes = [...$('eList').querySelectorAll('[data-email]')].filter(b => b.querySelector('[data-f]'));
     if (!confirm(`Approve and send all ${plural(boxes.length, 'draft')}? They go one at a time, up to the daily limit, and the rest go tomorrow. They cannot be unsent.`)) return;
