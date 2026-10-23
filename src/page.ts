@@ -78,3 +78,10 @@ export async function readPage(raw: string) {
   if (page.text.length < 100) fail(422, 'Could not find much text on that page. It may need JavaScript to show its content, so paste the text into Sources instead.');
   return { url: url.href, ...page, text: page.text.slice(0, MAX_CHARS) };
 }
+
+// Text that marks a bot check page instead of the real site.
+const CHALLENGE = ['checking your browser', 'complete a security check', 'just a moment', 'one moment, please', 'please wait while we verify', 'verifying you are human',
+  'needs to review the security of your connection', 'enable javascript and cookies to continue', 'ddos protection by',
+  'attention required! | cloudflare', 'cf-browser-verification', 'cf_chl_opt', 'challenges.cloudflare.com', 'jschl-answer',
+  'cdn-cgi/challenge-platform', '_incapsula_resource', 'geo.captcha-delivery.com', 'px-captcha', 'distil_r_captcha'];
+export const isChallenge = (html: string) => { const head = html.slice(0, 4000).toLowerCase(); return CHALLENGE.some(m => head.includes(m)); };

@@ -49,11 +49,14 @@ const fake = http.createServer((req, res) => {
         usage: { input_tokens: 3000, output_tokens: 100 } });
     }
     if (req.url === '/v2/scrape') {
-      const { url } = JSON.parse(body);
+      const { url, formats } = JSON.parse(body);
+      if (formats.some((f: any) => f.type === 'screenshot')) return res.end(JSON.stringify({ success: true, data: { rawHtml: '<html><body>Real site</body></html>',
+        screenshot: `http://${req.headers.host}/shot.jpg`, metadata: { statusCode: 200, creditsUsed: 1 } } }));
       if (!url.includes('turns-servers-away.invalid')) { res.statusCode = 500; return res.end(JSON.stringify({ success: false, error: 'Could not load' })); }
       return res.end(JSON.stringify({ success: true, data: { rawHtml: '<html><body><script>var x=1</script><a href="mailto:office@turns-servers-away.co.uk">Email</a></body></html>',
         metadata: { statusCode: 200, url: 'https://turns-servers-away.invalid/', creditsUsed: 1 } } }));
     }
+    if (req.url === '/shot.jpg') return res.end('jpeg bytes');
     if (req.url === '/v2/search') {
       calls.firecrawl++;
       const { query } = JSON.parse(body);
@@ -102,6 +105,13 @@ test('the HTML checks find old, insecure and unfriendly sites and their contact 
   assert.equal(gone.reachable, false, 'a failed read is not counted');
   assert.match(gone.note!, /^Its address does not exist\. Firecrawl could not read it either: Could not load$/);
   assert.equal((await import('../src/leads.ts')).usage().firecrawl_credits, 1);
+  // A site stuck on its bot check is photographed by Firecrawl instead.
+  const { isChallenge } = await import('../src/page.ts');
+  assert.ok(isChallenge('<p>To access this website, please wait while we complete a security check.</p>'));
+  const shot = path.join(os.tmpdir(), `shot-${process.pid}.jpg`);
+  assert.equal(await (await import('../src/sitecheck.ts')).scrapeShot('https://bot-check.example/', shot), '<html><body>Real site</body></html>');
+  assert.equal(fs.readFileSync(shot, 'utf8'), 'jpeg bytes');
+  fs.rmSync(shot);
   (await import('../src/db.ts')).db.prepare(`DELETE FROM api_cache WHERE key LIKE 'scrape:%'`).run(); // keep the campaign cost checks below exact
   const old = analyse(`<html><head><title>Bob</title></head><body><img src=a.png><img src=b.png alt="">
     <a href="https://www.facebook.com/bobsplumbing">fb</a><a href="https://www.facebook.com/sharer/sharer.php?u=x">share</a>
