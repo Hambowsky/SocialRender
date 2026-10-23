@@ -115,7 +115,7 @@ test('the HTML checks find old, insecure and unfriendly sites and their contact 
     { facebook: 'https://www.facebook.com/Falcusroofingnewcastle', linkedin: 'https://uk.linkedin.com/company/falcus-roofing' });
   // A site stuck on its bot check is photographed by Firecrawl instead.
   const { isChallenge } = await import('../src/page.ts');
-  assert.ok(isChallenge('<p>To access this website, please wait while we complete a security check.</p>'));
+  assert.ok(isChallenge(`<script>${'x'.repeat(9000)}</script><p>To access this website, please wait while we complete a security check.</p>`));
   const shot = path.join(os.tmpdir(), `shot-${process.pid}.jpg`);
   assert.equal(await (await import('../src/sitecheck.ts')).scrapeShot('https://bot-check.example/', shot), '<html><body>Real site</body></html>');
   assert.equal(fs.readFileSync(shot, 'utf8'), 'jpeg bytes');

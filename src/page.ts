@@ -84,4 +84,8 @@ const CHALLENGE = ['checking your browser', 'complete a security check', 'just a
   'needs to review the security of your connection', 'enable javascript and cookies to continue', 'ddos protection by',
   'attention required! | cloudflare', 'cf-browser-verification', 'cf_chl_opt', 'challenges.cloudflare.com', 'jschl-answer',
   'cdn-cgi/challenge-platform', '_incapsula_resource', 'geo.captcha-delivery.com', 'px-captcha', 'distil_r_captcha'];
-export const isChallenge = (html: string) => { const head = html.slice(0, 4000).toLowerCase(); return CHALLENGE.some(m => head.includes(m)); };
+// Checked in the raw start of the page (some markers sit in scripts) and in its text, since a check page can carry a lot of script before any words.
+export const isChallenge = (html: string) => {
+  const head = (html.slice(0, 4000) + html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, '').replace(/<[^>]+>/g, ' ').slice(0, 4000)).toLowerCase();
+  return CHALLENGE.some(m => head.includes(m));
+};
