@@ -69,7 +69,8 @@ let app: any;
 const headers = { 'x-api-key': 'test-key' };
 before(async () => {
   await new Promise<void>(ok => fake.listen(0, '127.0.0.1', () => ok()));
-  process.env.ANTHROPIC_BASE_URL = process.env.GOOGLE_PLACES_URL = process.env.FIRECRAWL_API_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
+  process.env.ANTHROPIC_BASE_URL = process.env.GOOGLE_PLACES_URL = process.env.FIRECRAWL_API_URL = process.env.RDAP_URL = `http://127.0.0.1:${(fake.address() as any).port}`;
+  process.env.PAGESPEED_URL = `http://127.0.0.1:${(fake.address() as any).port}/pagespeed`;
   app = (await import('../src/server.ts')).buildApp();
   (await import('../src/copy.ts')).seed();
 });
@@ -199,8 +200,20 @@ test('analysing a lead adds its Business Profile and Claude\'s priority, note an
   const c = (await app.inject({ method: 'GET', url: `/campaigns/${smith.campaign_id}`, headers })).json();
   assert.equal(c.analysed, 3);
   const dead = (await app.inject({ method: 'GET', url: '/leads?q=Dead', headers })).json()[0];
-  assert.match((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors.join(), /^Screenshot: .*Website check: /);
+  assert.match((await app.inject({ method: 'GET', url: `/leads/${dead.id}`, headers })).json().analysis.errors.join(), /^Website check: .*Screenshot: /);
   assert.equal((await app.inject({ method: 'POST', url: `/campaigns/${smith.campaign_id}/analyse`, headers })).statusCode, 400, 'nothing left to analyse');
+});
+
+test('analysing a lead whose site was unreachable updates its website details once the site loads', async () => {
+  const { db } = await import('../src/db.ts');
+  const { lastInsertRowid } = db.prepare(`INSERT INTO leads (dedup_key, company_name, website_url, source, has_website, lead_reason)
+    VALUES ('away', 'Away Roofing', 'https://turns-servers-away.invalid/', 'places', 1, 'Website listed but unreachable. Error: That link points to a private address')`).run();
+  const l = (await app.inject({ method: 'POST', url: `/leads/${lastInsertRowid}/analyse`, headers })).json();
+  assert.equal(l.lead_reason, 'Outdated website: no_mobile_viewport');
+  assert.equal(l.email, 'office@turns-servers-away.co.uk');
+  assert.ok(l.seo_issues.no_title);
+  assert.match(l.activity.map((x: any) => x.text).join('|'), /Website loads now/);
+  db.prepare('DELETE FROM leads WHERE id = ?').run(lastInsertRowid);
 });
 
 test('a lead keeps its status changes and notes, and survives deleting its campaign once worked on', async () => {

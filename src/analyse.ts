@@ -57,7 +57,7 @@ async function businessProfile(placeId: string) {
 const describe = (o: Record<string, unknown>) => Object.entries(o).map(([k, v]) => v === true ? k : `${k}: ${v}`).join(', ') || 'none';
 
 export async function analyseLead(id: number) {
-  const l = lead(id) as any;
+  let l = lead(id) as any;
   const a: Analysis = { errors: [] };
   const step = async (name: string, work: () => Promise<void>) => {
     try { await work(); } catch (err) {
@@ -66,31 +66,39 @@ export async function analyseLead(id: number) {
     }
   };
   const site = l.website_url;
-  const dead = l.lead_reason.startsWith('Website listed but unreachable');
+  let dead = l.lead_reason.startsWith('Website listed but unreachable');
+  let check: Awaited<ReturnType<typeof checkSite>> | null = null;
+  // Check the site again first: it may have been down, or turned the check away, when the lead was found.
+  // When it loads, the lead's website details are brought up to date, including a reason that said it was unreachable.
+  if (site) await step('Website check', async () => {
+    check = await checkSite(site);
+    if (!check.reachable) return void a.errors.push(`Website check: ${check.note}`);
+    if (check.note) return; // up, but blocks automatic checks, so there is nothing new to record
+    const issues = Object.keys(check.issues);
+    const reason = issues.length ? `Outdated website: ${issues.join(', ')}` : 'Website loads, with no outdated signs found';
+    db.prepare(`UPDATE leads SET has_website = 1, website_issues = ?, seo_issues = ?, social_links = ?, lead_reason = CASE WHEN ? THEN ? ELSE lead_reason END,
+        updated_at = datetime('now') WHERE id = ?`)
+      .run(JSON.stringify(check.issues), JSON.stringify(check.seo), JSON.stringify(check.social), dead ? 1 : 0, reason, id);
+    if (dead) db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Website loads now. ${reason}`);
+    dead = false;
+  });
   if (site && !dead) {
     await step('PageSpeed', async () => { a.pagespeed = await pageSpeed(site); });
     await step('Domain age', async () => { a.domain = await domainAge(site); });
   }
-  // Tried even when the campaign run could not reach the site: it may have been down, or turned the check away.
-  if (site) {
-    let html = '';
-    await step('Screenshot', async () => {
-      fs.mkdirSync(path.dirname(screenshotPath(id)), { recursive: true });
-      html = await screenshotSite(site, screenshotPath(id));
-      a.screenshot = true;
-    });
-    // Look again for an email: the plain check (home and contact pages), then the page as the browser built it,
-    // which catches sites that add their email with JavaScript.
-    if (!l.email) await step('Website check', async () => {
-      const check = await checkSite(site);
-      if (!check.reachable) a.errors.push(`Website check: ${check.note}`);
-      const email = check.email || findEmail(html);
-      if (email) {
-        db.prepare(`UPDATE leads SET email = ? WHERE id = ? AND email = ''`).run(email, id);
-        db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Found ${email} on the website`);
-      }
-    });
+  let html = '';
+  if (site) await step('Screenshot', async () => {
+    fs.mkdirSync(path.dirname(screenshotPath(id)), { recursive: true });
+    html = await screenshotSite(site, screenshotPath(id));
+    a.screenshot = true;
+  });
+  // The page as the browser built it also catches sites that add their email with JavaScript.
+  const email = site && !l.email && ((check as { email?: string | null } | null)?.email || findEmail(html));
+  if (email) {
+    db.prepare(`UPDATE leads SET email = ? WHERE id = ? AND email = ''`).run(email, id);
+    db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Found ${email} on the website`);
   }
+  l = lead(id);
   if (l.source === 'places' && l.source_ref && GOOGLE_PLACES_API_KEY) await step('Business Profile', async () => { a.gbp = await businessProfile(l.source_ref); });
   else if (l.rating !== null) a.gbp = { rating: l.rating, reviews: l.reviews };
 
