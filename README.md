@@ -44,6 +44,7 @@ All in environment variables, listed in `.env.example`.
 | `PLACES_MONTHLY_CALLS` | `900` | Most Google searches a month, under Google's 1,000 free. Cached answers do not count. |
 | `FIRECRAWL_API_KEY` | none | Directory search (Yell, Checkatrade and others) for campaigns. |
 | `FIRECRAWL_MONTHLY_CALLS` | `500` | Most Firecrawl searches a month. |
+| `FIRECRAWL_SCRAPE_MONTHLY_CALLS` | `1000` | Most website pages a month read through Firecrawl, used only when the server cannot load a site itself (1 credit each, a failed read costs nothing). |
 
 ## API
 Every endpoint needs `x-api-key`, except `/health`, the editor page with its fonts, logo and check script, and `/public/renders/<id>.png` (Buffer fetches images from there; ids are long random looking hashes that cannot be listed).

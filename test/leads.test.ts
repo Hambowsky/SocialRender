@@ -48,6 +48,12 @@ const fake = http.createServer((req, res) => {
         content: [{ type: 'text', text: JSON.stringify({ priority: 'hot', notes: 'Great reviews and no website.', pitch: 'Your 31 reviews deserve a website to send people to.' }) }],
         usage: { input_tokens: 3000, output_tokens: 100 } });
     }
+    if (req.url === '/v2/scrape') {
+      const { url } = JSON.parse(body);
+      if (!url.includes('turns-servers-away.invalid')) { res.statusCode = 500; return res.end(JSON.stringify({ success: false, error: 'Could not load' })); }
+      return res.end(JSON.stringify({ success: true, data: { rawHtml: '<html><body><script>var x=1</script><a href="mailto:office@turns-servers-away.co.uk">Email</a></body></html>',
+        metadata: { statusCode: 200, url: 'https://turns-servers-away.invalid/', creditsUsed: 1 } } }));
+    }
     if (req.url === '/v2/search') {
       calls.firecrawl++;
       const { query } = JSON.parse(body);
@@ -81,6 +87,16 @@ async function runToEnd(id: number) {
 
 test('the HTML checks find old, insecure and unfriendly sites and their contact details', async () => {
   const { analyse, findEmail } = await import('../src/sitecheck.ts');
+  // A live site this server cannot reach is read through Firecrawl instead, once a day, and counted as a credit.
+  const { checkSite } = await import('../src/sitecheck.ts');
+  const away = await checkSite('turns-servers-away.invalid');
+  assert.equal(away.reachable, true);
+  assert.equal(away.email, 'office@turns-servers-away.co.uk');
+  assert.equal((await checkSite('turns-servers-away.invalid')).email, 'office@turns-servers-away.co.uk', 'second read comes from the cache');
+  assert.equal((await import('../src/leads.ts')).usage().firecrawl_credits, 1);
+  assert.equal((await checkSite('no-such-site.invalid')).reachable, false, 'a failed read is not counted');
+  assert.equal((await import('../src/leads.ts')).usage().firecrawl_credits, 1);
+  (await import('../src/db.ts')).db.prepare(`DELETE FROM api_cache WHERE key LIKE 'scrape:%'`).run(); // keep the campaign cost checks below exact
   const old = analyse(`<html><head><title>Bob</title></head><body><img src=a.png><img src=b.png alt="">
     <a href="https://www.facebook.com/bobsplumbing">fb</a><a href="https://www.facebook.com/sharer/sharer.php?u=x">share</a>
     <a href="mailto:bob@bobsplumbing.co.uk">Email</a><footer>&copy; 2019 Bob</footer></body></html>`, 'http://bob.example', 2026);

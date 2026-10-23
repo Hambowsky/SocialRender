@@ -1,6 +1,8 @@
 // Checks a business's website for the things that make it a lead: missing SSL, not mobile friendly, an old
 // copyright year, and basic SEO gaps. Also picks up a contact email and social links. Plain code, no AI.
 import { fetchPage } from './page.ts';
+import { fail, FIRECRAWL_API_KEY, FIRECRAWL_API_URL } from './config.ts';
+import { cached } from './leads.ts';
 
 export type SiteCheck = {
   reachable: boolean;
@@ -18,12 +20,33 @@ const CHALLENGE = ['checking your browser', 'just a moment', 'one moment, please
   'cdn-cgi/challenge-platform', '_incapsula_resource', 'geo.captcha-delivery.com', 'px-captcha', 'distil_r_captcha'];
 const isChallenge = (html: string) => { const head = html.slice(0, 4000).toLowerCase(); return CHALLENGE.some(m => head.includes(m)); };
 
-async function load(url: string) {
+type Page = { ok: boolean; status: number; url: string; html: string; error: string; firecrawl?: boolean };
+
+async function load(url: string): Promise<Page> {
+  let page: Page;
   try {
     const { url: final, res } = await fetchPage(url);
     const html = (await res.text()).slice(0, 2_000_000);
-    return { ok: res.ok, status: res.status, url: final.href, html, error: '' };
-  } catch (err) { return { ok: false, status: 0, url, html: '', error: (err as Error).message.replace(/^Could not load that page: /, '') }; }
+    page = { ok: res.ok, status: res.status, url: final.href, html, error: '' };
+  } catch (err) { page = { ok: false, status: 0, url, html: '', error: (err as Error).message.replace(/^Could not load that page: /, '') }; }
+  // Some sites will not answer this server (they block cloud servers, or the network drops them), so Firecrawl reads those for us.
+  const blocked = page.error ? !/private address|not a valid|must start/.test(page.error) : page.status === 403 || isChallenge(page.html);
+  if (blocked && FIRECRAWL_API_KEY) return (await scrape(url).catch(() => null)) ?? page;
+  return page;
+}
+
+async function scrape(url: string): Promise<Page | null> {
+  const r = await cached('scrape', { url }, async () => {
+    const res = await fetch(`${FIRECRAWL_API_URL}/v2/scrape`, { method: 'POST', signal: AbortSignal.timeout(60_000),
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${FIRECRAWL_API_KEY}` }, body: JSON.stringify({ url, formats: ['rawHtml'] }) });
+    const json = await res.json().catch(() => ({})) as { data?: { rawHtml?: string; metadata?: { statusCode?: number; url?: string; creditsUsed?: number } } };
+    const d = json.data;
+    if (!res.ok || !d?.rawHtml) fail(502, 'Firecrawl could not read it either'); // not cached, so not counted
+    // Scripts are dropped to keep the cache small; nothing the checks look for is inside them.
+    return { creditsUsed: d?.metadata?.creditsUsed ?? 1, status: d?.metadata?.statusCode ?? res.status, url: d?.metadata?.url ?? url,
+      html: (d?.rawHtml ?? '').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').slice(0, 500_000) };
+  });
+  return { ok: r.status < 400, status: r.status, url: r.url, html: r.html, error: '', firecrawl: true };
 }
 // Why a page would not load, in words David can act on.
 const why = (msg: string) => /timeout|aborted/i.test(msg) ? 'It took over 15 seconds to answer'
@@ -109,7 +132,8 @@ export async function checkSite(raw: string): Promise<SiteCheck> {
     // The contact page linked from the home page, or the usual addresses if none is linked.
     const host = new URL(page.url).host;
     const linked = links(page.html, page.url).filter(l => new URL(l.href).host === host && /contact|get-in-touch|about/i.test(l.href + ' ' + l.text)).map(l => l.href);
-    const tries = [...new Set(linked.length ? linked : ['/contact', '/contact-us'].map(p => new URL(p, page.url).href))].slice(0, 3);
+    // Each page Firecrawl reads costs a credit, so a site only it can reach gets one contact page, not three.
+    const tries = [...new Set(linked.length ? linked : ['/contact', '/contact-us'].map(p => new URL(p, page.url).href))].slice(0, page.firecrawl ? 1 : 3);
     for (const href of tries) {
       const c = await load(href);
       if (c?.ok && (found.email = findEmail(c.html))) break;
