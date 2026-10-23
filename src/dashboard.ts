@@ -34,9 +34,10 @@ export function marketing() {
     needs: {
       posts_to_approve: n(`SELECT COUNT(*) AS n FROM posts WHERE status = 'pending_approval'`),
       posts_to_check: n(`SELECT COUNT(*) AS n FROM posts WHERE status IN ('failed', 'check_buffer')`),
-      articles_to_review: n(`SELECT COUNT(*) AS n FROM articles WHERE status = 'draft'`),
-      articles_to_publish: n(`SELECT COUNT(*) AS n FROM articles WHERE status = 'approved'`),
     },
+    // Named one by one, since the Articles page lists them under their category. A draft with a publish date is a
+    // published article reopened with Edit again: the site still has the old version until it is published again.
+    articles: db.prepare(`SELECT id, title, category, status, published_at FROM articles WHERE status IN ('draft', 'approved') ORDER BY updated_at DESC LIMIT 10`).all(),
     posts_this_month: n(`SELECT COUNT(*) AS n FROM posts WHERE status = 'sent' AND sent_at >= ${MONTH}`),
     posts_scheduled: n(`SELECT COUNT(*) AS n FROM posts WHERE status = 'sent' AND due_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`),
     articles_this_month: n(`SELECT COUNT(*) AS n FROM articles WHERE status = 'published' AND published_at >= ${MONTH}`),

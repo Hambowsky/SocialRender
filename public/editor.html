@@ -918,8 +918,8 @@
   let leadTimer;
   // Dashboards. "Needs you" links to the page where each thing is done.
   const todo = items => {
-    const shown = items.filter(([n]) => n).map(([n, text, href]) => [n, typeof text === 'string' ? text : text[n === 1 ? 0 : 1], href]);
-    return `<div class="card"><h2>Needs you</h2>${shown.length ? `<div class="todo">${shown.map(([n, text, href]) => `<a href="${href}"><b>${n}</b>${esc(text)}</a>`).join('')}</div>` : '<p class="muted">Nothing is waiting on you.</p>'}</div>`;
+    const shown = items.filter(([n]) => n).map(([n, text, href, attrs = '']) => [n, typeof text === 'string' ? text : text[n === 1 ? 0 : 1], href, attrs]);
+    return `<div class="card"><h2>Needs you</h2>${shown.length ? `<div class="todo">${shown.map(([n, text, href, attrs]) => `<a href="${href}" ${attrs}><b>${n}</b>${esc(text)}</a>`).join('')}</div>` : '<p class="muted">Nothing is waiting on you.</p>'}</div>`;
   };
   const tile = (big, label, sub = '', href = '') => `<${href ? `a href="${href}"` : 'div'} class="card tile"><span class="muted">${esc(label)}</span><span class="big">${big}</span>${sub ? `<span class="muted">${sub}</span>` : ''}</${href ? 'a' : 'div'}>`;
   const bars = (rows, label) => {
@@ -929,9 +929,10 @@
   const dm = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   const spendCard = d => `<div class="card"><div class="card-head"><h2>Claude this month</h2><span class="muted">${money(d.all_spend_gbp)} of ${money(d.cap_gbp)} in total</span></div>
     <div class="meter"><i style="width:${Math.min(100, d.all_spend_gbp / d.cap_gbp * 100)}%"></i></div><span class="muted">${money(d.spend_gbp)} of that was for this area.</span></div>`;
-  const marketingTodo = ({ needs: nd }) => [[nd.posts_to_approve, ['post waiting for your approval', 'posts waiting for your approval'], '#social'],
+  const marketingTodo = m => { const nd = m.needs; return [[nd.posts_to_approve, ['post waiting for your approval', 'posts waiting for your approval'], '#social'],
     [nd.posts_to_check, ['post that failed or needs checking in Buffer', 'posts that failed or need checking in Buffer'], '#social'],
-    [nd.articles_to_review, ['article draft to review', 'article drafts to review'], '#articles'], [nd.articles_to_publish, ['approved article to publish', 'approved articles to publish'], '#articles']];
+    ...m.articles.map(a => [1, a.status === 'approved' ? `${a.title}: approved, ready to publish` : a.published_at ? `${a.title}: reopened with Edit again, so the website still has the old version` : `${a.title}: draft to review`,
+      '#articles', `data-article="${a.id}" data-category="${esc(a.category)}"`])]; };
   const salesTodo = ({ needs: nd }) => [[nd.replies_to_answer, ['lead has replied', 'leads have replied'], '#leads'], [nd.emails_to_approve, ['email waiting for your approval', 'emails waiting for your approval'], '#emails'],
     [nd.follow_ups_due, ['lead ready for a follow up email', 'leads ready for a follow up email'], '#emails'], [nd.call_backs_due, ['follow up date due today or earlier', 'follow up dates due today or earlier'], '#leads'],
     [nd.emails_to_check, ['email that failed or needs checking', 'emails that failed or need checking'], '#emails']];
@@ -982,6 +983,17 @@
       }
     } catch (e) { box.innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
+  // A "Needs you" article opens straight on the Articles page, in its own category.
+  for (const box of ['homeBox', 'mDash']) $(box).addEventListener('click', async e => {
+    const a = e.target.closest('[data-article]');
+    if (!a) return;
+    e.preventDefault();
+    loaded.articles = true;
+    location.hash = '#articles';
+    await loadCategories();
+    $('aCategory').value = a.dataset.category;
+    loadArticles(Number(a.dataset.article));
+  });
   $('sDash').addEventListener('click', e => { const id = e.target.dataset.openLead; if (id) openLead(Number(id)); });
 
   let leadQuery = new URLSearchParams();
@@ -1528,13 +1540,15 @@
   // Articles
   let article;
   const A_STATUS = { draft: 'Draft', approved: 'Approved, ready to publish', published: 'Published', rejected: 'Rejected' };
+  async function loadCategories() {
+    if ($('aCategory').options.length >= 2) return;
+    const pick = $('aCategory').value, cats = await (await api('/articles/categories')).json();
+    $('aCategory').innerHTML = cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('');
+    if (cats.some(c => c.category === pick)) $('aCategory').value = pick;
+  }
   async function loadArticles(select) {
     try {
-      if ($('aCategory').options.length < 2) {
-        const pick = $('aCategory').value, cats = await (await api('/articles/categories')).json();
-        $('aCategory').innerHTML = cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('');
-        if (cats.some(c => c.category === pick)) $('aCategory').value = pick;
-      }
+      await loadCategories();
       $('aList').innerHTML = '<option value="">Loading...</option>';
       const list = await (await api('/articles/in-category?category=' + encodeURIComponent($('aCategory').value))).json();
       $('aList').innerHTML = `<option value="">Pick an article (${list.length})</option>` + list.map(a => a.id
