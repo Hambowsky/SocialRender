@@ -45,8 +45,7 @@
   nav a.home-link { display: none; }
   .hello h1 { font-weight: 900; font-size: 30px; color: var(--ink); margin: 0; }
   .area { gap: 16px; }
-  .area .tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-  @media (max-width: 1200px) { .area .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .area .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
   .area .tile { padding: 14px; box-shadow: none; background: var(--grey-soft); border: 0; }
   .area .tile .big { font-size: 26px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; }
@@ -943,16 +942,16 @@
     const box = $('homeBox'), hour = new Date().getHours();
     try {
       const [m, s] = await Promise.all(['marketing', 'sales'].map(async a => (await api(`/dashboard/${a}`)).json()));
-      const area = (title, href, tiles, links) => `<div class="card area"><div class="card-head"><h2>${title}</h2><a class="muted" href="${href}">Open the dashboard</a></div>
+      const area = (title, href, spend, tiles, links) => `<div class="card area"><div class="card-head"><div><h2>${title}</h2><span class="muted">Claude this month: <b>${money(spend)}</b></span></div><a class="muted" href="${href}">Open the dashboard</a></div>
         <div class="tiles">${tiles}</div><div class="row">${links.map(([text, to], i) => `<a class="button ${i ? 'plain' : ''} small" href="${to}">${text}</a>`).join('')}</div></div>`;
       box.innerHTML = `<div class="hello"><h1>Good ${hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening'}, David</h1>
           <span class="muted">${esc(new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</span></div>
         ${todo([...salesTodo(s), ...marketingTodo(m)])}
         ${spendCard({ ...m, spend_gbp: m.all_spend_gbp }).replace(/<span class="muted">[^<]*of that was for this area.<\/span>/, '')}
         <div class="cols two">
-          ${area('Marketing', '#dashboard', tile(m.posts_this_month, 'Posts this month') + tile(m.posts_scheduled, 'Scheduled ahead') + tile(m.articles_this_month, 'Articles this month') + tile(money(m.spend_gbp), 'Claude this month'),
+          ${area('Marketing', '#dashboard', m.spend_gbp, tile(m.posts_this_month, 'Posts this month') + tile(m.posts_scheduled, 'Scheduled ahead') + tile(m.articles_this_month, 'Articles this month'),
             [['Make a post', '#social'], ['Write an article', '#articles'], ['Templates', '#templates']])}
-          ${area('Sales', '#sales', tile(s.leads, 'Leads') + tile(`${s.sent_today}<small class="muted"> of ${s.daily_cap}</small>`, 'Emails today') + tile(s.reply_rate === null ? 'n/a' : `${s.reply_rate}%`, 'Reply rate') + tile(money(s.spend_gbp), 'Claude this month'),
+          ${area('Sales', '#sales', s.spend_gbp, tile(s.leads, 'Leads') + tile(`${s.sent_today}<small class="muted"> of ${s.daily_cap}</small>`, 'Emails today') + tile(s.reply_rate === null ? 'n/a' : `${s.reply_rate}%`, 'Reply rate'),
             [['Find leads', '#campaigns'], ['Leads', '#leads'], ['Emails', '#emails']])}
         </div>`;
     } catch (e) { box.innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
