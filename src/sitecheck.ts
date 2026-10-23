@@ -1,6 +1,7 @@
 // Checks a business's website for the things that make it a lead: missing SSL, not mobile friendly, an old
 // copyright year, and basic SEO gaps. Also picks up a contact email and social links. Plain code, no AI.
-import { fetchPage } from './page.ts';
+import fs from 'node:fs';
+import { fetchPage, isChallenge } from './page.ts';
 import { fail, FIRECRAWL_API_KEY, FIRECRAWL_API_URL } from './config.ts';
 import { cached } from './leads.ts';
 
@@ -14,11 +15,6 @@ export type SiteCheck = {
   note?: string;
 };
 
-const CHALLENGE = ['checking your browser', 'just a moment', 'one moment, please', 'please wait while we verify', 'verifying you are human',
-  'needs to review the security of your connection', 'enable javascript and cookies to continue', 'ddos protection by',
-  'attention required! | cloudflare', 'cf-browser-verification', 'cf_chl_opt', 'challenges.cloudflare.com', 'jschl-answer',
-  'cdn-cgi/challenge-platform', '_incapsula_resource', 'geo.captcha-delivery.com', 'px-captcha', 'distil_r_captcha'];
-const isChallenge = (html: string) => { const head = html.slice(0, 4000).toLowerCase(); return CHALLENGE.some(m => head.includes(m)); };
 
 type Page = { ok: boolean; status: number; url: string; html: string; error: string; firecrawl?: boolean };
 
@@ -36,18 +32,34 @@ async function load(url: string): Promise<Page> {
   return page;
 }
 
+async function firecrawl(body: object) {
+  const res = await fetch(`${FIRECRAWL_API_URL}/v2/scrape`, { method: 'POST', signal: AbortSignal.timeout(60_000),
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${FIRECRAWL_API_KEY}` }, body: JSON.stringify(body) });
+  const json = await res.json().catch(() => ({})) as { error?: string; data?: { rawHtml?: string; screenshot?: string; metadata?: { statusCode?: number; url?: string; creditsUsed?: number } } };
+  const d = json.data;
+  if (!res.ok || !d?.rawHtml) fail(502, json.error ?? `error ${res.status}`); // not cached, so not counted
+  // Scripts are dropped to keep the cache small; nothing the checks look for is inside them.
+  return { creditsUsed: d!.metadata?.creditsUsed ?? 1, status: d!.metadata?.statusCode ?? res.status, url: d!.metadata?.url,
+    html: d!.rawHtml!.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').slice(0, 500_000), screenshot: d!.screenshot };
+}
+
 async function scrape(url: string): Promise<Page> {
-  const r = await cached('scrape', { url }, async () => {
-    const res = await fetch(`${FIRECRAWL_API_URL}/v2/scrape`, { method: 'POST', signal: AbortSignal.timeout(60_000),
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${FIRECRAWL_API_KEY}` }, body: JSON.stringify({ url, formats: ['rawHtml'] }) });
-    const json = await res.json().catch(() => ({})) as { data?: { rawHtml?: string; metadata?: { statusCode?: number; url?: string; creditsUsed?: number } } };
-    const d = json.data;
-    if (!res.ok || !d?.rawHtml) fail(502, (json as { error?: string }).error ?? `error ${res.status}`); // not cached, so not counted
-    // Scripts are dropped to keep the cache small; nothing the checks look for is inside them.
-    return { creditsUsed: d?.metadata?.creditsUsed ?? 1, status: d?.metadata?.statusCode ?? res.status, url: d?.metadata?.url ?? url,
-      html: (d?.rawHtml ?? '').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').slice(0, 500_000) };
+  const r = await cached('scrape', { url }, async () => { const { screenshot, ...rest } = await firecrawl({ url, formats: ['rawHtml'] }); return rest; });
+  return { ok: r.status < 400, status: r.status, url: r.url ?? url, html: r.html, error: '', firecrawl: true };
+}
+
+// A screenshot taken by Firecrawl, for sites whose bot check will not let this server's browser in. Returns the page HTML.
+export async function scrapeShot(url: string, file: string) {
+  // The key is never reused (the picture is saved here, not in the cache), but the call still counts towards the monthly cap.
+  const r = await cached('scrape', { url, screenshot: Date.now() }, async () => {
+    const { screenshot, ...rest } = await firecrawl({ url, formats: ['rawHtml', { type: 'screenshot', quality: 70, viewport: { width: 1280, height: 800 } }] });
+    const img = screenshot ? await fetch(screenshot, { signal: AbortSignal.timeout(30_000) }) : null;
+    if (!img?.ok) fail(502, `the screenshot did not come back${img ? ` (error ${img.status})` : ''}`);
+    fs.writeFileSync(file, Buffer.from(await img!.arrayBuffer()));
+    return rest;
   });
-  return { ok: r.status < 400, status: r.status, url: r.url, html: r.html, error: '', firecrawl: true };
+  if (isChallenge(r.html)) fail(502, 'it hit the same security check');
+  return r.html;
 }
 // Why a page would not load, in words David can act on.
 const why = (msg: string) => msg.includes('Firecrawl') ? msg : /timeout|aborted/i.test(msg) ? 'It took over 15 seconds to answer'

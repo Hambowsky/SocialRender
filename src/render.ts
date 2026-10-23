@@ -7,7 +7,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { db } from './db.ts';
 import { fail, RENDERS_DIR, ROOT } from './config.ts';
 import { current, fill, type Problem } from './templates.ts';
-import { checkUrl } from './page.ts';
+import { checkUrl, isChallenge } from './page.ts';
 
 const TYPES: Record<string, string> = {
   '.js': 'text/javascript', '.woff2': 'font/woff2', '.svg': 'image/svg+xml',
@@ -163,6 +163,12 @@ export const screenshotSite = (url: string, file: string) => enqueue(async () =>
     const failed = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).then(() => null, (err: Error) => err);
     if (failed && page.url() === 'about:blank') throw new Error(failed.message.split('\n')[0].replace(/^page\.goto: /, ''));
     await page.waitForTimeout(1500); // cookie banners and fade ins
+    // A bot check often lets a real browser through after a few seconds and reloads into the site, so give it up to 15 seconds.
+    for (let i = 0; i < 10; i++) {
+      const html = await page.content().catch(() => null); // null while it is reloading
+      if (html !== null && !isChallenge(html)) break;
+      await page.waitForTimeout(1500);
+    }
     await page.screenshot({ path: file, type: 'jpeg', quality: 70 });
     return await page.content(); // the page as the browser built it, so details added by JavaScript can be read too
   } finally {

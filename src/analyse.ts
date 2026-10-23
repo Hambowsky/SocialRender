@@ -3,10 +3,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.ts';
-import { fail, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL, PAGESPEED_URL, RDAP_URL } from './config.ts';
+import { fail, FIRECRAWL_API_KEY, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL, PAGESPEED_URL, RDAP_URL } from './config.ts';
 import { analysing, busy, cached, lead, screenshotPath } from './leads.ts';
 import { screenshotSite } from './render.ts';
-import { checkSite, findEmail } from './sitecheck.ts';
+import { checkSite, findEmail, scrapeShot } from './sitecheck.ts';
+import { isChallenge } from './page.ts';
 import { runPrompt } from './copy.ts';
 
 type Analysis = {
@@ -92,6 +93,8 @@ export async function analyseLead(id: number) {
     html = await screenshotSite(site, screenshotPath(id));
     a.screenshot = true;
   });
+  // Still stuck on the bot check, so Firecrawl takes the picture instead. If that fails too, the bot check picture stays.
+  if (site && isChallenge(html) && FIRECRAWL_API_KEY) await step('Screenshot through Firecrawl', async () => { html = await scrapeShot(site, screenshotPath(id)); });
   // The page as the browser built it also catches sites that add their email with JavaScript.
   const email = site && !l.email && ((check as { email?: string | null } | null)?.email || findEmail(html));
   if (email) {
