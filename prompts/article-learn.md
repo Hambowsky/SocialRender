@@ -13,6 +13,8 @@ Keyword to use in the title, the opening and one heading, only where it reads na
 Audience: {audience}
 Sources. Every fact, figure, price and claim must come from here:
 {sources}
+Pages on redcherryit.com you can link to:
+{site_links}
 
 Structure, matching the learn guides already on redcherryit.com/guides/learn:
 * A # title that is the question a business owner would type into Google, such as How much does a website cost in the UK?.
@@ -23,7 +25,8 @@ Structure, matching the learn guides already on redcherryit.com/guides/learn:
 
 Rules:
 * Use only facts in the sources. Where a point needs a fact the sources do not give, leave it out. Do not invent prices, figures, clients or quotes.
-* Link the source where you use a fact from it: put a Markdown link on a few natural words in that sentence, such as [the ICO's guidance](https://ico.org.uk/...). Only use links given in the sources, link each page once, and use no more than five links in the article. Never write "click here" or show a bare address.
+* Link the source where you use a fact from it: put a Markdown link on a few natural words in that sentence, such as [the ICO's guidance](https://ico.org.uk/...). Only use links given in the sources, link each page once, and use no more than five source links. Never write "click here" or show a bare address.
+* Add two or three links to our own pages from the list above, where they genuinely help the reader, such as [our fixed price packages](https://redcherryit.com/pricing). Put each on a few natural words, use the address exactly as listed, and do not link the same page twice. These do not count towards the five source links.
 * If you must keep a claim that needs checking, mark it [SOURCE NEEDED] so David can fix it before approval.
 * Plain, practical and honest. Explain any jargon in plain words.
 * Keep it between 450 and 750 words, like the guides already on the site.

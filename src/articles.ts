@@ -175,7 +175,7 @@ export async function draft(input: DraftInput) {
   const page = input.url ? await readPage(input.url) : undefined;
   const sources = [input.sources?.trim(), page && `From ${page.url}\nTitle: ${page.title}\n\n${page.text}`].filter(Boolean).join('\n\n');
   if (!sources) fail(400, 'Give some sources or a page link. Articles only use facts from their sources.');
-  const run = await runPrompt(promptFor(category), { ...input, sources } as Record<string, string>, { job: 'article:draft' });
+  const run = await runPrompt(promptFor(category), { ...input, sources, site_links: await siteLinks() } as Record<string, string>, { job: 'article:draft' });
   const o = run.output as { title: string; summary: string; body: string };
   const r = db.prepare(`INSERT INTO articles (slug, category, title, summary, body, topic, keyword, sources, status)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`)
@@ -241,13 +241,22 @@ const STOP = new Set('about after also because before being business businesses 
 const words = (t: string) => new Set(t.toLowerCase().replace(/&[a-z]+;/g, ' ').split(/[^a-z0-9£]+/).filter(w => w.length > 3 && !STOP.has(w)));
 const folderName = (category: string) => category.split('/').filter(Boolean).at(-1)!.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
-export async function relatedCards(a: Pick<Article, 'title' | 'summary' | 'category' | 'slug' | 'keyword' | 'topic'>) {
-  const text = `${a.title} ${a.summary} ${a.keyword} ${a.keyword} ${a.topic}`;
-  const mine = words(text);
+// The site's guides (from each category's index page, plus ones published here) and service pages, for internal links.
+async function siteGuides() {
   const own = db.prepare(`SELECT category, slug, title, summary FROM articles WHERE status = 'published'`).all() as { category: string; slug: string; title: string; summary: string }[];
   const listed = (await Promise.all(categories().map(c => guideCards(c.category).catch(() => [])))).flat();
   const seen = new Set<string>();
-  const guides = [...listed, ...own].filter(g => g.slug !== a.slug && !seen.has(g.category + g.slug) && seen.add(g.category + g.slug))
+  return [...listed, ...own].filter(g => !seen.has(g.category + g.slug) && seen.add(g.category + g.slug));
+}
+async function siteLinks() {
+  const pages = [...SERVICES.map(([, slug, , title]) => [title, slug]), ['See More Of Our Client Success Stories', 'case-studies']].map(([title, slug]) => `${title}: ${SITE_URL}/${slug}`);
+  return [...(await siteGuides()).map(g => `${unesc(g.title)}: ${SITE_URL}${g.category}${g.slug}`), ...pages].join('\n');
+}
+
+export async function relatedCards(a: Pick<Article, 'title' | 'summary' | 'category' | 'slug' | 'keyword' | 'topic'>) {
+  const text = `${a.title} ${a.summary} ${a.keyword} ${a.keyword} ${a.topic}`;
+  const mine = words(text);
+  const guides = (await siteGuides()).filter(g => g.slug !== a.slug)
     .map(g => ({ ...g, score: [...words(`${g.title} ${g.summary}`)].filter(w => mine.has(w)).length + (g.category === a.category ? 0.5 : 0) }))
     .filter(g => g.score >= 1).sort((x, y) => y.score - x.score).slice(0, 2);
   const cards = guides.map(g => [g.category === a.category ? g.slug : `../${g.category.split('/').filter(Boolean).at(-1)}/${g.slug}`, folderName(g.category), g.title]);
