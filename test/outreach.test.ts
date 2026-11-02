@@ -245,8 +245,10 @@ test('a first email with no reply gets one follow up in the same thread, which i
   mail.length = 0;
   await app.inject({ method: 'POST', url: `/emails/${f.id}/approve`, headers });
   assert.equal((await settle(f.id)).status, 'sent');
-  assert.match(mail[0], /In-Reply-To: <outreach-99-ab@redcherryit\.com>/);
-  assert.match(mail[0], /References: <outreach-99-ab@redcherryit\.com>/);
+  // Picked by address: a send from an earlier test can still land in the fake mailbox after it was cleared.
+  const sent = mail.find(m => m.includes('To: hi@quiet.example')) ?? '';
+  assert.match(sent, /In-Reply-To: <outreach-99-ab@redcherryit\.com>/);
+  assert.match(sent, /References: <outreach-99-ab@redcherryit\.com>/);
 
   // A follow up approved after the lead replied is not sent.
   const later = Number(db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, follow_up_of) VALUES (?, 'hi@recent.example', 'Re: Hi', 'Hello again', (SELECT id FROM emails WHERE to_email = 'hi@recent.example'))`).run(recent).lastInsertRowid);

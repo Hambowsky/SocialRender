@@ -1051,7 +1051,7 @@
       const [saved, cats, chans] = await Promise.all([api('/plan/week').then(r => r.json()), api('/articles/categories').then(r => r.json()), api('/buffer/channels').then(r => r.json()).catch(e => e)]);
       const tw = saved.this_week;
       box.innerHTML = `<div class="card-head"><h2>Plan the week</h2></div>
-        <p class="muted">Claude finds an article idea with sources and drafts it, then makes social posts for the weekdays at 10am: one from the article and the rest on other topics from the same research. This week uses only the weekdays still to come. Nothing goes out until you approve it. The posts do not link to the article, so publish it whenever you are happy with it.</p>
+        <p class="muted">Claude finds an article idea with sources and drafts it, then makes social posts for the weekdays at 10am: one from the new article, and the rest each promoting a guide already on your site from a different category, with its link. This week uses only the weekdays still to come. Nothing goes out until you approve it. The post about the new article does not link to it, so publish it whenever you are happy with it.</p>
         ${tw.plan ? `<strong>This week</strong>${planResult(tw.plan)}` : ''}${saved.plan ? `<strong>Next week</strong>${planResult(saved.plan)}` : ''}
         <div class="row"><label>Category <select id="plCat"><option value="">Take turns each week</option>${cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('')}</select></label>
           <label>Posts <select id="plCount"><option>3</option><option selected>4</option><option>5</option></select></label></div>

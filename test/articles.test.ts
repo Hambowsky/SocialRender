@@ -351,21 +351,30 @@ test('planning the week drafts an article and schedules posts from it on weekday
       await new Promise(ok => setTimeout(ok, 50));
     }
   };
+  const { page } = await import('../src/articles.ts');
+  for (const slug of ['what-seo-actually-means', 'do-you-need-social-media'])
+    repo[`guides/marketing/${slug}.html`] = page({ title: slug, summary: 'S.', category: '/guides/marketing/', slug, body: `# ${slug}\n\nPlain words.` }, '2026-08-10');
   const channels = [{ id: 'ch1', name: 'Facebook' }];
   const promptsBefore = allPrompts.length;
   const p = await run({ channels, count: 3, category: '/guides/learn/' });
   assert.equal(p.article.title, 'Building an Information Portal for a Financial Services Business');
   assert.equal((await call('GET', `/articles/${p.article.id}`)).json().status, 'draft', 'the article waits for review');
-  assert.ok(p.posts.length >= 1, JSON.stringify(p.problems));
+  assert.ok(p.posts.length >= 1, JSON.stringify(p.problems)); // later posts promote live guides from other categories, with the link
   assert.equal(p.posts.length + p.problems.length, 3);
   for (const post of p.posts) {
     const row = (await call('GET', '/posts?status=pending_approval')).json().find((x: any) => x.id === post.id);
     assert.ok(row, 'the post waits for approval');
     assert.equal(row.mode, 'scheduled');
     assert.ok([1, 2, 3, 4, 5].includes(new Date(row.due_at).getUTCDay()), 'a weekday');
-    assert.doesNotMatch(row.text, /redcherryit\.com\/guides/, 'no link to an article that is not live');
+    assert.doesNotMatch(row.text, /guides\/learn\//, 'no link to an article that is not live');
   }
-  assert.ok(allPrompts.slice(promptsBefore).some(x => x.includes('Why a slow website loses enquiries')), 'later posts take another research idea, not all the article');
+  const texts = (await call('GET', '/posts?status=pending_approval')).json().filter((x: any) => p.posts.some((y: any) => y.id === x.id)).map((x: any) => x.text).join('\n');
+  assert.match(texts, /redcherryit\.com\/guides\/(marketing|stories)\//, JSON.stringify(p.problems)); // later posts promote live guides from other categories, with the link
+  const { otherGuides } = await import('../src/plan.ts');
+  const g = (category: string, slug: string) => ({ category, slug });
+  const all = [g('/a/', '1'), g('/a/', '2'), g('/b/', '1'), g('/c/', '1'), g('/learn/', '1')];
+  assert.deepEqual(otherGuides(all, '/learn/', 0, 3), [g('/a/', '1'), g('/b/', '1'), g('/c/', '1')], 'one from each other category first');
+  assert.deepEqual(otherGuides(all, '/learn/', 1, 4), [g('/b/', '1'), g('/c/', '1'), g('/a/', '2'), g('/a/', '1')], 'a different start the next week');
   await call('POST', `/posts/${p.posts[0].id}/reject`);
   await call('POST', `/articles/${p.article.id}/reject`);
   const live = (await call('GET', '/plan/week')).json().plan;
