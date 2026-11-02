@@ -1,5 +1,6 @@
 // The week's content in one go: an article idea from research, its sources, the draft, then a few social posts
-// drawn from it, spread over the weekdays. Everything waits for David: the article in the review list,
+// spread over the weekdays: Monday's comes from the article, the rest each take another of the research ideas
+// so the week is not all one topic. Everything waits for David: the article in the review list,
 // the posts in the approval list. The posts do not link to the article, since it is not live yet.
 import { db } from './db.ts';
 import { fail } from './config.ts';
@@ -68,10 +69,14 @@ export async function planWeek(input: PlanInput) {
       const template = TEMPLATES[i % TEMPLATES.length];
       const date = new Date(Date.parse(monday) + DAYS[count][i] * 86_400_000).toISOString().slice(0, 10);
       const done = made.map(m => `"${m.headline}"`).join(', ');
+      const other = i > 0 ? ideas.ideas[i] : undefined; // research gives six ideas; the article used the first
       try {
-        const copy = await writeCopy({ template, keyword: article.keyword, sources: article.body,
-          topic: `Post ${i + 1} of ${count} this week, all drawn from our new article "${article.title}". Take one single, useful point from it`
-            + `${done ? `, different from the posts already made: ${done}` : ''}. The article is not live yet, so do not mention a link to it.` });
+        const copy = await writeCopy({ template, ...(other
+          ? { keyword: other.keyword, sources: other.notes,
+              topic: `${other.title}. ${other.angle} Take one single, useful point from this${done ? `, different from the posts already made this week: ${done}` : ''}. Do not mention an article or a link.` }
+          : { keyword: article.keyword, sources: article.body,
+              topic: `Drawn from our new article "${article.title}". Take one single, useful point from it`
+                + `${done ? `, different from the posts already made: ${done}` : ''}. The article is not live yet, so do not mention a link to it.` }) });
         cost += copy.cost_gbp;
         if (!copy.fits) { problems.push(`Post ${i + 1}: the text did not fit ${template}`); continue; }
         const r = await render(template, copy.fields);

@@ -23,6 +23,7 @@ const exampleBody = example.replace(/^---[\s\S]*?---\n+/, '').replace(/\n---\n[\
 const sources = 'Payments business, news portal. ' + example;
 
 const claudeCalls: string[] = [];
+const allPrompts: string[] = [];
 const serve = (handler: (body: any) => unknown, stream = false) => http.createServer((req, res) => {
   let b = '';
   req.on('data', c => (b += c));
@@ -51,11 +52,13 @@ const claude = serve(r => {
       content: [{ type: 'server_tool_use', id: 'srv1', name: 'web_search', input: { query: 'uk website questions 2026' } }],
       usage: { input_tokens: 2000, output_tokens: 100, server_tool_use: { web_search_requests: 1 } } };
     const ideas = [{ title: 'How long does a website take to build?', keyword: 'website build time', angle: 'Owners ask this before they budget.', audience: 'UK business owners',
-      notes: 'Most brochure sites take four to six weeks (https://example.co.uk/timelines)', sources: [{ title: 'Timelines', url: 'https://example.co.uk/timelines' }] }];
+      notes: 'Most brochure sites take four to six weeks (https://example.co.uk/timelines)', sources: [{ title: 'Timelines', url: 'https://example.co.uk/timelines' }] },
+      { title: 'Why a slow website loses enquiries', keyword: 'slow website', angle: 'Speed costs leads.', audience: 'UK business owners', notes: 'Pages over three seconds lose visitors (https://example.co.uk/speed)', sources: [] }];
     return { ...base, stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here you go.\n' + JSON.stringify({ ideas }) }],
       usage: { input_tokens: 5000, output_tokens: 800, server_tool_use: { web_search_requests: 2 } } };
   }
   if (prompt.includes('Red Cherry IT explainer')) { claudeCalls.push('learn'); draftPrompts.push(prompt); }
+  allPrompts.push(prompt);
   claudeCalls.push(prompt.includes('Red Cherry IT article') ? 'article' : prompt.includes('Write the caption') ? 'caption' : 'post');
   const out = /Red Cherry IT (article|explainer)/.test(prompt)
     ? { title: 'Building an Information Portal for a Financial Services Business', summary: 'How we built a portal that publishes three articles a week.', body: exampleBody }
@@ -326,6 +329,7 @@ test('planning the week drafts an article and schedules posts from it on weekday
     }
   };
   const channels = [{ id: 'ch1', name: 'Facebook' }];
+  const promptsBefore = allPrompts.length;
   const p = await run({ channels, count: 3, category: '/guides/learn/' });
   assert.equal(p.article.title, 'Building an Information Portal for a Financial Services Business');
   assert.equal((await call('GET', `/articles/${p.article.id}`)).json().status, 'draft', 'the article waits for review');
@@ -338,6 +342,7 @@ test('planning the week drafts an article and schedules posts from it on weekday
     assert.ok([1, 2, 3, 4, 5].includes(new Date(row.due_at).getUTCDay()), 'a weekday');
     assert.doesNotMatch(row.text, /redcherryit\.com\/guides/, 'no link to an article that is not live');
   }
+  assert.ok(allPrompts.slice(promptsBefore).some(x => x.includes('Why a slow website loses enquiries')), 'later posts take another research idea, not all the article');
   const before = claudeCalls.length;
   const again = await run({ channels });
   assert.equal(again.reused, true);
