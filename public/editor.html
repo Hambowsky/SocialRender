@@ -1013,7 +1013,7 @@
       const d = await (await api(`/dashboard/${area}`)).json();
       if (area === 'marketing') {
         setTimeout(loadPlan);
-        box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan next week</h2><p class="muted">Loading...</p></div>'
+        box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div>'
           + `<div class="tiles">${tile(d.posts_this_month, 'Posts sent to Buffer this month', '', '#social')}${tile(d.posts_scheduled, 'Posts scheduled ahead', '', '#social')}
             ${tile(d.articles_this_month, 'Articles published this month', `${d.articles_published} in total`, '#articles')}${tile(d.images_this_month, 'Images made this month')}</div>
           <div class="cols wide-left"><div class="card"><h2>Posts sent, by week</h2>${bars(d.posts_by_week, dm)}</div>${spendCard(d)}</div>
@@ -1043,24 +1043,27 @@
     if (!box) return;
     try {
       const [saved, cats, chans] = await Promise.all([api('/plan/week').then(r => r.json()), api('/articles/categories').then(r => r.json()), api('/buffer/channels').then(r => r.json()).catch(e => e)]);
-      box.innerHTML = `<div class="card-head"><h2>Plan next week</h2><span class="muted">Week of ${esc(dm(saved.week_of))}</span></div>
-        <p class="muted">Claude finds an article idea with sources and drafts it, then makes social posts from it for the weekdays at 10am. Nothing goes out until you approve it. The posts do not link to the article, so publish it whenever you are happy with it.</p>
-        ${saved.plan ? planResult(saved.plan) : ''}
+      const tw = saved.this_week;
+      box.innerHTML = `<div class="card-head"><h2>Plan the week</h2></div>
+        <p class="muted">Claude finds an article idea with sources and drafts it, then makes social posts for the weekdays at 10am: one from the article and the rest on other topics from the same research. This week uses only the weekdays still to come. Nothing goes out until you approve it. The posts do not link to the article, so publish it whenever you are happy with it.</p>
+        ${tw.plan ? `<strong>This week</strong>${planResult(tw.plan)}` : ''}${saved.plan ? `<strong>Next week</strong>${planResult(saved.plan)}` : ''}
         <div class="row"><label>Category <select id="plCat"><option value="">Take turns each week</option>${cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('')}</select></label>
           <label>Posts <select id="plCount"><option>3</option><option selected>4</option><option>5</option></select></label></div>
         <label>Anything to focus on (optional) <input id="plFocus" maxlength="1000" placeholder="For example, websites for trades in the North East"></label>
         <div class="row" id="plChannels">${chans instanceof Error ? `<span class="bad">${esc(chans.message)}</span>` : chans.map(c => `<label class="chip"><input type="checkbox" value="${esc(c.id)}" data-name="${esc(c.name + ' (' + c.service + ')')}" checked>${esc(service(c.service))} <span class="muted">${esc(c.name)}</span></label>`).join('') || '<span class="muted">No channels in Buffer yet.</span>'}</div>
-        <div class="row"><button type="button" class="small" id="plGo">${saved.plan ? 'Plan it again' : 'Plan next week'}</button><span id="plOut" class="muted"></span></div>`;
-    } catch (e) { box.innerHTML = `<h2>Plan next week</h2><p class="bad">${esc(e.message)}</p>`; }
+        <div class="row"><button type="button" class="small" id="plGo" data-week="next" data-again="${saved.plan ? 1 : ''}">${saved.plan ? 'Plan next week again' : 'Plan next week'}</button>
+          <button type="button" class="plain small" id="plThis" data-week="this" data-again="${tw.plan ? 1 : ''}">${tw.plan ? 'Plan this week again' : 'Plan this week'}</button><span id="plOut" class="muted"></span></div>`;
+    } catch (e) { box.innerHTML = `<h2>Plan the week</h2><p class="bad">${esc(e.message)}</p>`; }
   }
   $('mDash').addEventListener('click', async e => {
-    if (e.target.id !== 'plGo') return;
+    const week = e.target.dataset?.week, again = !!e.target.dataset?.again;
+    if (!week || !e.target.closest('#planBox')) return;
     const channels = [...document.querySelectorAll('#plChannels input:checked')].map(i => ({ id: i.value, name: i.dataset.name }));
     if (!channels.length) { $('plOut').textContent = 'Pick at least one channel.'; return; }
-    if (e.target.textContent === 'Plan it again' && !confirm('Plan next week again? This drafts another article and more posts.')) return;
+    if (again && !confirm(`Plan ${week} week again? This drafts another article and more posts.`)) return;
     e.target.disabled = true;
     $('plOut').textContent = 'Planning. This takes a few minutes while Claude researches, writes the article and makes the posts...';
-    const body = { channels, count: Number($('plCount').value), ...($('plCat').value && { category: $('plCat').value }), ...($('plFocus').value.trim() && { focus: $('plFocus').value.trim() }), again: e.target.textContent === 'Plan it again' };
+    const body = { channels, count: Number($('plCount').value), ...($('plCat').value && { category: $('plCat').value }), ...($('plFocus').value.trim() && { focus: $('plFocus').value.trim() }), again, week };
     try {
       const r = await apiJob('/plan/week', body);
       if (r?.error) throw new Error(r.error);

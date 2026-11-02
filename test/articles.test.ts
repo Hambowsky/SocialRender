@@ -318,6 +318,15 @@ test('planning the week drafts an article and schedules posts from it on weekday
   assert.equal(tenAmLondon('2027-07-12'), '2027-07-12T09:00:00.000Z', 'British Summer Time');
   assert.equal(nextMonday(new Date('2026-11-02T15:00:00Z')), '2026-11-09', 'a Monday plans the following week');
   assert.equal(nextMonday(new Date('2026-11-06T15:00:00Z')), '2026-11-09');
+  const { thisMonday, postDays } = await import('../src/plan.ts');
+  assert.equal(thisMonday(new Date('2026-11-04T15:00:00Z')), '2026-11-02');
+  assert.equal(thisMonday(new Date('2026-11-08T15:00:00Z')), '2026-11-02', 'Sunday belongs to the week that started on Monday');
+  const monday = new Date('2026-11-01T12:00:00Z');
+  assert.deepEqual(postDays('2026-11-02', 3, monday), [0, 2, 4]);
+  assert.deepEqual(postDays('2026-11-02', 4, monday), [0, 1, 3, 4]);
+  assert.deepEqual(postDays('2026-11-02', 5, monday), [0, 1, 2, 3, 4]);
+  assert.deepEqual(postDays('2026-11-02', 4, new Date('2026-11-04T09:00:00Z')), [2, 3, 4], 'Wednesday before 10am: Wed, Thu, Fri');
+  assert.deepEqual(postDays('2026-11-02', 3, new Date('2026-11-06T11:00:00Z')), [], 'nothing left after Friday 10am');
 
   const run = async (body: object) => {
     const { job } = (await call('POST', '/plan/week', body)).json();

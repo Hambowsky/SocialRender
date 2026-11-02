@@ -373,7 +373,7 @@ export function buildApp() {
   // The week's content: an article draft and a few scheduled posts from it, all waiting for approval.
   app.get('/plan/week', async () => savedPlan());
   app.post<{ Body: PlanInput }>('/plan/week', { schema: { body: { type: 'object', required: ['channels'], additionalProperties: false, properties: {
-    category: { type: 'string', maxLength: 100 }, count: { type: 'integer', minimum: 3, maximum: 5 }, focus: { type: 'string', maxLength: 1000 }, again: { type: 'boolean' },
+    category: { type: 'string', maxLength: 100 }, count: { type: 'integer', minimum: 3, maximum: 5 }, focus: { type: 'string', maxLength: 1000 }, again: { type: 'boolean' }, week: { enum: ['this', 'next'] },
     channels: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', required: ['id'], properties: { id: { type: 'string', maxLength: 100 }, name: { type: 'string', maxLength: 200 } } } } } } } },
   async (req, reply) => background(reply, () => planWeek(req.body)));
 
