@@ -1040,7 +1040,8 @@
       dropped = p.posts.filter(x => ['rejected', 'deleted'].includes(x.status)).length, look = p.posts.filter(x => ['failed', 'check_buffer'].includes(x.status)).length;
     const aState = { draft: 'is waiting for review', approved: 'is approved, ready to publish', published: 'is published', rejected: 'was rejected' }[a.status] ?? `is ${a.status}`;
     return `<p>Week of ${esc(dm(p.week_of))}: <a href="#articles" data-article="${a.id}" data-category="${esc(a.category)}">${esc(a.title)}</a> ${esc(aState)}.
-      Posts on ${esc(p.posts.map(x => new Date(x.due_at).toLocaleDateString('en-GB', { weekday: 'short' })).join(', ')) || 'no days'} at 10am:
+      Posts ${esc(p.posts.map(x => { const d = new Date(x.due_at), h = Number(d.toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Europe/London' }));
+        return `${d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'Europe/London' })} ${h > 12 ? h - 12 + 'pm' : h + 'am'}`; }).join(', ')) || 'none'}:
       ${[waiting && `<a href="#social">${waiting} waiting for approval</a>`, sent && `${sent} approved`, look && `<a href="#social">${look} needing a look</a>`, dropped && `${dropped} rejected`].filter(Boolean).join(', ') || 'none made'}.</p>
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
   };
@@ -1051,10 +1052,10 @@
       const [saved, cats, chans] = await Promise.all([api('/plan/week').then(r => r.json()), api('/articles/categories').then(r => r.json()), api('/buffer/channels').then(r => r.json()).catch(e => e)]);
       const tw = saved.this_week;
       box.innerHTML = `<div class="card-head"><h2>Plan the week</h2></div>
-        <p class="muted">Claude finds an article idea with sources and drafts it, then makes social posts for the weekdays at 10am: one from the new article, and the rest each promoting a guide already on your site from a different category, with its link. This week uses only the weekdays still to come. Nothing goes out until you approve it. The post about the new article does not link to it, so publish it whenever you are happy with it.</p>
+        <p class="muted">Claude finds an article idea with sources and drafts it, then makes social posts spread over the whole week, at 10am and, beyond one a day, 3pm: one from the new article, and the rest each promoting a guide already on your site from a different category, with its link. This week uses only the days still to come. Nothing goes out until you approve it. The post about the new article does not link to it, so publish it whenever you are happy with it.</p>
         ${tw.plan ? `<strong>This week</strong>${planResult(tw.plan)}` : ''}${saved.plan ? `<strong>Next week</strong>${planResult(saved.plan)}` : ''}
         <div class="row"><label>Category <select id="plCat"><option value="">Take turns each week</option>${cats.map(c => `<option value="${esc(c.category)}">${esc(c.label)}</option>`).join('')}</select></label>
-          <label>Posts <select id="plCount"><option>3</option><option selected>4</option><option>5</option></select></label></div>
+          <label>Posts <select id="plCount">${Array.from({ length: 14 }, (_, i) => `<option${i + 1 === 7 ? ' selected' : ''}>${i + 1}</option>`).join('')}</select></label></div>
         <label>Anything to focus on (optional) <input id="plFocus" maxlength="1000" placeholder="For example, websites for trades in the North East"></label>
         <div class="row" id="plChannels">${chans instanceof Error ? `<span class="bad">${esc(chans.message)}</span>` : chans.map(c => `<label class="chip"><input type="checkbox" value="${esc(c.id)}" data-name="${esc(c.name + ' (' + c.service + ')')}" checked>${esc(service(c.service))} <span class="muted">${esc(c.name)}</span></label>`).join('') || '<span class="muted">No channels in Buffer yet.</span>'}</div>
         <div class="row"><button type="button" class="small" id="plGo" data-week="next" data-again="${saved.plan ? 1 : ''}">${saved.plan ? 'Plan next week again' : 'Plan next week'}</button>

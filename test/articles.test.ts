@@ -326,21 +326,24 @@ test('a guide that is only on the site is read from the website repo, never fetc
   assert.equal(res.json().fields.tag, 'Stories');
 });
 
-test('planning the week drafts an article and schedules posts from it on weekdays at 10am UK time, once', async () => {
+test('planning the week drafts an article and schedules posts across the week at 10am UK time, once', async () => {
   const { tenAmLondon, nextMonday } = await import('../src/plan.ts');
   assert.equal(tenAmLondon('2027-01-11'), '2027-01-11T10:00:00.000Z');
   assert.equal(tenAmLondon('2027-07-12'), '2027-07-12T09:00:00.000Z', 'British Summer Time');
   assert.equal(nextMonday(new Date('2026-11-02T15:00:00Z')), '2026-11-09', 'a Monday plans the following week');
   assert.equal(nextMonday(new Date('2026-11-06T15:00:00Z')), '2026-11-09');
-  const { thisMonday, postDays } = await import('../src/plan.ts');
+  const { thisMonday, postTimes } = await import('../src/plan.ts');
   assert.equal(thisMonday(new Date('2026-11-04T15:00:00Z')), '2026-11-02');
   assert.equal(thisMonday(new Date('2026-11-08T15:00:00Z')), '2026-11-02', 'Sunday belongs to the week that started on Monday');
-  const monday = new Date('2026-11-01T12:00:00Z');
-  assert.deepEqual(postDays('2026-11-02', 3, monday), [0, 2, 4]);
-  assert.deepEqual(postDays('2026-11-02', 4, monday), [0, 1, 3, 4]);
-  assert.deepEqual(postDays('2026-11-02', 5, monday), [0, 1, 2, 3, 4]);
-  assert.deepEqual(postDays('2026-11-02', 4, new Date('2026-11-04T09:00:00Z')), [2, 3, 4], 'Wednesday before 10am: Wed, Thu, Fri');
-  assert.deepEqual(postDays('2026-11-02', 3, new Date('2026-11-06T11:00:00Z')), [], 'nothing left after Friday 10am');
+  const sunday = new Date('2026-11-01T12:00:00Z'), day = (t: string) => new Date(t).getUTCDay(), hour = (t: string) => new Date(t).getUTCHours();
+  assert.deepEqual(postTimes('2026-11-02', 3, sunday).map(day), [1, 4, 0], 'Mon, Thu, Sun');
+  assert.deepEqual(postTimes('2026-11-02', 7, sunday).map(day), [1, 2, 3, 4, 5, 6, 0], 'one every day of the week');
+  const ten = postTimes('2026-11-02', 10, sunday);
+  assert.equal(ten.length, 10);
+  assert.deepEqual(ten.map(hour).filter(h => h === 15).length, 3, 'beyond seven, some days get a 3pm post too');
+  assert.equal(new Set(postTimes('2026-11-02', 14, sunday)).size, 14, 'fourteen is twice a day');
+  assert.deepEqual(postTimes('2026-11-02', 4, new Date('2026-11-06T09:00:00Z')).map(day), [5, 5, 6, 0], 'Friday before 10am: every day left, then a 3pm on Friday');
+  assert.deepEqual(postTimes('2026-11-02', 3, new Date('2026-11-08T11:00:00Z')), [], 'nothing left after Sunday 10am');
 
   const run = async (body: object) => {
     const { job } = (await call('POST', '/plan/week', body)).json();
@@ -365,7 +368,7 @@ test('planning the week drafts an article and schedules posts from it on weekday
     const row = (await call('GET', '/posts?status=pending_approval')).json().find((x: any) => x.id === post.id);
     assert.ok(row, 'the post waits for approval');
     assert.equal(row.mode, 'scheduled');
-    assert.ok([1, 2, 3, 4, 5].includes(new Date(row.due_at).getUTCDay()), 'a weekday');
+    assert.equal(new Date(row.due_at).getUTCHours(), 10, '10am in winter');
     assert.doesNotMatch(row.text, /guides\/learn\//, 'no link to an article that is not live');
   }
   const texts = (await call('GET', '/posts?status=pending_approval')).json().filter((x: any) => p.posts.some((y: any) => y.id === x.id)).map((x: any) => x.text).join('\n');
