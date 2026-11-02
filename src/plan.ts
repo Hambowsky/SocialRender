@@ -1,5 +1,5 @@
 // The week's content in one go: an article idea from research, its sources, the draft, then a few social posts
-// spread over the weekdays: the first comes from the new article, the rest each promote a guide already live
+// spread over the whole week: the first comes from the new article, the rest each promote a guide already live
 // on the site from another category (linking to it), so the week covers different topics. With no other guides,
 // they fall back to the other research ideas. Everything waits for David: the article in the review list,
 // the posts in the approval list. The posts do not link to the article, since it is not live yet.
@@ -28,21 +28,26 @@ export function thisMonday(now = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
-// Weekdays (Monday is 0) still to come at 10am, spread out: 3 of 5 is Mon, Wed, Fri. Fewer days left means fewer posts.
-export function postDays(monday: string, count: number, now = new Date()) {
-  const left = [0, 1, 2, 3, 4].filter(d => Date.parse(tenAmLondon(dayOf(monday, d))) > now.getTime() + 15 * 60_000);
-  if (left.length <= count) return left;
-  return Array.from({ length: count }, (_, i) => left[Math.round(i * (left.length - 1) / (count - 1))]);
+// Times for the posts across the whole week (Monday is day 0), only those still to come. Up to one a day they
+// go out at 10am on evenly spread days (3 is Mon, Thu, Sun); beyond that every day gets 10am and some also 3pm.
+export function postTimes(monday: string, count: number, now = new Date()) {
+  const soon = now.getTime() + 15 * 60_000;
+  const left = [0, 1, 2, 3, 4, 5, 6].filter(d => Date.parse(atLondon(dayOf(monday, d), 10)) > soon);
+  const spread = <T>(list: T[], n: number) => list.length <= n ? list : n === 1 ? [list[0]] : Array.from({ length: n }, (_, i) => list[Math.round(i * (list.length - 1) / (n - 1))]);
+  const mornings = spread(left, count);
+  const afternoons = spread(left.filter(d => Date.parse(atLondon(dayOf(monday, d), 15)) > soon), Math.max(0, count - left.length));
+  return [...mornings.map(d => atLondon(dayOf(monday, d), 10)), ...afternoons.map(d => atLondon(dayOf(monday, d), 15))].sort();
 }
 const dayOf = (monday: string, d: number) => new Date(Date.parse(monday) + d * 86_400_000).toISOString().slice(0, 10);
 
-// 10am UK time on a date, whether or not the clocks have gone forward.
-export function tenAmLondon(date: string) {
+// A UK clock time on a date, whether or not the clocks have gone forward.
+export const tenAmLondon = (date: string) => atLondon(date, 10);
+export function atLondon(date: string, hour: number) {
   const noonUtc = new Date(`${date}T12:00:00Z`);
   const offset = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', timeZoneName: 'shortOffset' }).formatToParts(noonUtc)
     .find(p => p.type === 'timeZoneName')!.value; // GMT or GMT+1
   const hours = Number(offset.replace('GMT', '') || 0);
-  return new Date(Date.parse(`${date}T10:00:00Z`) - hours * 3600_000).toISOString();
+  return new Date(Date.parse(`${date}T12:00:00Z`) + (hour - 12 - hours) * 3600_000).toISOString();
 }
 
 // Categories take turns, one a week, so the site grows evenly.
@@ -87,12 +92,12 @@ export async function planWeek(input: PlanInput) {
   const key = `plan:${monday}`;
   const before = saved(monday).plan;
   if (before && !input.again) return { ...before, reused: true };
-  const days = postDays(monday, Math.min(5, Math.max(3, input.count ?? 4)));
-  if (!days.length) fail(400, 'There are no weekdays left this week. Plan next week instead');
+  const times = postTimes(monday, Math.min(14, Math.max(1, input.count ?? 4)));
+  if (!times.length) fail(400, 'There are no days left this week. Plan next week instead');
   if (planning) fail(409, 'A week is already being planned');
   planning = true;
   try {
-    const count = days.length;
+    const count = times.length;
     const category = input.category || categoryFor(monday);
     let cost = 0;
     const ideas = await research(category, { focus: input.focus });
@@ -108,11 +113,11 @@ export async function planWeek(input: PlanInput) {
     const problems: string[] = [];
     for (let i = 0; i < count; i++) {
       const template = TEMPLATES[i % TEMPLATES.length];
-      const date = dayOf(monday, days[i]);
       const done = made.map(m => `"${m.headline}"`).join(', ');
       const guide = i > 0 ? guides[i - 1] : undefined;
       const url = guide && `${SITE_URL}${guide.category}${guide.slug}`;
-      const other = i > 0 && !guide ? ideas.ideas[i] : undefined; // research gives six ideas; the article used the first
+      const spare = ideas.ideas.slice(1); // research gives six ideas; the article used the first
+      const other = i > 0 && !guide && spare.length ? spare[(i - 1 - guides.length) % spare.length] : undefined;
       try {
         const copy = await writeCopy({ template, ...(url ? { url } : other
           ? { keyword: other.keyword, sources: other.notes,
@@ -124,7 +129,7 @@ export async function planWeek(input: PlanInput) {
         if (!copy.fits) { problems.push(`Post ${i + 1}: the text did not fit ${template}`); continue; }
         const r = await render(template, copy.fields);
         if (!r.ok) { problems.push(`Post ${i + 1}: the text did not fit ${template}`); continue; }
-        const due = tenAmLondon(date);
+        const due = times[i];
         const [p] = await posts.create({ render_id: r.id, channels: input.channels, text: [copy.caption, url, copy.hashtags.join(' ')].filter(Boolean).join('\n\n'),
           mode: 'scheduled', due_at: due, idempotency_key: `plan-${article.id}-${i}` });
         made.push({ id: p.id, template, headline: copy.fields.headline, due_at: due });
