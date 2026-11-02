@@ -33,6 +33,7 @@ const serve = (handler: (body: any) => unknown, stream = false) => http.createSe
   });
 });
 const researchCalls: any[] = [];
+const draftPrompts: string[] = [];
 const claude = serve(r => {
   const prompt = JSON.stringify(r.messages);
   if (prompt.includes('Find sources for a Red Cherry IT guide')) {
@@ -54,7 +55,7 @@ const claude = serve(r => {
     return { ...base, stop_reason: 'end_turn', content: [{ type: 'text', text: 'Here you go.\n' + JSON.stringify({ ideas }) }],
       usage: { input_tokens: 5000, output_tokens: 800, server_tool_use: { web_search_requests: 2 } } };
   }
-  if (prompt.includes('Red Cherry IT explainer')) claudeCalls.push('learn');
+  if (prompt.includes('Red Cherry IT explainer')) { claudeCalls.push('learn'); draftPrompts.push(prompt); }
   claudeCalls.push(prompt.includes('Red Cherry IT article') ? 'article' : prompt.includes('Write the caption') ? 'caption' : 'post');
   const out = /Red Cherry IT (article|explainer)/.test(prompt)
     ? { title: 'Building an Information Portal for a Financial Services Business', summary: 'How we built a portal that publishes three articles a week.', body: exampleBody }
@@ -211,6 +212,9 @@ test('each category drafts with its own structure prompt', async () => {
   const res = await call('POST', '/articles', { topic: 'Portals explained', sources, category: '/guides/learn/' });
   assert.equal(res.statusCode, 200, res.body);
   assert.equal(claudeCalls.at(-2), 'learn');
+  // Our own guides and service pages are offered for internal links, with full addresses.
+  assert.match(draftPrompts.at(-1)!, /What SEO Actually Means, In Plain English: https:\/\/redcherryit\.com\/guides\/marketing\/what-seo-actually-means/);
+  assert.match(draftPrompts.at(-1)!, /https:\/\/redcherryit\.com\/pricing/);
   assert.match(res.json().url, /\/guides\/learn\//);
   const a = (await call('PUT', `/articles/${res.json().id}`, { body: exampleBody.replace('## The challenge', '## Background') })).json();
   assert.deepEqual(a.checks.errors, [], 'learn articles do not need the story headings');
