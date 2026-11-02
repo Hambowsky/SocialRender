@@ -22,6 +22,7 @@ import * as outreach from './outreach.ts';
 import { inboxState, startInbox, testInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
 import { registerMcp } from './mcp.ts';
+import * as signals from './signals.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -368,6 +369,12 @@ export function buildApp() {
     return page(reply, `Done. ${esc(req.query.e)} will not get any more emails from us.`);
   });
 
+  // Signals: people asking for help in public. Nothing is posted from here.
+  app.get<{ Querystring: { all?: boolean } }>('/signals', { schema: { querystring: { type: 'object', properties: { all: { type: 'boolean' } } } } }, async req => signals.list(req.query.all));
+  app.post('/signals/scan', async (_req, reply) => background(reply, () => signals.scan()));
+  app.post<{ Params: { id: number } }>('/signals/:id/dismiss', { schema: { params: id } }, async req => signals.dismiss(req.params.id));
+  app.post<{ Params: { id: number } }>('/signals/:id/lead', { schema: { params: id } }, async req => signals.toLead(req.params.id));
+
   app.get('/dashboard/marketing', async () => dashboard.marketing());
   app.get('/dashboard/sales', async () => dashboard.sales());
   app.get('/usage', async () => ({
@@ -390,6 +397,7 @@ export async function start() {
   startCleanup();
   outreach.startOutreach();
   startInbox();
+  signals.startSignals();
   const app = buildApp();
   const stop = async () => { await app.close(); await closeBrowser(); process.exit(0); };
   process.on('SIGTERM', stop);

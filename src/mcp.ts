@@ -116,6 +116,12 @@ export const TOOLS: Tool[] = [
     props: { id, template: str('Template'), channels, mode: { enum: ['queue', 'scheduled', 'draft'] }, due_at: str('ISO date and time, for scheduled') },
     required: ['id', 'template', 'channels', 'mode'], call: a => ({ method: 'POST', url: `/articles/${Number(a.id)}/social`, body: pick(a, ['template', 'channels', 'mode', 'due_at']) }) },
   { name: 'claude_spend', read: true, description: 'Claude spend this month against the cap, and the latest calls.', call: () => ({ method: 'GET', url: '/usage' }) },
+  // Signals
+  { name: 'list_signals', read: true, description: 'Public posts from people asking for a web designer, developer or SEO help, with a suggested reply David can post himself.',
+    props: { all: { type: 'boolean', description: 'true to include dismissed ones and ones made into leads' } }, call: a => ({ method: 'GET', url: `/signals${a.all ? '?all=true' : ''}` }) },
+  { name: 'scan_signals', description: 'Searches for new signals now (it also runs once a day). Returns a job id for check_job.', call: () => ({ method: 'POST', url: '/signals/scan' }) },
+  { name: 'signal_to_lead', description: 'Saves a signal as a lead.', props: { id }, required: ['id'], call: a => ({ method: 'POST', url: `/signals/${Number(a.id)}/lead` }) },
+  { name: 'dismiss_signal', description: 'Hides a signal that is not worth answering.', props: { id }, required: ['id'], call: a => ({ method: 'POST', url: `/signals/${Number(a.id)}/dismiss` }) },
   // Public steps, on David's word only
   { name: 'approve_email', description: 'Approves one email, which sends it (within the daily limit).' + ON_WORD, props: { id }, required: ['id'], call: a => ({ method: 'POST', url: `/emails/${Number(a.id)}/approve` }) },
   { name: 'approve_all_emails', description: 'Approves every email waiting for approval, which sends them (within the daily limit).' + ON_WORD, call: () => ({ method: 'POST', url: '/emails/approve-all' }) },
