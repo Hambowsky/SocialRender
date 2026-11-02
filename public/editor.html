@@ -593,6 +593,7 @@
     if (!ok) return;
     if (view === 'articles' && !loaded.articles) { loaded.articles = true; loadArticles(); }
     if (view === 'home') loadHome();
+    if (view === 'social') loadPosts(); // posts made elsewhere (Plan next week, Hermes) show without a page reload
     if (view === 'dashboard') loadDashboard('marketing');
     if (view === 'sales') loadDashboard('sales');
     if (view === 'campaigns') loadCampaigns();
