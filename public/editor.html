@@ -1035,9 +1035,15 @@
     } catch (e) { box.innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
   }
   // Plan next week: an article draft plus a few scheduled posts from it, all waiting for approval.
-  const planResult = p => `<p>Week of ${esc(dm(p.week_of))}: <a href="#articles" data-article="${p.article.id}" data-category="${esc(p.article.category)}">${esc(p.article.title)}</a> is waiting for review,
-      and ${plural(p.posts.length, 'post')} ${p.posts.length === 1 ? 'is' : 'are'} in the <a href="#social">approval list</a>, scheduled ${esc(p.posts.map(x => new Date(x.due_at).toLocaleDateString('en-GB', { weekday: 'short' })).join(', '))} at 10am.</p>
+  const planResult = p => {
+    const a = p.article, waiting = p.posts.filter(x => x.status === 'pending_approval').length, sent = p.posts.filter(x => ['approved', 'sending', 'sent'].includes(x.status)).length,
+      dropped = p.posts.filter(x => ['rejected', 'deleted'].includes(x.status)).length, look = p.posts.filter(x => ['failed', 'check_buffer'].includes(x.status)).length;
+    const aState = { draft: 'is waiting for review', approved: 'is approved, ready to publish', published: 'is published', rejected: 'was rejected' }[a.status] ?? `is ${a.status}`;
+    return `<p>Week of ${esc(dm(p.week_of))}: <a href="#articles" data-article="${a.id}" data-category="${esc(a.category)}">${esc(a.title)}</a> ${esc(aState)}.
+      Posts on ${esc(p.posts.map(x => new Date(x.due_at).toLocaleDateString('en-GB', { weekday: 'short' })).join(', ')) || 'no days'} at 10am:
+      ${[waiting && `<a href="#social">${waiting} waiting for approval</a>`, sent && `${sent} approved`, look && `<a href="#social">${look} needing a look</a>`, dropped && `${dropped} rejected`].filter(Boolean).join(', ') || 'none made'}.</p>
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
+  };
   async function loadPlan() {
     const box = $('planBox');
     if (!box) return;

@@ -175,12 +175,22 @@ export async function draft(input: DraftInput) {
   const page = input.url ? await readPage(input.url) : undefined;
   const sources = [input.sources?.trim(), page && `From ${page.url}\nTitle: ${page.title}\n\n${page.text}`].filter(Boolean).join('\n\n');
   if (!sources) fail(400, 'Give some sources or a page link. Articles only use facts from their sources.');
-  const run = await runPrompt(promptFor(category), { ...input, sources, site_links: await siteLinks() } as Record<string, string>, { job: 'article:draft' });
+  let run = await runPrompt(promptFor(category), { ...input, sources, site_links: await siteLinks() } as Record<string, string>, { job: 'article:draft' });
+  let cost = run.cost_gbp;
+  // A draft that fails the approval checks (a missing heading, dashes, length) goes back to Claude, up to twice,
+  // so David only has to approve. Whatever is left after that shows as an error on the draft.
+  for (let tries = 0; tries < 2; tries++) {
+    const errors = checks({ body: (run.output as { body: string }).body, sources, category }).errors;
+    if (!errors.length) break;
+    run = await runPrompt(promptFor(category), {}, { job: 'article:draft', followUp: { history: [...run.messages, { role: 'assistant', content: JSON.stringify(run.output) }],
+      note: `The draft failed these checks: ${errors.join(' ')} Send the whole article again with these fixed, keeping everything else the same.` } });
+    cost += run.cost_gbp;
+  }
   const o = run.output as { title: string; summary: string; body: string };
   const r = db.prepare(`INSERT INTO articles (slug, category, title, summary, body, topic, keyword, sources, status)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`)
     .run(freeSlug(slugify(o.title)), category, o.title.trim(), o.summary.trim(), o.body.trim(), input.topic, input.keyword ?? '', sources);
-  return { ...show(Number(r.lastInsertRowid)), cost_gbp: run.cost_gbp };
+  return { ...show(Number(r.lastInsertRowid)), cost_gbp: +cost.toFixed(4) };
 }
 
 // David's edits. Only drafts can change, so what was approved is what gets published.
