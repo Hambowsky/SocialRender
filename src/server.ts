@@ -23,6 +23,7 @@ import { inboxState, startInbox, testInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
 import { registerMcp } from './mcp.ts';
 import * as signals from './signals.ts';
+import { planWeek, savedPlan, type PlanInput } from './plan.ts';
 
 type Fields = Record<string, string>;
 const name = { type: 'string', pattern: NAME_PATTERN };
@@ -368,6 +369,13 @@ export function buildApp() {
     outreach.unsubscribe(req.query.e, req.query.t);
     return page(reply, `Done. ${esc(req.query.e)} will not get any more emails from us.`);
   });
+
+  // The week's content: an article draft and a few scheduled posts from it, all waiting for approval.
+  app.get('/plan/week', async () => savedPlan());
+  app.post<{ Body: PlanInput }>('/plan/week', { schema: { body: { type: 'object', required: ['channels'], additionalProperties: false, properties: {
+    category: { type: 'string', maxLength: 100 }, count: { type: 'integer', minimum: 3, maximum: 5 }, focus: { type: 'string', maxLength: 1000 }, again: { type: 'boolean' },
+    channels: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'object', required: ['id'], properties: { id: { type: 'string', maxLength: 100 }, name: { type: 'string', maxLength: 200 } } } } } } } },
+  async (req, reply) => background(reply, () => planWeek(req.body)));
 
   // Signals: people asking for help in public. Nothing is posted from here.
   app.get<{ Querystring: { all?: boolean } }>('/signals', { schema: { querystring: { type: 'object', properties: { all: { type: 'boolean' } } } } }, async req => signals.list(req.query.all));
