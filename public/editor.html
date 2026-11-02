@@ -1677,7 +1677,7 @@
       draft: b('save', 'Save changes', 'plain') + b('approve', 'Approve') + b('reject', 'Reject', 'plain'),
       approved: b('publish', 'Publish') + b('reopen', 'Back to draft', 'plain') + b('reject', 'Reject', 'plain'),
       published: b('reopen', 'Edit again') + b('publish', 'Publish again', 'plain') + b('social', 'Make a social post', 'plain'),
-      rejected: b('reopen', 'Back to draft', 'plain'),
+      rejected: b('redraft', 'Draft again') + b('reopen', 'Back to draft', 'plain'),
     }[article.status] + b('md', 'Download .md', 'plain') + b('html', 'Download .html', 'plain');
     // The page uses the live site's styles: <base> makes its relative links point at the real site.
     const page = await (await api(`/articles/${article.id}/download?format=html`)).text();
@@ -1755,6 +1755,16 @@
       return $('writeBtn').click();
     }
     note('aOut', '');
+    // A fresh draft from the same topic, keyword and sources. The rejected one stays as it is.
+    if (act === 'redraft') {
+      e.target.disabled = true;
+      note('aOut', 'Claude is writing a new draft. This takes a minute or two...');
+      try {
+        const a = await (await api('/articles', { method: 'POST', body: JSON.stringify({ topic: article.topic || article.title, keyword: article.keyword || '', sources: article.sources.slice(0, 40000), category: article.category }) })).json();
+        note('aOut', '');
+        return await loadArticles(a.id);
+      } catch (err) { e.target.disabled = false; return note('aOut', esc(err.message), 'bad'); }
+    }
     try {
       if (act === 'save' || act === 'approve') {
         await api('/articles/' + article.id, { method: 'PUT', body: JSON.stringify({ title: $('aTitle').value, summary: $('aSummary').value, slug: $('aSlug').value, body: $('aBody').value }) });
