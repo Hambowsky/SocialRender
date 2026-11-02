@@ -308,3 +308,40 @@ test('a guide that is only on the site is read from the website repo, never fetc
   assert.match(res.json().page.title, /A guide only on the site/);
   assert.equal(res.json().fields.tag, 'Stories');
 });
+
+test('planning the week drafts an article and schedules posts from it on weekdays at 10am UK time, once', async () => {
+  const { tenAmLondon, nextMonday } = await import('../src/plan.ts');
+  assert.equal(tenAmLondon('2027-01-11'), '2027-01-11T10:00:00.000Z');
+  assert.equal(tenAmLondon('2027-07-12'), '2027-07-12T09:00:00.000Z', 'British Summer Time');
+  assert.equal(nextMonday(new Date('2026-11-02T15:00:00Z')), '2026-11-09', 'a Monday plans the following week');
+  assert.equal(nextMonday(new Date('2026-11-06T15:00:00Z')), '2026-11-09');
+
+  const run = async (body: object) => {
+    const { job } = (await call('POST', '/plan/week', body)).json();
+    for (;;) {
+      const r = (await call('GET', `/jobs/${job}`)).json();
+      if (r.done) return r.result;
+      if (r.error) throw new Error(r.error);
+      await new Promise(ok => setTimeout(ok, 50));
+    }
+  };
+  const channels = [{ id: 'ch1', name: 'Facebook' }];
+  const p = await run({ channels, count: 3, category: '/guides/learn/' });
+  assert.equal(p.article.title, 'Building an Information Portal for a Financial Services Business');
+  assert.equal((await call('GET', `/articles/${p.article.id}`)).json().status, 'draft', 'the article waits for review');
+  assert.ok(p.posts.length >= 1, JSON.stringify(p.problems));
+  assert.equal(p.posts.length + p.problems.length, 3);
+  for (const post of p.posts) {
+    const row = (await call('GET', '/posts?status=pending_approval')).json().find((x: any) => x.id === post.id);
+    assert.ok(row, 'the post waits for approval');
+    assert.equal(row.mode, 'scheduled');
+    assert.ok([1, 2, 3, 4, 5].includes(new Date(row.due_at).getUTCDay()), 'a weekday');
+    assert.doesNotMatch(row.text, /redcherryit\.com\/guides/, 'no link to an article that is not live');
+  }
+  const before = claudeCalls.length;
+  const again = await run({ channels });
+  assert.equal(again.reused, true);
+  assert.equal(again.article.id, p.article.id);
+  assert.equal(claudeCalls.length, before, 'Claude is not asked twice for the same week');
+  assert.equal((await call('POST', '/plan/week', {})).statusCode, 400, 'channels are needed');
+});
