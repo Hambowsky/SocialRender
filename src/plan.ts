@@ -53,7 +53,13 @@ function categoryFor(monday: string) {
 
 const saved = (monday: string) => {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`plan:${monday}`) as { value: string } | undefined;
-  return { week_of: monday, plan: row ? JSON.parse(row.value) : null };
+  if (!row) return { week_of: monday, plan: null };
+  // The saved plan with where each part stands now, so the card follows David's approvals and rejections.
+  const plan = JSON.parse(row.value);
+  plan.article.status = (db.prepare('SELECT status FROM articles WHERE id = ?').get(plan.article.id) as { status: string } | undefined)?.status ?? 'deleted';
+  const status = db.prepare('SELECT status FROM posts WHERE id = ?');
+  for (const p of plan.posts) p.status = (status.get(p.id) as { status: string } | undefined)?.status ?? 'deleted';
+  return { week_of: monday, plan };
 };
 export function savedPlan() {
   return { ...saved(nextMonday()), this_week: saved(thisMonday()) };

@@ -35,6 +35,7 @@ const serve = (handler: (body: any) => unknown, stream = false) => http.createSe
 });
 const researchCalls: any[] = [];
 const draftPrompts: string[] = [];
+let dashedDraft = false; // the first draft breaks a rule, so it has to go back to Claude
 const claude = serve(r => {
   const prompt = JSON.stringify(r.messages);
   if (prompt.includes('Find sources for a Red Cherry IT guide')) {
@@ -61,7 +62,8 @@ const claude = serve(r => {
   allPrompts.push(prompt);
   claudeCalls.push(prompt.includes('Red Cherry IT article') ? 'article' : prompt.includes('Write the caption') ? 'caption' : 'post');
   const out = /Red Cherry IT (article|explainer)/.test(prompt)
-    ? { title: 'Building an Information Portal for a Financial Services Business', summary: 'How we built a portal that publishes three articles a week.', body: exampleBody }
+    ? { title: 'Building an Information Portal for a Financial Services Business', summary: 'How we built a portal that publishes three articles a week.',
+      body: dashedDraft && !prompt.includes('failed these checks') ? exampleBody + '\n\nFast \u2014 and simple.' : exampleBody }
     : prompt.includes('Write the caption')
     ? { caption: 'How a payments business publishes three articles a week without a developer.', hashtags: ['#WebDesign', '#SEO', '#ContentMarketing'] }
     : { headline: 'Three articles a week', highlight_word: 'Three', subtitle: 'A portal the team runs themselves.', tag: 'Case Study', footer_left: 'Read the story' };
@@ -146,6 +148,18 @@ test('a draft needs sources, and a good draft passes the checks', async () => {
   assert.equal(a.url, 'https://redcherryit.com/guides/stories/building-an-information-portal-for-a-financial-services-business');
   assert.deepEqual(a.checks.errors, []);
   assert.deepEqual(a.checks.warnings, []);
+});
+
+test('a draft that fails the checks goes back to Claude once, so it arrives ready to approve', async () => {
+  dashedDraft = true;
+  const before = allPrompts.length;
+  const res = await call('POST', '/articles', { topic: 'Payments portal again', keyword: 'information portal', sources });
+  dashedDraft = false;
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(res.json().checks.errors, []);
+  const sent = allPrompts.slice(before);
+  assert.equal(sent.length, 2, 'one draft and one fix');
+  assert.match(sent[1], /failed these checks: Dashes used as punctuation/);
 });
 
 test('checks catch dashes, missing headings, made up figures and [SOURCE NEEDED]', async () => {
@@ -352,6 +366,11 @@ test('planning the week drafts an article and schedules posts from it on weekday
     assert.doesNotMatch(row.text, /redcherryit\.com\/guides/, 'no link to an article that is not live');
   }
   assert.ok(allPrompts.slice(promptsBefore).some(x => x.includes('Why a slow website loses enquiries')), 'later posts take another research idea, not all the article');
+  await call('POST', `/posts/${p.posts[0].id}/reject`);
+  await call('POST', `/articles/${p.article.id}/reject`);
+  const live = (await call('GET', '/plan/week')).json().plan;
+  assert.equal(live.article.status, 'rejected', 'the card follows the article');
+  assert.equal(live.posts[0].status, 'rejected', 'and each post');
   const before = claudeCalls.length;
   const again = await run({ channels });
   assert.equal(again.reused, true);
