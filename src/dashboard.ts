@@ -62,6 +62,7 @@ export function sales() {
       emails_to_check: n(`SELECT COUNT(*) AS n FROM emails WHERE status IN ('failed', 'check_sent')`),
       follow_ups_due: followUpsDue(),
       replies_to_answer: status.replied ?? 0,
+      signals_new: n(`SELECT COUNT(*) AS n FROM signals WHERE status = 'new'`),
       call_backs_due: n(`SELECT COUNT(*) AS n FROM leads WHERE follow_up_date <= date('now') AND status NOT IN ('converted', 'not_interested', 'not_a_fit', 'archived')`),
     },
     leads: n(`SELECT COUNT(*) AS n FROM leads WHERE status != 'archived'`),

@@ -201,6 +201,23 @@ const migrations = [
 
   `ALTER TABLE emails ADD COLUMN follow_up_of INTEGER REFERENCES emails (id); -- the first email this one follows up, or null
    CREATE UNIQUE INDEX emails_one_follow_up ON emails (follow_up_of)`,
+
+  `CREATE TABLE signals (              -- public posts from people asking for a web designer, developer or SEO help
+     id INTEGER PRIMARY KEY,
+     url TEXT NOT NULL UNIQUE,         -- each post is looked at once
+     title TEXT NOT NULL DEFAULT '',
+     snippet TEXT NOT NULL DEFAULT '',
+     site TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL,             -- new, ignored (Claude says not a real request), dismissed, lead
+     service TEXT NOT NULL DEFAULT '',
+     area TEXT NOT NULL DEFAULT '',
+     who TEXT NOT NULL DEFAULT '',
+     summary TEXT NOT NULL DEFAULT '',
+     reply TEXT NOT NULL DEFAULT '',
+     lead_id INTEGER REFERENCES leads (id) ON DELETE SET NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE INDEX signals_status ON signals (status)`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

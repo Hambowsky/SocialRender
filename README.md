@@ -45,6 +45,7 @@ All in environment variables, listed in `.env.example`.
 | `FIRECRAWL_API_KEY` | none | Directory search (Yell, Checkatrade and others) for campaigns. |
 | `FIRECRAWL_MONTHLY_CALLS` | `500` | Most Firecrawl searches a month. |
 | `FIRECRAWL_SCRAPE_MONTHLY_CALLS` | `1000` | Most website pages a month read through Firecrawl, used only when the server cannot load a site itself (1 credit each, a failed read costs nothing). |
+| `SIGNALS_MONTHLY_CALLS` | `200` | Most Firecrawl searches a month for Signals (about four a day: one per campaign town, up to five, plus one for the UK). |
 
 ## API
 Every endpoint needs `x-api-key`, except `/health`, the editor page with its fonts, logo and check script, and `/public/renders/<id>.png` (Buffer fetches images from there; ids are long random looking hashes that cannot be listed).
@@ -103,6 +104,10 @@ A campaign is industries, towns, what you are looking for (no website, an outdat
 * Deleting a campaign deletes its leads that are still New. Leads you have worked on stay.
 * Leads have a status, a follow up date, contact details you can correct, and notes. Status changes are logged with the notes.
 * API: `GET/POST /campaigns`, `GET/PUT/DELETE /campaigns/<id>`, `POST /campaigns/<id>/run`, `POST /campaigns/<id>/analyse`, `POST /leads/<id>/analyse`, `GET /leads/<id>/screenshot.jpg`, `GET /leads?campaign=&status=&priority=&q=&has_website=&has_email=&has_phone=&sort=` (has_* take yes or no; status also takes active or contacted_plus; sort is newest, priority, name or town), `GET/PUT /leads/<id>`, `POST /leads/<id>/notes`.
+
+## Signals
+
+Once a day (and on Search now) the server searches Reddit, X, Threads and UK business forums for the past week's posts asking for a web designer, developer or SEO help, around the towns in your campaigns. Claude (Haiku, prompt `signal-review`) keeps the real requests and suggests a reply. Each post is looked at once. Nothing is ever posted: David opens the post and replies himself, and can save the person as a lead. Needs `FIRECRAWL_API_KEY` and `ANTHROPIC_API_KEY`.
 
 ## Templates
 `templates/` holds the four starting templates: social post, quote card, stat card and tip card. On start, any template file whose exact HTML is not already in the database is added as a new version. After that, edits made in the editor are the live version, and every save can be rolled back.

@@ -15,7 +15,7 @@ export const STATUSES = ['new', 'contacted', 'replied', 'bounced', 'converted', 
 // Google gives 1,000 Text Search calls with phone and website free each month; stay under that unless told otherwise.
 // Town suggestions are a cheaper Google product with 10,000 free a month; half of that is plenty for typing.
 const MONTHLY_CALLS = { places: Number(process.env.PLACES_MONTHLY_CALLS || 900), firecrawl: Number(process.env.FIRECRAWL_MONTHLY_CALLS || 500), towns: 5000,
-  scrape: Number(process.env.FIRECRAWL_SCRAPE_MONTHLY_CALLS || 1000) };
+  scrape: Number(process.env.FIRECRAWL_SCRAPE_MONTHLY_CALLS || 1000), signals: Number(process.env.SIGNALS_MONTHLY_CALLS || 200) };
 type Api = keyof typeof MONTHLY_CALLS;
 // Google's price for Text Search with phone and website (Enterprise), after the first 1,000 free each month.
 const GOOGLE_FREE = 1000, GOOGLE_USD_EACH = 0.035;
@@ -94,7 +94,7 @@ export function deleteCampaign(id: number) {
 export function usage() {
   // Credits cover searches and the page reads used when the server cannot load a site itself.
   const firecrawl = db.prepare(`SELECT COALESCE(SUM(key LIKE 'firecrawl:%'), 0) AS calls, COALESCE(SUM(json_extract(body, '$.creditsUsed')), 0) AS credits FROM api_cache
-    WHERE (key LIKE 'firecrawl:%' OR key LIKE 'scrape:%') AND created_at >= datetime('now', 'start of month')`).get() as { calls: number; credits: number };
+    WHERE (key LIKE 'firecrawl:%' OR key LIKE 'scrape:%' OR key LIKE 'signals:%') AND created_at >= datetime('now', 'start of month')`).get() as { calls: number; credits: number };
   const google = used('places');
   return { google_searches: google, google_free: GOOGLE_FREE, google_cost_gbp: googleCost(0, google), firecrawl_searches: firecrawl.calls, firecrawl_credits: firecrawl.credits };
 }
@@ -110,7 +110,7 @@ export async function cached<T>(api: Api, request: unknown, call: () => Promise<
   const key = `${api}:${new Date().toISOString().slice(0, 10)}:${crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex')}`;
   const hit = db.prepare('SELECT body FROM api_cache WHERE key = ?').get(key) as { body: string } | undefined;
   if (hit) return JSON.parse(hit.body);
-  if (used(api) >= MONTHLY_CALLS[api]) fail(429, `The monthly limit of ${MONTHLY_CALLS[api]} ${{ places: 'Google Places searches', firecrawl: 'Firecrawl searches', towns: 'town suggestions', scrape: 'Firecrawl page reads' }[api]} is used up`);
+  if (used(api) >= MONTHLY_CALLS[api]) fail(429, `The monthly limit of ${MONTHLY_CALLS[api]} ${{ places: 'Google Places searches', firecrawl: 'Firecrawl searches', towns: 'town suggestions', scrape: 'Firecrawl page reads', signals: 'signal searches' }[api]} is used up`);
   const body = await call();
   db.prepare(`INSERT INTO api_cache (key, body) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET body = excluded.body, created_at = datetime('now')`).run(key, JSON.stringify(body));
   return body;
@@ -166,7 +166,7 @@ export async function towns(q: string): Promise<{ name: string; area: string }[]
 }
 
 type Hit = { title?: string; description?: string; url: string };
-export const firecrawlSearch = (req: object) => cached('firecrawl', req, async () => {
+export const firecrawlSearch = (req: object, api: 'firecrawl' | 'signals' = 'firecrawl') => cached(api, req, async () => {
   const res = await fetch(`${FIRECRAWL_API_URL}/v2/search`, { method: 'POST', signal: AbortSignal.timeout(30_000),
     headers: { 'content-type': 'application/json', authorization: `Bearer ${FIRECRAWL_API_KEY}` }, body: JSON.stringify(req) });
   const json = await res.json().catch(() => ({})) as { data?: { web?: Hit[] }; error?: string };

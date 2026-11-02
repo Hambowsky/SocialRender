@@ -226,6 +226,7 @@
       <a href="#campaigns" data-view="campaigns" data-section="sales">Campaigns</a>
       <a href="#leads" data-view="leads" data-section="sales">Leads</a>
       <a href="#emails" data-view="emails" data-section="sales">Emails</a>
+      <a href="#signals" data-view="signals" data-section="sales">Signals</a>
     </nav>
     <span class="pill" id="spend">Claude spend</span>
     <div class="keybox">
@@ -471,6 +472,15 @@
     </table></div>
   </div>
 </section>
+<section class="view" data-view="signals" hidden>
+  <div class="card">
+    <div class="card-head"><h2>Signals</h2><div class="row"><label class="chip"><input type="checkbox" id="sgAll">Show answered and hidden</label><button type="button" class="small" id="sgScan">Search now</button></div></div>
+    <p class="muted">People asking in public for a web designer, developer or SEO help, found once a day on Reddit, X, Threads and UK forums. Claude keeps the real requests and suggests a reply. Nothing is posted for you: open the post and answer it yourself, the sooner the better.</p>
+    <span class="muted" id="sgInfo"></span>
+    <div id="sgList" class="queue"></div>
+  </div>
+</section>
+
 <section class="view" data-view="emails" hidden>
   <div class="cols wide-left">
     <div class="card">
@@ -588,6 +598,7 @@
     if (view === 'campaigns') loadCampaigns();
     if (view === 'leads') loadLeads();
     if (view === 'emails') loadEmails();
+    if (view === 'signals') loadSignals();
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -855,6 +866,44 @@
     } catch (err) { $('eCheckOut').textContent = err.message; }
     e.target.disabled = false;
   });
+  // ---- Signals ----
+  async function loadSignals() {
+    try {
+      const r = await (await api(`/signals${$('sgAll').checked ? '?all=true' : ''}`)).json();
+      $('sgInfo').textContent = `Searching around ${r.towns.join(', ')} and the UK (the towns come from your campaigns). `
+        + (r.scanned_at ? `Last searched ${new Date(r.scanned_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : 'Not searched yet.');
+      $('sgList').innerHTML = r.signals.map(s => `<div class="camp" data-signal="${s.id}">
+          <div class="row" style="justify-content:space-between"><h3>${esc(s.service ? s.service[0].toUpperCase() + s.service.slice(1) : 'Request')}${s.area ? ` · ${esc(s.area)}` : ''}</h3><span class="row"><span class="badge">${esc(s.site)}</span>${s.status === 'lead' ? '<span class="badge sent">Lead</span>' : s.status === 'dismissed' ? '<span class="badge">Hidden</span>' : ''}</span></div>
+          <span>${esc(s.summary || s.title)}</span>
+          ${s.who ? `<span class="muted">${esc(s.who)}</span>` : ''}
+          <span class="muted">Found ${esc(dm(s.created_at))}</span>
+          ${s.reply ? `<label>Suggested reply <textarea rows="3" data-reply>${esc(s.reply)}</textarea></label>` : ''}
+          <div class="row"><a class="button small" href="${esc(s.url)}" target="_blank" rel="noopener">Open the post</a>
+            ${s.reply ? '<button type="button" class="plain small" data-act="copy">Copy reply</button>' : ''}
+            ${s.status === 'lead' ? `<a class="button plain small" href="#leads" data-open-lead="${s.lead_id}">Open the lead</a>` : '<button type="button" class="plain small" data-act="lead">Save as a lead</button>'}
+            ${s.status === 'new' ? '<button type="button" class="plain small" data-act="dismiss">Hide</button>' : ''}<span data-out></span></div></div>`).join('')
+        || `<p class="muted">${$('sgAll').checked ? 'No signals yet.' : 'Nothing new. New requests appear here after each daily search.'}</p>`;
+    } catch (e) { $('sgList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
+  }
+  $('sgAll').addEventListener('change', loadSignals);
+  $('sgScan').addEventListener('click', async () => {
+    const b = $('sgScan'); b.disabled = true; b.textContent = 'Searching...';
+    try {
+      const r = await apiJob('/signals/scan');
+      $('sgInfo').textContent = r?.error ? r.error : `Looked at ${r.checked} new posts and kept ${r.added}.`;
+      if (!r?.error) await loadSignals();
+    } catch (e) { $('sgInfo').textContent = e.message; }
+    b.disabled = false; b.textContent = 'Search now';
+  });
+  $('sgList').addEventListener('click', async e => {
+    const box = e.target.closest('[data-signal]'), act = e.target.dataset.act;
+    if (e.target.dataset.openLead) return openLead(Number(e.target.dataset.openLead));
+    if (!box || !act) return;
+    if (act === 'copy') { await navigator.clipboard.writeText(box.querySelector('[data-reply]').value); e.target.textContent = 'Copied'; return; }
+    try { await api(`/signals/${box.dataset.signal}/${act}`, { method: 'POST' }); await loadSignals(); }
+    catch (err) { box.querySelector('[data-out]').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
+  });
+
   $('eList').addEventListener('click', async e => {
     const act = e.target.dataset.act, box = e.target.closest('[data-email]');
     if (!act) return;
@@ -933,7 +982,7 @@
     [nd.posts_to_check, ['post that failed or needs checking in Buffer', 'posts that failed or need checking in Buffer'], '#social'],
     ...m.articles.map(a => [1, a.status === 'approved' ? `${a.title}: approved, ready to publish` : a.published_at ? `${a.title}: reopened with Edit again, so the website still has the old version` : `${a.title}: draft to review`,
       '#articles', `data-article="${a.id}" data-category="${esc(a.category)}"`])]; };
-  const salesTodo = ({ needs: nd }) => [[nd.replies_to_answer, ['lead has replied', 'leads have replied'], '#leads'], [nd.emails_to_approve, ['email waiting for your approval', 'emails waiting for your approval'], '#emails'],
+  const salesTodo = ({ needs: nd }) => [[nd.replies_to_answer, ['lead has replied', 'leads have replied'], '#leads'], [nd.signals_new, ['person asking for help in public', 'people asking for help in public'], '#signals'], [nd.emails_to_approve, ['email waiting for your approval', 'emails waiting for your approval'], '#emails'],
     [nd.follow_ups_due, ['lead ready for a follow up email', 'leads ready for a follow up email'], '#emails'], [nd.call_backs_due, ['follow up date due today or earlier', 'follow up dates due today or earlier'], '#leads'],
     [nd.emails_to_check, ['email that failed or needs checking', 'emails that failed or need checking'], '#emails']];
 
