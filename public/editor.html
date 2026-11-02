@@ -999,7 +999,7 @@
         ${spendCard({ ...m, spend_gbp: m.all_spend_gbp }).replace(/<span class="muted">[^<]*of that was for this area.<\/span>/, '')}
         <div class="cols two">
           ${area('Marketing', '#dashboard', m.spend_gbp, tile(m.posts_this_month, 'Posts this month') + tile(m.posts_scheduled, 'Scheduled ahead') + tile(m.articles_this_month, 'Articles this month'),
-            [['Make a post', '#social'], ['Write an article', '#articles'], ['Templates', '#templates']])}
+            [['Plan next week', '#dashboard'], ['Make a post', '#social'], ['Write an article', '#articles'], ['Templates', '#templates']])}
           ${area('Sales', '#sales', s.spend_gbp, tile(s.leads, 'Leads') + tile(`${s.sent_today}<small class="muted"> of ${s.daily_cap}</small>`, 'Emails today') + tile(s.reply_rate === null ? 'n/a' : `${s.reply_rate}%`, 'Reply rate'),
             [['Find leads', '#campaigns'], ['Leads', '#leads'], ['Emails', '#emails']])}
         </div>`;
