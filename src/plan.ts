@@ -1,10 +1,11 @@
 // The week's content in one go: an article idea from research, its sources, the draft, then a few social posts
-// spread over the weekdays: Monday's comes from the article, the rest each take another of the research ideas
-// so the week is not all one topic. Everything waits for David: the article in the review list,
+// spread over the weekdays: the first comes from the new article, the rest each promote a guide already live
+// on the site from another category (linking to it), so the week covers different topics. With no other guides,
+// they fall back to the other research ideas. Everything waits for David: the article in the review list,
 // the posts in the approval list. The posts do not link to the article, since it is not live yet.
 import { db } from './db.ts';
-import { fail } from './config.ts';
-import { categories, draft, findSources, research } from './articles.ts';
+import { fail, SITE_URL } from './config.ts';
+import { categories, draft, findSources, research, siteGuides } from './articles.ts';
 import { writeCopy } from './copy.ts';
 import { render } from './render.ts';
 import * as posts from './posts.ts';
@@ -65,6 +66,20 @@ export function savedPlan() {
   return { ...saved(nextMonday()), this_week: saved(thisMonday()) };
 }
 
+type Guide = { category: string; slug: string };
+// Live guides from other categories, one category after another, starting somewhere different each week.
+export function otherGuides<G extends Guide>(all: G[], category: string, week: number, n: number) {
+  const cats = [...new Set(all.filter(g => g.category !== category).map(g => g.category))].sort();
+  const picks: G[] = [];
+  for (let round = 0; picks.length < n && round < all.length; round++)
+    for (let c = 0; c < cats.length && picks.length < n; c++) {
+      const list = all.filter(g => g.category === cats[(c + week) % cats.length]).sort((a, b) => a.slug.localeCompare(b.slug));
+      const g = list[(week + round) % list.length];
+      if (!picks.includes(g)) picks.push(g);
+    }
+  return picks;
+}
+
 let planning = false;
 export async function planWeek(input: PlanInput) {
   if (!input.channels?.length) fail(400, 'Pick at least one Buffer channel for the posts');
@@ -88,15 +103,18 @@ export async function planWeek(input: PlanInput) {
     const article = await draft({ topic: idea.title, keyword: idea.keyword, audience: idea.audience, sources: sources.text, category });
     cost += article.cost_gbp;
 
+    const guides = otherGuides(await siteGuides(), category, Math.floor(Date.parse(monday) / (7 * 86_400_000)), count - 1);
     const made: { id: number; template: string; headline: string; due_at: string }[] = [];
     const problems: string[] = [];
     for (let i = 0; i < count; i++) {
       const template = TEMPLATES[i % TEMPLATES.length];
       const date = dayOf(monday, days[i]);
       const done = made.map(m => `"${m.headline}"`).join(', ');
-      const other = i > 0 ? ideas.ideas[i] : undefined; // research gives six ideas; the article used the first
+      const guide = i > 0 ? guides[i - 1] : undefined;
+      const url = guide && `${SITE_URL}${guide.category}${guide.slug}`;
+      const other = i > 0 && !guide ? ideas.ideas[i] : undefined; // research gives six ideas; the article used the first
       try {
-        const copy = await writeCopy({ template, ...(other
+        const copy = await writeCopy({ template, ...(url ? { url } : other
           ? { keyword: other.keyword, sources: other.notes,
               topic: `${other.title}. ${other.angle} Take one single, useful point from this${done ? `, different from the posts already made this week: ${done}` : ''}. Do not mention an article or a link.` }
           : { keyword: article.keyword, sources: article.body,
@@ -107,7 +125,7 @@ export async function planWeek(input: PlanInput) {
         const r = await render(template, copy.fields);
         if (!r.ok) { problems.push(`Post ${i + 1}: the text did not fit ${template}`); continue; }
         const due = tenAmLondon(date);
-        const [p] = await posts.create({ render_id: r.id, channels: input.channels, text: [copy.caption, copy.hashtags.join(' ')].join('\n\n'),
+        const [p] = await posts.create({ render_id: r.id, channels: input.channels, text: [copy.caption, url, copy.hashtags.join(' ')].filter(Boolean).join('\n\n'),
           mode: 'scheduled', due_at: due, idempotency_key: `plan-${article.id}-${i}` });
         made.push({ id: p.id, template, headline: copy.fields.headline, due_at: due });
       } catch (err) {

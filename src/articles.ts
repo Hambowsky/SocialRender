@@ -252,7 +252,7 @@ const words = (t: string) => new Set(t.toLowerCase().replace(/&[a-z]+;/g, ' ').s
 const folderName = (category: string) => category.split('/').filter(Boolean).at(-1)!.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 
 // The site's guides (from each category's index page, plus ones published here) and service pages, for internal links.
-async function siteGuides() {
+export async function siteGuides() {
   const own = db.prepare(`SELECT category, slug, title, summary FROM articles WHERE status = 'published'`).all() as { category: string; slug: string; title: string; summary: string }[];
   const listed = (await Promise.all(categories().map(c => guideCards(c.category).catch(() => [])))).flat();
   const seen = new Set<string>();
