@@ -1534,6 +1534,7 @@
       $('posts').innerHTML = open.map(p => `<div class="item">${thumb(p)}<div class="fields" style="gap:6px">
           <div class="row" style="justify-content:space-between"><strong style="font-size:13px">${esc(chan(p))}</strong><span class="badge ${tone(p)}">${esc(p.status === 'pending_approval' ? 'Waiting' : STATUS[p.status].split('.')[0])}</span></div>
           <span class="muted">${esc(whenText(p))}</span>
+          ${p.error ? `<span class="bad" style="font-size:13px">${esc(p.error)}</span>` : ''}
           <p>${esc(p.text)}</p>
           <div class="row">${actions(p)}<button type="button" class="plain small" data-open="${p.id}">Open</button></div></div></div>`).join('')
         || '<p class="muted">Nothing waiting. New posts appear here for you to approve.</p>';
