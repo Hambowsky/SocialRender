@@ -9,10 +9,9 @@ import { writeCopy } from './copy.ts';
 import { render } from './render.ts';
 import * as posts from './posts.ts';
 
-export type PlanInput = { category?: string; channels: posts.PostInput['channels']; count?: number; focus?: string; again?: boolean };
+export type PlanInput = { category?: string; channels: posts.PostInput['channels']; count?: number; focus?: string; again?: boolean; week?: 'this' | 'next' };
 
 const TEMPLATES = ['social-post', 'tip-card', 'stat-card', 'quote-card', 'social-post'];
-const DAYS: Record<number, number[]> = { 3: [0, 2, 4], 4: [0, 1, 3, 4], 5: [0, 1, 2, 3, 4] }; // Monday is 0
 
 // Next Monday, as a date, so a plan made any day of the week covers the coming week.
 export function nextMonday(now = new Date()) {
@@ -20,6 +19,21 @@ export function nextMonday(now = new Date()) {
   d.setUTCDate(d.getUTCDate() + (((8 - d.getUTCDay()) % 7) || 7));
   return d.toISOString().slice(0, 10);
 }
+
+// Monday of the current week. On a Sunday that is six days ago, so nothing is left to plan.
+export function thisMonday(now = new Date()) {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+
+// Weekdays (Monday is 0) still to come at 10am, spread out: 3 of 5 is Mon, Wed, Fri. Fewer days left means fewer posts.
+export function postDays(monday: string, count: number, now = new Date()) {
+  const left = [0, 1, 2, 3, 4].filter(d => Date.parse(tenAmLondon(dayOf(monday, d))) > now.getTime() + 15 * 60_000);
+  if (left.length <= count) return left;
+  return Array.from({ length: count }, (_, i) => left[Math.round(i * (left.length - 1) / (count - 1))]);
+}
+const dayOf = (monday: string, d: number) => new Date(Date.parse(monday) + d * 86_400_000).toISOString().slice(0, 10);
 
 // 10am UK time on a date, whether or not the clocks have gone forward.
 export function tenAmLondon(date: string) {
@@ -37,22 +51,27 @@ function categoryFor(monday: string) {
   return all[Math.floor(Date.parse(monday) / (7 * 86_400_000)) % all.length];
 }
 
+const saved = (monday: string) => {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`plan:${monday}`) as { value: string } | undefined;
+  return { week_of: monday, plan: row ? JSON.parse(row.value) : null };
+};
 export function savedPlan() {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(`plan:${nextMonday()}`) as { value: string } | undefined;
-  return { week_of: nextMonday(), plan: row ? JSON.parse(row.value) : null };
+  return { ...saved(nextMonday()), this_week: saved(thisMonday()) };
 }
 
 let planning = false;
 export async function planWeek(input: PlanInput) {
   if (!input.channels?.length) fail(400, 'Pick at least one Buffer channel for the posts');
-  const monday = nextMonday();
+  const monday = input.week === 'this' ? thisMonday() : nextMonday();
   const key = `plan:${monday}`;
-  const saved = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
-  if (saved && !input.again) return { ...JSON.parse(saved.value), reused: true };
+  const before = saved(monday).plan;
+  if (before && !input.again) return { ...before, reused: true };
+  const days = postDays(monday, Math.min(5, Math.max(3, input.count ?? 4)));
+  if (!days.length) fail(400, 'There are no weekdays left this week. Plan next week instead');
   if (planning) fail(409, 'A week is already being planned');
   planning = true;
   try {
-    const count = Math.min(5, Math.max(3, input.count ?? 4));
+    const count = days.length;
     const category = input.category || categoryFor(monday);
     let cost = 0;
     const ideas = await research(category, { focus: input.focus });
@@ -67,7 +86,7 @@ export async function planWeek(input: PlanInput) {
     const problems: string[] = [];
     for (let i = 0; i < count; i++) {
       const template = TEMPLATES[i % TEMPLATES.length];
-      const date = new Date(Date.parse(monday) + DAYS[count][i] * 86_400_000).toISOString().slice(0, 10);
+      const date = dayOf(monday, days[i]);
       const done = made.map(m => `"${m.headline}"`).join(', ');
       const other = i > 0 ? ideas.ideas[i] : undefined; // research gives six ideas; the article used the first
       try {
