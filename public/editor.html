@@ -1058,8 +1058,8 @@
     try {
       const d = await (await api(`/dashboard/${area}`)).json();
       if (area === 'marketing') {
-        setTimeout(loadPlan);
-        box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div>'
+        setTimeout(loadPlan); setTimeout(loadGsc);
+        box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div><div class="card" id="gscBox"><h2>Google search</h2><p class="muted">Loading...</p></div>'
           + `<div class="tiles">${tile(d.posts_this_month, 'Posts sent to Buffer this month', '', '#social')}${tile(d.posts_scheduled, 'Posts scheduled ahead', '', '#social')}
             ${tile(d.articles_this_month, 'Articles published this month', `${d.articles_published} in total`, '#articles')}${tile(d.images_this_month, 'Images made this month')}</div>
           <div class="cols wide-left"><div class="card"><h2>Posts sent, by week</h2>${bars(d.posts_by_week, dm)}</div>${spendCard(d)}</div>
@@ -1091,6 +1091,31 @@
       ${[waiting && `<a href="#social">${waiting} waiting for approval</a>`, sent && `${sent} approved`, look && `<a href="#social">${look} needing a look</a>`, dropped && `${dropped} rejected`].filter(Boolean).join(', ') || 'none made'}.</p>
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
   };
+  // Search Console: last week against the week before, pages moving, and searches we nearly rank for.
+  async function loadGsc() {
+    const box = $('gscBox');
+    if (!box) return;
+    try {
+      const g = await (await api('/search-console')).json(), t = g.totals, b = t.before;
+      const delta = (n, was, better = 'up') => { const d = +(n - was).toFixed(1); return d ? `<small class="${(d > 0) === (better === 'up') ? 'good' : 'bad'}"> ${d > 0 ? '+' : ''}${d}</small>` : ''; };
+      const path = u => esc(u.replace(/^https?:\/\/[^/]+/, '') || '/');
+      const list = (rows, f) => rows.length ? `<div class="list">${rows.map(f).join('')}</div>` : '<p class="muted">None this week.</p>';
+      box.innerHTML = `<div class="card-head"><h2>Google search</h2><span class="muted">${esc(dm(g.from))} to ${esc(dm(g.to))}, against the week before</span></div>
+        <div class="tiles">${tile(`${t.clicks}${delta(t.clicks, b.clicks)}`, 'Clicks')}${tile(`${t.impressions}${delta(t.impressions, b.impressions)}`, 'Times shown')}
+          ${tile(`${t.ctr}%${delta(t.ctr, b.ctr)}`, 'Click rate')}${tile(`${t.position}${delta(t.position, b.position, 'down')}`, 'Average position', 'Lower is better')}</div>
+        <div class="cols two"><div><h3>Rising</h3>${list(g.rising, m => `<div><a href="${esc(m.page)}" target="_blank" rel="noopener">${path(m.page)}</a><span class="good">+${m.change} clicks</span></div>`)}</div>
+          <div><h3>Falling</h3>${list(g.falling, m => `<div><a href="${esc(m.page)}" target="_blank" rel="noopener">${path(m.page)}</a><span class="bad">${m.change} clicks</span></div>`)}</div></div>
+        <h3>Nearly on page one</h3><p class="muted">Searches you already show for at positions 8 to 20. A better page on one of these is the quickest ranking to win, so Plan the week aims its article at them unless you give it a focus.</p>
+        ${list(g.chances, c => `<div><span>${esc(c.query)}</span><span class="muted">position ${c.position}, shown ${c.impressions} times <button type="button" class="plain small" data-focus="${esc(c.query)}">Plan around this</button></span></div>`)}`;
+    } catch (e) { box.innerHTML = `<h2>Google search</h2><p class="${/not set/.test(e.message) ? 'muted' : 'bad'}">${esc(e.message)}</p>`; }
+  }
+  $('mDash').addEventListener('click', e => {
+    const q = e.target.dataset?.focus;
+    if (!q || !$('plFocus')) return;
+    $('plFocus').value = `An article that ranks for "${q}"`;
+    $('planBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
   async function loadPlan() {
     const box = $('planBox');
     if (!box) return;

@@ -120,6 +120,7 @@ export const TOOLS: Tool[] = [
     props: { channels, count: { type: 'integer', minimum: 1, maximum: 14 }, category: str('Optional, from list_article_categories; otherwise categories take turns'), focus: str('Optional focus'), again: { type: 'boolean' }, week: { type: 'string', enum: ['this', 'next'], description: 'Defaults to next' } },
     required: ['channels'], call: a => ({ method: 'POST', url: '/plan/week', body: pick(a, ['channels', 'count', 'category', 'focus', 'again', 'week']) }) },
   // Signals
+  { name: 'search_console', read: true, description: 'Last week of Google search for redcherryit.com against the week before: clicks, impressions, average position, pages rising and falling, and searches we nearly rank for (positions 8 to 20).', call: () => ({ method: 'GET', url: '/search-console' }) },
   { name: 'list_links', read: true, description: 'Backlink chances: journalist requests for expert comment and pages that mention Red Cherry IT without linking, each with a drafted pitch or note David can send himself.',
     props: { all: { type: 'boolean', description: 'true to include ones marked done or dismissed' } }, call: a => ({ method: 'GET', url: `/links${a.all ? '?all=true' : ''}` }) },
   { name: 'scan_links', description: 'Searches for new backlink chances now (it also runs once a day). Returns a job id for check_job.', call: () => ({ method: 'POST', url: '/links/scan' }) },

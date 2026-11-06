@@ -45,6 +45,12 @@ export const FIRECRAWL_API_URL = env.FIRECRAWL_API_URL || 'https://api.firecrawl
 export const PAGESPEED_URL = env.PAGESPEED_URL || 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';
 export const RDAP_URL = env.RDAP_URL || 'https://rdap.org';
 
+// Search Console: a Google service account key (JSON or base64 of it), added as a user on the property. Blank turns it off.
+export const GSC_CREDENTIALS = env.GSC_CREDENTIALS ?? '';
+export const GSC_SITE = env.GSC_SITE || 'sc-domain:redcherryit.com';
+export const GSC_TOKEN_URL = env.GSC_TOKEN_URL || 'https://oauth2.googleapis.com/token'; // tests point these at fakes
+export const GSC_API_URL = env.GSC_API_URL || 'https://www.googleapis.com/webmasters/v3';
+
 // Outreach. Emails send from David's own mailbox over SMTP, after approval, within a daily cap and with a pause between sends.
 export const SMTP_HOST = env.SMTP_HOST ?? '';
 export const SMTP_PORT = Number(env.SMTP_PORT || 465);
