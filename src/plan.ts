@@ -7,6 +7,7 @@ import { db } from './db.ts';
 import { fail, SITE_URL } from './config.ts';
 import { categories, draft, findSources, research, siteGuides } from './articles.ts';
 import { writeCopy } from './copy.ts';
+import { planFocus } from './gsc.ts';
 import { render } from './render.ts';
 import * as posts from './posts.ts';
 
@@ -100,7 +101,7 @@ export async function planWeek(input: PlanInput) {
     const count = times.length;
     const category = input.category || categoryFor(monday);
     let cost = 0;
-    const ideas = await research(category, { focus: input.focus });
+    const ideas = await research(category, { focus: input.focus || await planFocus() });
     cost += ideas.cost_gbp;
     const idea = ideas.ideas[0] ?? fail(502, 'Claude did not come back with an article idea. Try again');
     const sources = await findSources(category, { topic: idea.title, keyword: idea.keyword, audience: idea.audience });

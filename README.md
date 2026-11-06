@@ -47,6 +47,8 @@ All in environment variables, listed in `.env.example`.
 | `FIRECRAWL_SCRAPE_MONTHLY_CALLS` | `1000` | Most website pages a month read through Firecrawl, used only when the server cannot load a site itself (1 credit each, a failed read costs nothing). |
 | `SIGNALS_MONTHLY_CALLS` | `200` | Most Firecrawl searches a month for Signals (about four a day: one per campaign town, up to five, plus one for the UK). |
 | `LINKS_MONTHLY_CALLS` | `150` | Most Firecrawl searches a month for Links (four a day). |
+| `GSC_CREDENTIALS` | | Google service account key for Search Console (the JSON file, or base64 of it). Blank turns the Google search card off. |
+| `GSC_SITE` | `sc-domain:redcherryit.com` | The Search Console property. Use `https://redcherryit.com/` for a URL prefix property. |
 
 ## API
 Every endpoint needs `x-api-key`, except `/health`, the editor page with its fonts, logo and check script, and `/public/renders/<id>.png` (Buffer fetches images from there; ids are long random looking hashes that cannot be listed).
@@ -109,6 +111,12 @@ A campaign is industries, towns, what you are looking for (no website, an outdat
 ## Signals
 
 Once a day (and on Search now) the server searches Reddit, X, Threads and UK business forums for the past week's posts asking for a web designer, developer or SEO help, around the towns in your campaigns. Claude (Haiku, prompt `signal-review`) keeps the real requests and suggests a reply. Each post is looked at once. Nothing is ever posted: David opens the post and replies himself, and can save the person as a lead. Needs `FIRECRAWL_API_KEY` and `ANTHROPIC_API_KEY`.
+
+## Search Console
+
+The Marketing dashboard shows last week of Google search against the week before (the week ends three days ago, when Google's figures settle): clicks, times shown, click rate, average position, pages rising and falling, and searches we already show for at positions 8 to 20. Plan the week aims its article at those searches when no focus is given. Read once a day, no Claude.
+
+Setup: in Google Cloud, create a project, turn on the Google Search Console API, create a service account and download a JSON key. In Search Console, Settings, Users and permissions, add the service account's email with Restricted access. Put the key in `GSC_CREDENTIALS`.
 
 ## Links
 
