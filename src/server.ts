@@ -23,6 +23,7 @@ import { inboxState, startInbox, testInbox } from './inbox.ts';
 import { esc } from './markdown.ts';
 import { registerMcp } from './mcp.ts';
 import * as signals from './signals.ts';
+import * as links from './links.ts';
 import { planWeek, savedPlan, type PlanInput } from './plan.ts';
 
 type Fields = Record<string, string>;
@@ -382,6 +383,10 @@ export function buildApp() {
   app.post('/signals/scan', async (_req, reply) => background(reply, () => signals.scan()));
   app.post<{ Params: { id: number } }>('/signals/:id/dismiss', { schema: { params: id } }, async req => signals.dismiss(req.params.id));
   app.post<{ Params: { id: number } }>('/signals/:id/lead', { schema: { params: id } }, async req => signals.toLead(req.params.id));
+  app.get<{ Querystring: { all?: boolean } }>('/links', { schema: { querystring: { type: 'object', properties: { all: { type: 'boolean' } } } } }, async req => links.list(req.query.all));
+  app.post('/links/scan', async (_req, reply) => background(reply, () => links.scan()));
+  for (const [act, status] of [['done', 'done'], ['dismiss', 'dismissed']] as const)
+    app.post<{ Params: { id: number } }>(`/links/:id/${act}`, { schema: { params: id } }, async req => links.mark(req.params.id, status));
 
   app.get('/dashboard/marketing', async () => dashboard.marketing());
   app.get('/dashboard/sales', async () => dashboard.sales());
@@ -406,6 +411,7 @@ export async function start() {
   outreach.startOutreach();
   startInbox();
   signals.startSignals();
+  links.startLinks();
   const app = buildApp();
   const stop = async () => { await app.close(); await closeBrowser(); process.exit(0); };
   process.on('SIGTERM', stop);
