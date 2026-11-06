@@ -220,6 +220,7 @@
       <a href="#dashboard" data-view="dashboard" data-section="marketing">Dashboard</a>
       <a href="#social" data-view="social" data-section="marketing">Social</a>
       <a href="#articles" data-view="articles" data-section="marketing">Articles</a>
+      <a href="#links" data-view="links" data-section="marketing">Links</a>
       <a href="#templates" data-view="templates" data-section="marketing">Templates</a>
       <a href="#prompts" data-view="prompts" data-section="marketing">Prompts</a>
       <a href="#sales" data-view="sales" data-section="sales">Dashboard</a>
@@ -481,6 +482,15 @@
   </div>
 </section>
 
+<section class="view" data-view="links" hidden>
+  <div class="card">
+    <div class="card-head"><h2>Links</h2><div class="row"><label class="chip"><input type="checkbox" id="lkAll">Show done and hidden</label><button type="button" class="small" id="lkScan">Search now</button></div></div>
+    <p class="muted">Chances to earn links to redcherryit.com, found once a day. <b>Journalist requests</b> are writers asking for expert comment under #journorequest: answer quickly with the drafted pitch and a quote often comes with a link. <b>Mentions</b> are pages that name Red Cherry IT but do not link to you: send the owner the drafted note. Nothing is sent for you.</p>
+    <span class="muted" id="lkInfo"></span>
+    <div id="lkList" class="queue"></div>
+  </div>
+</section>
+
 <section class="view" data-view="emails" hidden>
   <div class="cols wide-left">
     <div class="card">
@@ -600,6 +610,7 @@
     if (view === 'leads') loadLeads();
     if (view === 'emails') loadEmails();
     if (view === 'signals') loadSignals();
+    if (view === 'links') loadLinks();
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -905,6 +916,40 @@
     catch (err) { box.querySelector('[data-out]').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
   });
 
+  // Links: journalist requests and unlinked mentions, each with a drafted pitch or note for David to send himself.
+  async function loadLinks() {
+    try {
+      const r = await (await api(`/links${$('lkAll').checked ? '?all=true' : ''}`)).json();
+      $('lkInfo').textContent = r.scanned_at ? `Last searched ${new Date(r.scanned_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}.` : 'Not searched yet.';
+      $('lkList').innerHTML = r.links.map(l => `<div class="camp" data-link="${l.id}">
+          <div class="row" style="justify-content:space-between"><h3>${l.kind === 'request' ? 'Journalist request' : 'Unlinked mention'}</h3><span class="row"><span class="badge">${esc(l.site)}</span>${l.deadline ? `<span class="badge pending">Deadline ${esc(l.deadline)}</span>` : ''}${l.status === 'done' ? '<span class="badge sent">Done</span>' : l.status === 'dismissed' ? '<span class="badge">Hidden</span>' : ''}</span></div>
+          <span>${esc(l.summary || l.title)}</span>
+          <span class="muted">Found ${esc(dm(l.created_at))}</span>
+          ${l.reply ? `<label>${l.kind === 'request' ? 'Drafted pitch' : 'Drafted note'} <textarea rows="4" data-reply>${esc(l.reply)}</textarea></label>` : ''}
+          <div class="row"><a class="button small" href="${esc(l.url)}" target="_blank" rel="noopener">Open the page</a>
+            ${l.reply ? '<button type="button" class="plain small" data-act="copy">Copy</button>' : ''}
+            ${l.status === 'new' ? '<button type="button" class="plain small" data-act="done">Done</button><button type="button" class="plain small" data-act="dismiss">Hide</button>' : ''}<span data-out></span></div></div>`).join('')
+        || `<p class="muted">${$('lkAll').checked ? 'Nothing yet.' : 'Nothing new. New chances appear here after each daily search.'}</p>`;
+    } catch (e) { $('lkList').innerHTML = `<p class="bad">${esc(e.message)}</p>`; }
+  }
+  $('lkAll').addEventListener('change', loadLinks);
+  $('lkScan').addEventListener('click', async () => {
+    const b = $('lkScan'); b.disabled = true; b.textContent = 'Searching...';
+    try {
+      const r = await apiJob('/links/scan');
+      $('lkInfo').textContent = r?.error ? r.error : `Looked at ${r.checked} new pages and kept ${r.added}.`;
+      if (!r?.error) await loadLinks();
+    } catch (e) { $('lkInfo').textContent = e.message; }
+    b.disabled = false; b.textContent = 'Search now';
+  });
+  $('lkList').addEventListener('click', async e => {
+    const box = e.target.closest('[data-link]'), act = e.target.dataset.act;
+    if (!box || !act) return;
+    if (act === 'copy') { await navigator.clipboard.writeText(box.querySelector('[data-reply]').value); e.target.textContent = 'Copied'; return; }
+    try { await api(`/links/${box.dataset.link}/${act}`, { method: 'POST' }); await loadLinks(); }
+    catch (err) { box.querySelector('[data-out]').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
+  });
+
   $('eList').addEventListener('click', async e => {
     const act = e.target.dataset.act, box = e.target.closest('[data-email]');
     if (!act) return;
@@ -980,6 +1025,7 @@
   const spendCard = d => `<div class="card"><div class="card-head"><h2>Claude this month</h2><span class="muted">${money(d.all_spend_gbp)} of ${money(d.cap_gbp)} in total</span></div>
     <div class="meter"><i style="width:${Math.min(100, d.all_spend_gbp / d.cap_gbp * 100)}%"></i></div><span class="muted">${money(d.spend_gbp)} of that was for this area.</span></div>`;
   const marketingTodo = m => { const nd = m.needs; return [[nd.posts_to_approve, ['post waiting for your approval', 'posts waiting for your approval'], '#social'],
+    [nd.links_new, ['new chance to earn a link', 'new chances to earn a link'], '#links'],
     [nd.posts_to_check, ['post that failed or needs checking in Buffer', 'posts that failed or need checking in Buffer'], '#social'],
     ...m.articles.map(a => [1, a.status === 'approved' ? `${a.title}: approved, ready to publish` : a.published_at ? `${a.title}: reopened with Edit again, so the website still has the old version` : `${a.title}: draft to review`,
       '#articles', `data-article="${a.id}" data-category="${esc(a.category)}"`])]; };

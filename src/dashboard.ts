@@ -34,6 +34,7 @@ export function marketing() {
   return {
     needs: {
       posts_to_approve: n(`SELECT COUNT(*) AS n FROM posts WHERE status = 'pending_approval'`),
+      links_new: n(`SELECT COUNT(*) AS n FROM links WHERE status = 'new'`),
       posts_to_check: n(`SELECT COUNT(*) AS n FROM posts WHERE status IN ('failed', 'check_buffer')`),
     },
     // Named one by one, since the Articles page lists them under their category. A draft with a publish date is a

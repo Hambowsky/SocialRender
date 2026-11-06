@@ -95,6 +95,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'genuine', 'service', 'area', 'who', 'summary', 'reply'],
       properties: { n: { type: 'integer' }, genuine: { type: 'boolean' }, service: str, area: str, who: str, summary: str, reply: str } } } },
   },
+  'link-review': {
+    type: 'object', additionalProperties: false,
+    required: ['items'],
+    properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'keep', 'summary', 'deadline', 'reply'],
+      properties: { n: { type: 'integer' }, keep: { type: 'boolean' }, summary: str, deadline: str, reply: str } } } },
+  },
   caption: {
     type: 'object', additionalProperties: false,
     required: ['caption', 'hashtags'],

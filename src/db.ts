@@ -218,6 +218,21 @@ const migrations = [
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    );
    CREATE INDEX signals_status ON signals (status)`,
+
+  `CREATE TABLE links (                -- chances to earn a backlink: journalist requests and unlinked mentions
+     id INTEGER PRIMARY KEY,
+     url TEXT NOT NULL UNIQUE,         -- each page is looked at once
+     kind TEXT NOT NULL,               -- request or mention
+     title TEXT NOT NULL DEFAULT '',
+     snippet TEXT NOT NULL DEFAULT '',
+     site TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL,             -- new, ignored (not worth it, or already links to us), dismissed, done
+     summary TEXT NOT NULL DEFAULT '',
+     deadline TEXT NOT NULL DEFAULT '',
+     reply TEXT NOT NULL DEFAULT '',
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE INDEX links_status ON links (status)`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
