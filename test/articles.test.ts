@@ -246,6 +246,16 @@ test('Related Reading picks the closest guides on the site and a service page th
   assert.equal(html.match(/related-card"/g)!.length, 3);
 });
 
+test('an article about missed calls or AI points Related Reading at the matching AI service page', async () => {
+  const { relatedCards } = await import('../src/articles.ts');
+  const card = async (title: string) => relatedCards({ title, summary: '', category: '/guides/learn/', slug: 'x', keyword: '', topic: '' });
+  assert.match(await card('What Missed Calls Cost A Plumber'), /href="\.\.\/\.\.\/ai-services\/missed-call-text-back"/);
+  assert.match(await card('Should Your Website Have A Chatbot?'), /href="\.\.\/\.\.\/ai-services\/ai-enquiry-chat-widget"/);
+  assert.match(await card('Using AI To Win More Work'), /href="\.\.\/\.\.\/ai-services"/);
+  assert.match(await card('How To Rank For AI Overviews On Google'), /href="\.\.\/\.\.\/seo"/, 'SEO articles about AI keep the SEO card');
+  assert.match(await card('Choosing Brand Colours'), /href="\.\.\/\.\.\/pricing"/);
+});
+
 test('a page already on the site can be opened, edited and published again, keeping its own extras', async () => {
   // A live page that the tool did not make: built from the shell, with its own cards and banner heading.
   const { page } = await import('../src/articles.ts');

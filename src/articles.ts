@@ -240,8 +240,14 @@ const imagePath = (a: Pick<Article, 'category' | 'slug'>) => `/images${a.categor
 
 // Related Reading: the two guides on the site that share the most words with this one, and the service page
 // that fits its subject. Plain word matching, no AI. Links are relative, like the rest of the page.
+// The AI lead tools come first so an article about missed calls or chat gets the matching page rather than a general one.
 const SERVICES: [RegExp, string, string, string][] = [
+  [/missed calls?|text back|unanswered calls?/, 'ai-services/missed-call-text-back', 'AI Services', 'Text Back Every Missed Call Instantly'],
+  [/chat ?bot|chat widget|live chat|website chat/, 'ai-services/ai-enquiry-chat-widget', 'AI Services', 'An AI Chat Widget That Takes Enquiries For You'],
+  [/estimat|ballpark|instant quote|online quote/, 'ai-services/ai-quote-estimator', 'AI Services', 'Give Visitors A Ballpark Price Online'],
+  [/reply to (every |each |an )?enquir|response time|speed to lead|reply faster|instant reply/, 'ai-services/instant-lead-reply', 'AI Services', 'Reply To Every Enquiry Within A Minute'],
   [/\bseo\b|google|search|rank/, 'seo', 'SEO', 'How We Help You Get Found On Google'],
+  [/\bai\b|artificial intelligence|automat|chatgpt|lead generation/, 'ai-services', 'AI Services', 'AI Tools That Catch Every Enquiry'],
   [/cost|price|pricing|budget|£|quote/, 'pricing', 'Pricing', 'See Our Fixed-Price Website Packages'],
   [/convert|conversion|enquir|booking|\bleads?\b/, 'conversion-rate-optimisation', 'Conversions', 'Turn More Visitors Into Enquiries'],
   [/maintenance|hosting|updates?\b|secur|care plan/, 'website-care-plans', 'Care Plans', 'Keep Your Website Safe And Up To Date'],
@@ -273,7 +279,7 @@ export async function relatedCards(a: Pick<Article, 'title' | 'summary' | 'categ
   if (cards.length < 2) cards.push(['.', 'Guide', `More ${folderName(a.category)} Guides`]);
   const lower = text.toLowerCase();
   const [, ...service] = a.category.includes('/stories/') ? [/./, 'case-studies', 'Case Studies', 'See More Of Our Client Success Stories']
-    : SERVICES.find(([re]) => re.test(lower)) ?? SERVICES[1];
+    : SERVICES.find(([re]) => re.test(lower)) ?? SERVICES.find(s => s[1] === 'pricing')!;
   cards.push([`../../${service[0]}`, service[1], service[2]]);
   if (cards.length < 3 && service[0] !== 'case-studies') cards.push(['../../case-studies', 'Case Studies', 'See More Of Our Client Success Stories']);
   return `<div class="related-grid reveal">\n${cards.map(([href, kicker, title]) => `        <a class="related-card" href="${esc(href)}">
