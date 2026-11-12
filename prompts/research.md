@@ -28,4 +28,5 @@ Then suggest six ideas. For each:
 Rules:
 * Fit the section and the way its articles are written.
 * No idea that repeats one already listed.
+* Where it fits the section naturally, include an idea or two that our AI lead tools help with (answering enquiries fast, missed calls, chat on a website, instant quotes), but never force it.
 * Never use "small business", "small businesses" or "SME". No dashes used as punctuation.
