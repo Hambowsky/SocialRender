@@ -8,7 +8,7 @@ import { addNote, dedupKey, firecrawlSearch } from './leads.ts';
 
 type Signal = { id: number; url: string; title: string; snippet: string; site: string; status: string; service: string; area: string; who: string; summary: string; reply: string; lead_id: number | null; created_at: string };
 
-const SITES = '(site:reddit.com OR site:x.com OR site:threads.net OR site:ukbusinessforums.co.uk OR site:mumsnet.com)';
+const SITES = '(site:reddit.com OR site:x.com OR site:threads.net OR site:ukbusinessforums.co.uk OR site:mumsnet.com OR site:linkedin.com/posts)';
 const ASK = '("web designer" OR "website designer" OR "web developer" OR "SEO" OR "new website") (recommend OR recommendations OR "looking for" OR "need")';
 
 // The towns in David's campaigns, so the search covers where he works.
