@@ -163,6 +163,25 @@ export async function setResend(id: number, want: { segments: string[]; topics: 
   return resendOf(id);
 }
 
+// The segment new website sign ups go into, chosen on the Email page.
+export const signupSegment = () => (db.prepare(`SELECT value FROM settings WHERE key = 'signup_segment'`).get() as { value: string } | undefined)?.value ?? '';
+export function setSignupSegment(id: string) {
+  db.prepare(`INSERT INTO settings (key, value) VALUES ('signup_segment', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(id);
+  return { segment_id: id };
+}
+
+// A confirmed sign up goes into Resend with their first and last name, and into the sign up segment.
+async function toResend(email: string) {
+  if (!RESEND_API_KEY) return;
+  const c = db.prepare('SELECT name FROM contacts WHERE email = ?').get(email) as { name: string };
+  const [first_name = '', ...rest] = c.name.trim().split(/\s+/), names = { first_name, last_name: rest.join(' ') };
+  const key = encodeURIComponent(email);
+  try { await resend(`/contacts/${key}`); await resend(`/contacts/${key}`, { method: 'PATCH', body: { ...names, unsubscribed: false } }); }
+  catch (e: any) { if (e.statusCode !== 404) throw e; await resend('/contacts', { method: 'POST', body: { email, ...names, unsubscribed: false } }); }
+  const seg = signupSegment();
+  if (seg) await resend(`/contacts/${key}/segments/${encodeURIComponent(seg)}`, { method: 'POST' });
+}
+
 export function update(id: number, body: { name?: string; business?: string; tags?: string }) {
   get(id);
   db.prepare('UPDATE contacts SET name = coalesce(?, name), business = coalesce(?, business), tags = coalesce(?, tags) WHERE id = ?')
@@ -195,7 +214,8 @@ export const validConfirm = (email: string, token: string) => {
 };
 const recent = new Map<string, number[]>(); // ponytail: in memory, so a restart forgets; fine for one small server
 
-export async function signup(input: { email: string; name?: string }, ip = '') {
+const FROM_TAGS = ['popup', 'footer', 'enquiry']; // where on the website they signed up, kept as a tag
+export async function signup(input: { email: string; name?: string; from?: string }, ip = '') {
   const email = norm(input.email);
   if (!EMAIL.test(email)) fail(400, 'That email address does not look right');
   if (!PUBLIC_URL) fail(503, 'Set PUBLIC_URL first: the confirm email needs a working link');
@@ -217,16 +237,18 @@ export async function signup(input: { email: string; name?: string }, ip = '') {
 <p><a href="${esc(link)}" style="display:inline-block;padding:12px 20px;background:#b5333f;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">Confirm my sign up</a></p>
 <p style="color:#444;font-size:14px">If you did not sign up, ignore this email and you will not hear from us.</p></div>` });
   if (was) db.prepare(`UPDATE contacts SET confirm_sent_at = datetime('now'), name = CASE name WHEN '' THEN ? ELSE name END WHERE id = ?`).run(name, was.id);
-  else db.prepare(`INSERT INTO contacts (email, name, tags, source, status, confirm_sent_at) VALUES (?, ?, 'newsletter', 'signup', 'pending', datetime('now'))`).run(email, name);
+  else db.prepare(`INSERT INTO contacts (email, name, tags, source, status, confirm_sent_at) VALUES (?, ?, ?, 'signup', 'pending', datetime('now'))`)
+    .run(email, name, ['newsletter', ...FROM_TAGS.filter(t => t === input.from)].join(', '));
   return { ok: true };
 }
 
 // Confirming lifts an earlier unsubscribe (they asked again), but never a bounce or a complaint.
-export function confirm(email: string, token: string) {
+export async function confirm(email: string, token: string) {
   if (!validConfirm(email, token)) fail(400, 'That confirm link is not valid');
   const e = norm(email);
   if (!db.prepare(`UPDATE contacts SET status = 'subscribed', confirmed_at = coalesce(confirmed_at, datetime('now')) WHERE email = ?`).run(e).changes)
     fail(404, 'We could not find that sign up. Please sign up again on redcherryit.com.');
   db.prepare(`DELETE FROM suppression WHERE email = ? AND reason = 'unsubscribed'`).run(e);
+  await toResend(e).catch(err => console.error(`Sign up ${e} not added to Resend: ${err.message}`)); // they are still on the list here
   return { ok: true };
 }

@@ -381,7 +381,8 @@ export function buildApp() {
   app.post('/subscribe', async (req, reply) => {
     const b = signupBody(req.body), json = !(typeof req.body === 'string');
     try {
-      if (!b.website) await contacts.signup({ email: String(b.email ?? '').slice(0, 200), name: String(b.name ?? '') }, String(req.headers['x-forwarded-for'] ?? req.ip).split(',')[0].trim()); // behind Coolify's proxy // website = a hidden field only bots fill in
+      const name = String(b.name ?? '').trim() || [b.first_name, b.last_name].map(v => String(v ?? '').trim()).filter(Boolean).join(' ');
+      if (!b.website) await contacts.signup({ email: String(b.email ?? '').slice(0, 200), name, from: String(b.from ?? '') }, String(req.headers['x-forwarded-for'] ?? req.ip).split(',')[0].trim()); // behind Coolify's proxy // website = a hidden field only bots fill in
       return json ? { ok: true } : page(reply, 'Thanks. Check your inbox for an email from us and press the button in it to confirm.', back);
     } catch (e: any) {
       if (json) throw e;
@@ -395,7 +396,7 @@ export function buildApp() {
     : page(reply, `Confirm the Red Cherry IT newsletter for ${esc(req.query.e)}?`,
       `<form method="post"><button style="font:inherit;padding:10px 18px;border:0;border-radius:8px;background:#b5333f;color:#fff;cursor:pointer">Yes, sign me up</button></form>`));
   app.post<{ Querystring: { e: string; t: string } }>('/subscribe/confirm', { schema: confirmQs }, async (req, reply) => {
-    try { contacts.confirm(req.query.e, req.query.t); } catch (e: any) { return page(reply.code(e.statusCode ?? 500), esc(e.message), back); }
+    try { await contacts.confirm(req.query.e, req.query.t); } catch (e: any) { return page(reply.code(e.statusCode ?? 500), esc(e.message), back); }
     return page(reply, `You are on the list. Expect practical website and marketing tips from us once a month, and unsubscribe any time from the link in each email.`, back);
   });
 
@@ -414,7 +415,9 @@ export function buildApp() {
 
   // Resend segments and topics: shown against each contact and changed in Resend itself.
   const rid = { type: 'string', minLength: 1, maxLength: 100 };
-  app.get('/contacts/audience', async () => contacts.audience());
+  app.get('/contacts/audience', async () => ({ ...await contacts.audience(), signup_segment: contacts.signupSegment() }));
+  app.put<{ Body: { segment_id: string } }>('/contacts/signup-segment', { schema: { body: { type: 'object', required: ['segment_id'], additionalProperties: false,
+    properties: { segment_id: { type: 'string', maxLength: 100 } } } } }, async req => contacts.setSignupSegment(req.body.segment_id));
   app.post<{ Body: { name: string } }>('/contacts/segments', { schema: { body: { type: 'object', required: ['name'], additionalProperties: false,
     properties: { name: { type: 'string', minLength: 1, maxLength: 100 } } } } }, async req => contacts.createSegment(req.body.name));
   app.post<{ Body: { name: string; description?: string; default_subscription: 'opt_in' | 'opt_out' } }>('/contacts/topics', { schema: { body: { type: 'object', required: ['name', 'default_subscription'], additionalProperties: false,

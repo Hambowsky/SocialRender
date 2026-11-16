@@ -541,6 +541,7 @@
         <div class="row"><input id="audSegName" maxlength="100" placeholder="New segment, such as Clients"><button type="button" class="small" id="audSegAdd">Add segment</button></div></div>
       <div><h3>Topics</h3><div id="audTopics" class="list"></div>
         <div class="row"><input id="audTopicName" maxlength="50" placeholder="New topic, such as Monthly newsletter"><select id="audTopicDefault"><option value="opt_in">Everyone gets it unless they opt out</option><option value="opt_out">Only people who opt in</option></select><button type="button" class="small" id="audTopicAdd">Add topic</button></div></div></div>
+    <label>New website sign ups go into <select id="audSignup"></select></label>
     <span id="audOut" class="muted"></span>
   </div>
   <div class="cols two">
@@ -1253,6 +1254,7 @@
     if (seg === '-') $('ctSeg').value = '-';
     $('audSegs').innerHTML = audError ? `<p class="bad">${esc(audError)}</p>` : aud.segments.map(g => `<div><b>${esc(g.name)}</b><span class="muted">${count(g.id)} ${count(g.id) === 1 ? 'person' : 'people'}</span></div>`).join('') || '<p class="muted">No segments yet.</p>';
     nlPickers();
+    $('audSignup').innerHTML = `<option value="">No segment (add them yourself)</option>` + aud.segments.map(g => `<option value="${esc(g.id)}"${g.id === aud.signup_segment ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
     $('audTopics').innerHTML = audError ? '' : aud.topics.map(t => `<div><b>${esc(t.name)}</b><span class="muted">${t.default_subscription === 'opt_in' ? 'Everyone unless they opt out' : 'Only people who opt in'}</span></div>`).join('') || '<p class="muted">No topics yet.</p>';
   }
   const segNames = email => (aud.members[email.toLowerCase()] ?? []).map(id => aud.segments.find(g => g.id === id)?.name).filter(Boolean);
@@ -1276,6 +1278,10 @@
     try { await api(path, { method: 'POST', body: JSON.stringify(body) }); $(box).value = ''; $('audOut').textContent = ''; await loadAudience(); loadContacts(); }
     catch (e) { $('audOut').textContent = e.message; }
   }
+  $('audSignup').addEventListener('change', async () => {
+    try { await api('/contacts/signup-segment', { method: 'PUT', body: JSON.stringify({ segment_id: $('audSignup').value }) }); $('audOut').textContent = 'Saved. People who confirm on the website go into that segment.'; }
+    catch (e) { $('audOut').textContent = e.message; }
+  });
   $('audSegAdd').addEventListener('click', () => addAud('/contacts/segments', { name: $('audSegName').value }, 'audSegName'));
   $('audTopicAdd').addEventListener('click', () => addAud('/contacts/topics', { name: $('audTopicName').value, default_subscription: $('audTopicDefault').value }, 'audTopicName'));
   $('ctAdd').addEventListener('click', async () => {
