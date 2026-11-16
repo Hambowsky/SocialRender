@@ -406,6 +406,7 @@ export function buildApp() {
     text: { type: 'string', minLength: 3, maxLength: 200_000 }, tags: { type: 'string', maxLength: 200 } } } } },
   async req => contacts.save(contacts.parse(req.body.text).map(r => ({ ...r, tags: req.body.tags })), 'added'));
   app.post('/contacts/import-replied', async () => contacts.importReplied());
+  app.post('/contacts/import-resend', async () => contacts.importResend());
   app.patch<{ Params: { id: number }; Body: { name?: string; business?: string; tags?: string } }>('/contacts/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false,
     properties: { name: { type: 'string', maxLength: 100 }, business: { type: 'string', maxLength: 200 }, tags: { type: 'string', maxLength: 200 } } } } },
   async req => contacts.update(req.params.id, req.body));

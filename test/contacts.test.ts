@@ -17,8 +17,15 @@ const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => body += c);
   req.on('end', () => {
-    assert.equal(req.url, '/emails');
     assert.equal(req.headers.authorization, 'Bearer re_test');
+    res.setHeader('content-type', 'application/json');
+    if (req.url?.startsWith('/contacts')) { // two pages, as Resend pages them
+      const after = new URL(req.url, 'http://x').searchParams.get('after');
+      return res.end(JSON.stringify(after === 'c2'
+        ? { object: 'list', has_more: false, data: [{ id: 'c3', email: 'gone@resend.example', first_name: '', last_name: '', unsubscribed: true }] }
+        : { object: 'list', has_more: true, data: [{ id: 'c1', email: 'Kim@Resend.example', first_name: 'Kim', last_name: 'Ng', unsubscribed: false }, { id: 'c2', email: 'ann@shop.example', unsubscribed: false }] }));
+    }
+    assert.equal(req.url, '/emails');
     sent.push(JSON.parse(body));
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ id: `msg_${sent.length}` }));
@@ -97,6 +104,16 @@ test('an unsubscribed contact shows as unsubscribed, and confirming a new sign u
   const t = token('ann@shop.example')!;
   await app.inject({ method: 'POST', url: `/subscribe/confirm?e=ann%40shop.example&t=${t}` });
   assert.ok(!db.prepare('SELECT 1 FROM suppression WHERE email = ?').get('ann@shop.example'), 'they asked again, so the unsubscribe is lifted');
+});
+
+test('contacts added in Resend come across, and its unsubscribes go on the Do not email list', async () => {
+  const r = (await call('POST', '/contacts/import-resend')).json();
+  assert.deepEqual([r.found, r.added, r.unsubscribed], [3, 2, 1]);
+  const list = (await call('GET', '/contacts')).json().contacts;
+  const kim = list.find((c: any) => c.email === 'kim@resend.example');
+  assert.deepEqual([kim.name, kim.tags, kim.source, kim.unsubscribed], ['Kim Ng', 'resend', 'resend', 0]);
+  assert.equal(list.find((c: any) => c.email === 'gone@resend.example').unsubscribed, 1);
+  assert.equal((await call('POST', '/contacts/import-resend')).json().added, 0, 'running it again adds nobody twice');
 });
 
 test('contacts can be edited and removed', async () => {

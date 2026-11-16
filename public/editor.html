@@ -533,7 +533,7 @@
       <p class="muted">One per line: email, name, business. A spreadsheet pasted with a header row works too. They go straight on the list, so only add people who know you, such as clients and people who have enquired.</p>
       <textarea id="ctText" rows="6" placeholder="jo@example.co.uk, Jo Smith, Smith Plumbing"></textarea>
       <label>Tags (optional) <input id="ctTags" placeholder="client"></label>
-      <div class="row"><button type="button" class="small" id="ctAdd">Add to the list</button><button type="button" class="plain small" id="ctReplied">Add leads who replied</button><span id="ctOut" class="muted"></span></div>
+      <div class="row"><button type="button" class="small" id="ctAdd">Add to the list</button><button type="button" class="plain small" id="ctReplied">Add leads who replied</button><button type="button" class="plain small" id="ctResend">Get contacts from Resend</button><span id="ctOut" class="muted"></span></div>
     </div>
     <div class="card">
       <h2>Sign up box for the website</h2>
@@ -680,7 +680,7 @@
     if (view === 'signals') loadSignals();
     if (view === 'links') loadLinks();
     if (view === 'search') loadGsc();
-    if (view === 'newsletter') { loadContacts(); loadNewsletters(); }
+    if (view === 'newsletter') { loadNewsletters(); if (loaded.resend) loadContacts(); else { loaded.resend = true; importResend(true); } }
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -1218,7 +1218,7 @@
       $('ctCounts').textContent = `${r.counts.subscribed} subscribed, ${r.counts.pending} waiting to confirm, ${r.counts.unsubscribed} unsubscribed`;
       $('ctTag').innerHTML = '<option value="">Any</option>' + r.tags.map(t => `<option${t === pick ? ' selected' : ''}>${esc(t)}</option>`).join('');
       $('ctList').innerHTML = r.contacts.map(c => `<tr data-contact="${c.id}"><td>${esc(c.email)}</td><td>${esc(c.name)}</td><td>${esc(c.business)}</td><td>${esc(c.tags)}</td>
-        <td>${c.unsubscribed ? '<span class="badge bad">Unsubscribed</span>' : c.status === 'pending' ? '<span class="badge pending">Waiting to confirm</span>' : '<span class="badge sent">Subscribed</span>'}<small>${esc({ added: 'Added by you', lead: 'Lead who replied', signup: 'Website sign up' }[c.source] ?? c.source)}</small></td>
+        <td>${c.unsubscribed ? '<span class="badge bad">Unsubscribed</span>' : c.status === 'pending' ? '<span class="badge pending">Waiting to confirm</span>' : '<span class="badge sent">Subscribed</span>'}<small>${esc({ added: 'Added by you', lead: 'Lead who replied', signup: 'Website sign up', resend: 'From Resend' }[c.source] ?? c.source)}</small></td>
         <td>${esc(dm(`${c.created_at}Z`))}</td><td><button type="button" class="plain small" data-del>Remove</button></td></tr>`).join('')
         || '<tr><td colspan="7" class="muted">Nobody yet. Add people you know, or add the sign up box to the website.</td></tr>';
     } catch (e) { $('ctList').innerHTML = `<tr><td colspan="7" class="bad">${esc(e.message)}</td></tr>`; }
@@ -1239,6 +1239,15 @@
       loadContacts();
     } catch (e) { $('ctOut').textContent = e.message; }
   });
+  // Contacts added in Resend's dashboard come in when the page first opens, and on the button.
+  async function importResend(quiet) {
+    try {
+      const r = await (await api('/contacts/import-resend', { method: 'POST' })).json();
+      if (!quiet || r.added) $('ctOut').textContent = `Resend has ${r.found} contacts: ${r.added} new here${r.unsubscribed ? `, ${r.unsubscribed} unsubscribed` : ''}.`;
+    } catch (e) { if (!quiet || !/not set/.test(e.message)) $('ctOut').textContent = e.message; }
+    loadContacts();
+  }
+  $('ctResend').addEventListener('click', () => importResend(false));
   $('ctList').addEventListener('click', async e => {
     if (!e.target.closest('[data-del]')) return;
     const row = e.target.closest('[data-contact]');
