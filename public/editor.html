@@ -71,6 +71,9 @@
   .meter i { display: block; height: 100%; background: var(--red); }
   .list { display: grid; gap: 8px; font-size: 14px; }
   .list > * { display: flex; justify-content: space-between; gap: 12px; }
+  .list > .chance { align-items: center; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--line); }
+  .chance > div:first-child { flex: 1 1 360px; display: grid; gap: 4px; }
+  .chance p { font-size: 13px; }
 
   /* Layout */
   main { padding: 24px; min-width: 0; }
@@ -1116,6 +1119,7 @@
       ${[waiting && `<a href="#social">${waiting} waiting for approval</a>`, sent && `${sent} approved`, look && `<a href="#social">${look} needing a look</a>`, dropped && `${dropped} rejected`].filter(Boolean).join(', ') || 'none made'}.</p>
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
   };
+  let gscChances = [];
   // Search Console: last week against the week before, pages moving, and searches we nearly rank for.
   async function loadGsc() {
     const box = $('gscBox');
@@ -1130,13 +1134,38 @@
           ${tile(`${t.ctr}%${delta(t.ctr, b.ctr)}`, 'Click rate')}${tile(`${t.position}${delta(t.position, b.position, 'down')}`, 'Average position', 'Lower is better')}</div>
         <div class="cols two"><div><h3>Rising</h3>${list(g.rising, m => `<div><a href="${esc(m.page)}" target="_blank" rel="noopener">${path(m.page)}</a><span class="good">+${m.change} clicks</span></div>`)}</div>
           <div><h3>Falling</h3>${list(g.falling, m => `<div><a href="${esc(m.page)}" target="_blank" rel="noopener">${path(m.page)}</a><span class="bad">${m.change} clicks</span></div>`)}</div></div>
-        <h3>Nearly on page one</h3><p class="muted">Searches you already show for at positions 8 to 20. A better page on one of these is the quickest ranking to win, so Plan the week aims its article at them unless you give it a focus.</p>
-        ${list(g.chances, c => `<div><span>${esc(c.query)}</span><span class="muted">position ${c.position}, shown ${c.impressions} times <button type="button" class="plain small" data-focus="${esc(c.query)}">Plan around this</button></span></div>`)}`;
+        <h3>Nearly on page one</h3><p class="muted">Searches you already show for at positions 8 to 20. A better page on one of these is the quickest ranking to win, so Plan the week aims its article at them unless you give it a focus. Each has what we recommend building: the button drafts it for you to check, and nothing goes live until you publish or approve it.</p>
+        ${list(gscChances = g.chances, (c, i) => `<div class="chance"><div><b>${esc(c.query)}</b> <span class="muted">position ${c.position}, shown ${c.impressions} times</span>${c.build ? `<p class="muted"><b>Recommended:</b> ${esc(c.build.label.toLowerCase())}. ${esc(c.build.why)}</p>` : ''}</div>
+          <div class="row">${c.build ? `<button type="button" class="small" data-build="${i}">${esc(c.build.label)}</button>` : ''}<button type="button" class="plain small" data-post="${i}">Make a post</button><button type="button" class="plain small" data-focus="${esc(c.query)}">Plan around this</button></div></div>`)}`;
     } catch (e) { box.innerHTML = `<h2>Search Console</h2><p class="${/not set/.test(e.message) ? 'muted' : 'bad'}">${esc(e.message)}</p>`; }
   }
   // Plan around this: open the dashboard and fill in Plan the week's focus once it has loaded.
   let planFocus = '';
-  $('gscBox').addEventListener('click', e => {
+  $('gscBox').addEventListener('click', async e => {
+    const { build, post } = e.target.dataset ?? {};
+    if (build || post) {
+      const c = gscChances[Number(build ?? post)];
+      if (post) { // a social post about the search, linking to the page that ranks
+        location.hash = '#social';
+        Object.assign($('topic'), { value: c.query }); $('keyword').value = c.query; $('url').value = c.page;
+        return $('write').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      loaded.articles = true;
+      location.hash = '#articles';
+      await loadCategories();
+      $('aCategory').value = c.build.category;
+      if (c.build.kind === 'update') { // open the guide that already ranks, ready to edit
+        const found = (await (await api('/articles/in-category?category=' + encodeURIComponent(c.build.category))).json()).find(a => a.slug === c.build.slug);
+        await loadArticles(found?.id ?? `site:${c.build.slug}`);
+        return note('aOut', `Add a section that answers "${esc(c.query)}" directly, then publish it again.`);
+      }
+      await loadArticles();
+      $('aTopic').value = c.query.replace(/^\w/, l => l.toUpperCase()); $('aKeyword').value = c.query; $('aUrl').value = '';
+      $('aSources').value = `Aim: rank on Google for "${c.query}". Link to ${c.page} where it helps the reader.`;
+      $('newArticle').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      await findSources();
+      return $('aDraft').click();
+    }
     const q = e.target.dataset?.focus;
     if (!q) return;
     planFocus = `An article that ranks for "${q}"`;
