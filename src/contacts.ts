@@ -77,6 +77,30 @@ export function importReplied() {
   return out;
 }
 
+// Contacts David added in Resend's dashboard come across too. Anyone Resend has as unsubscribed goes on the
+// Do not email list, so they are skipped here as well.
+export async function importResend() {
+  if (!RESEND_API_KEY) fail(503, 'RESEND_API_KEY is not set');
+  const out = { found: 0, added: 0, updated: 0, unsubscribed: 0, invalid: [] as string[] };
+  let after = '';
+  for (let page = 0; page < 100; page++) { // ponytail: 10,000 contacts max, raise if the list ever gets near it
+    const res = await fetch(`${RESEND_API_URL}/contacts?${new URLSearchParams({ limit: '100', ...(after && { after }) })}`, {
+      signal: AbortSignal.timeout(30_000), headers: { authorization: `Bearer ${RESEND_API_KEY}` } });
+    const body = await res.json().catch(() => ({})) as { data?: { id: string; email: string; first_name?: string; last_name?: string; unsubscribed?: boolean }[]; has_more?: boolean; message?: string };
+    if (res.status === 401 || res.status === 403) fail(502, `Resend would not list contacts (${body.message ?? res.status}). The API key needs Full access, not Sending access only.`);
+    if (!res.ok) fail(502, `Resend: ${body.message ?? res.status}`);
+    for (const c of body.data ?? []) {
+      out.found++;
+      const r = save([{ email: c.email, name: [c.first_name, c.last_name].filter(Boolean).join(' '), tags: 'resend' }], 'resend');
+      out.added += r.added; out.updated += r.updated; out.invalid.push(...r.invalid);
+      if (c.unsubscribed && Number(db.prepare(`INSERT INTO suppression (email, reason) VALUES (?, 'unsubscribed') ON CONFLICT DO NOTHING`).run(norm(c.email)).changes)) out.unsubscribed++;
+    }
+    if (!body.has_more || !body.data?.length) break;
+    after = body.data.at(-1)!.id;
+  }
+  return out;
+}
+
 export function update(id: number, body: { name?: string; business?: string; tags?: string }) {
   get(id);
   db.prepare('UPDATE contacts SET name = coalesce(?, name), business = coalesce(?, business), tags = coalesce(?, tags) WHERE id = ?')
