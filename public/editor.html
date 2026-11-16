@@ -504,6 +504,22 @@
 </section>
 
 <section class="view" data-view="newsletter" hidden>
+  <div class="cols wide-left">
+    <div class="card">
+      <div class="card-head"><h2>Monthly newsletter</h2><select id="nlList" style="width:auto"></select></div>
+      <p class="muted">Claude drafts it from your new guides, a client story and one of the AI tools. Edit it, send yourself a test, then approve it. Nobody on the list gets it until you send it.</p>
+      <div class="row"><input id="nlFocus" maxlength="1000" placeholder="Anything to focus on (optional), for example Christmas opening hours" style="flex:1 1 280px;width:auto"><button type="button" class="small" id="nlDraft">Draft this month's newsletter</button></div>
+      <span class="muted" id="nlOut"></span>
+      <div id="nlEditor" class="fields" hidden>
+        <div id="nlStatus"></div>
+        <label>Subject <input id="nlSubject" maxlength="150"></label>
+        <label>Preview line (shown after the subject in the inbox) <input id="nlPre" maxlength="200"></label>
+        <label>Body <textarea id="nlBody" rows="16"></textarea></label>
+        <div class="row" id="nlButtons"></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-head"><h2>Preview</h2><span class="muted">As it arrives in an inbox</span></div><iframe id="nlPreview" class="preview-page" title="Newsletter preview"></iframe></div>
+  </div>
   <div class="card">
     <div class="card-head"><h2>Newsletter contacts</h2><span class="muted" id="ctCounts"></span></div>
     <p class="muted">People who can get the newsletter: people you know, and people who signed up on the website and confirmed. Cold leads are never added. Anyone who unsubscribes, from a newsletter or an outreach email, goes on the Do not email list and is skipped.</p>
@@ -664,7 +680,7 @@
     if (view === 'signals') loadSignals();
     if (view === 'links') loadLinks();
     if (view === 'search') loadGsc();
-    if (view === 'newsletter') loadContacts();
+    if (view === 'newsletter') { loadContacts(); loadNewsletters(); }
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -1145,6 +1161,54 @@
       ${[waiting && `<a href="#social">${waiting} waiting for approval</a>`, sent && `${sent} approved`, look && `<a href="#social">${look} needing a look</a>`, dropped && `${dropped} rejected`].filter(Boolean).join(', ') || 'none made'}.</p>
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
   };
+  // Monthly newsletter
+  const NL_STATUS = { draft: ['pending', 'Draft'], approved: ['sent', 'Approved, ready to send'], rejected: ['', 'Rejected'], sent: ['sent', 'Sent'] };
+  async function loadNewsletters(select) {
+    try {
+      const list = await (await api('/newsletters')).json(), pick = select ?? $('nlList').value;
+      $('nlList').innerHTML = list.length ? list.map(n => `<option value="${n.id}">${esc(n.subject)} (${esc(NL_STATUS[n.status]?.[1] ?? n.status)})</option>`).join('') : '<option value="">None yet</option>';
+      if (list.some(n => String(n.id) === String(pick))) $('nlList').value = pick;
+      await showNewsletter();
+    } catch (e) { $('nlOut').textContent = e.message; }
+  }
+  async function showNewsletter() {
+    const id = $('nlList').value;
+    $('nlEditor').hidden = !id;
+    if (!id) return $('nlPreview').srcdoc = '<p style="font:15px Archivo,system-ui;color:#8a8282;text-align:center;margin-top:30vh">Draft a newsletter to see it here.</p>';
+    const n = await (await api(`/newsletters/${id}`)).json(), draft = n.status === 'draft';
+    $('nlSubject').value = n.subject; $('nlPre').value = n.preheader; $('nlBody').value = n.body;
+    for (const k of ['nlSubject', 'nlPre', 'nlBody']) $(k).readOnly = !draft;
+    const [cls, label] = NL_STATUS[n.status] ?? ['', n.status];
+    $('nlStatus').innerHTML = `<span class="badge ${cls}">${esc(label)}</span> <span class="muted">${n.body.split(/\s+/).filter(Boolean).length} words${n.cost_gbp ? `, drafted for ${money(n.cost_gbp)}` : ''}</span>`;
+    const b = (act, text, cls = 'plain') => `<button type="button" class="${cls} small" data-nl="${act}">${text}</button>`;
+    $('nlButtons').innerHTML = (draft ? b('save', 'Save') + b('test', 'Send me a test') + b('approve', 'Approve', '') + b('reject', 'Reject') : b('test', 'Send me a test') + b('reopen', 'Back to draft'));
+    $('nlPreview').srcdoc = await (await api(`/newsletters/${id}/preview`)).text();
+  }
+  $('nlList').addEventListener('change', showNewsletter);
+  $('nlDraft').addEventListener('click', async () => {
+    const b = $('nlDraft'); b.disabled = true; $('nlOut').textContent = 'Drafting. This can take a minute...';
+    try {
+      const n = await apiJob('/newsletters', { focus: $('nlFocus').value.trim() || undefined });
+      if (n?.error) throw new Error(n.error);
+      $('nlOut').textContent = `Drafted for ${money(n.cost_gbp)}. Check it, then send yourself a test.`;
+      await loadNewsletters(n.id);
+    } catch (e) { $('nlOut').textContent = e.message; }
+    b.disabled = false;
+  });
+  $('nlButtons').addEventListener('click', async e => {
+    const act = e.target.dataset?.nl, id = $('nlList').value;
+    if (!act || !id) return;
+    try {
+      if (act === 'save' || act === 'test' || act === 'approve') if (!$('nlBody').readOnly)
+        await api(`/newsletters/${id}`, { method: 'PUT', body: JSON.stringify({ subject: $('nlSubject').value, preheader: $('nlPre').value, body: $('nlBody').value }) });
+      if (act === 'test') { const r = await (await api(`/newsletters/${id}/test`, { method: 'POST' })).json(); $('nlOut').textContent = `Test sent to ${r.sent_to}.`; }
+      else if (act !== 'save') await api(`/newsletters/${id}/${act}`, { method: 'POST' });
+      if (act === 'save') $('nlOut').textContent = 'Saved.';
+      if (act === 'approve') $('nlOut').textContent = 'Approved. Sending to the list comes in the next update.';
+      await loadNewsletters(id);
+    } catch (err) { $('nlOut').textContent = err.message; }
+  });
+
   // Newsletter contacts
   async function loadContacts() {
     $('ctForm').textContent = `<form action="${location.origin}/subscribe" method="post">\n  <input type="email" name="email" required placeholder="Your email">\n  <input type="text" name="name" placeholder="Your name">\n  <input type="text" name="website" tabindex="-1" autocomplete="off" style="display:none">\n  <button>Sign up</button>\n</form>`;

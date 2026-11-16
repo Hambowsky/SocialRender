@@ -26,6 +26,7 @@ import { registerMcp } from './mcp.ts';
 import * as signals from './signals.ts';
 import * as links from './links.ts';
 import * as contacts from './contacts.ts';
+import * as newsletter from './newsletter.ts';
 import { planWeek, savedPlan, type PlanInput } from './plan.ts';
 
 type Fields = Record<string, string>;
@@ -58,7 +59,7 @@ export function buildApp() {
     const p = req.url.split('?')[0];
     if (p === '/health' || p === '/' || p === '/unsubscribe' || p === '/subscribe' || p === '/subscribe/confirm' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') || p.endsWith('/email') ? 'claude' : 'other';
+    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p === '/newsletters' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') || p.endsWith('/email') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -409,6 +410,20 @@ export function buildApp() {
     properties: { name: { type: 'string', maxLength: 100 }, business: { type: 'string', maxLength: 200 }, tags: { type: 'string', maxLength: 200 } } } } },
   async req => contacts.update(req.params.id, req.body));
   app.delete<{ Params: { id: number } }>('/contacts/:id', { schema: { params: id } }, async req => contacts.remove(req.params.id));
+
+  // The monthly newsletter: drafted by Claude, edited and approved here. Nothing goes to contacts from these routes.
+  app.get('/newsletters', async () => newsletter.list());
+  app.post<{ Body: { focus?: string } }>('/newsletters', { schema: { body: { type: 'object', additionalProperties: false, properties: { focus: { type: 'string', maxLength: 1000 } } } } },
+    async (req, reply) => background(reply, () => newsletter.draft(req.body ?? {})));
+  app.get<{ Params: { id: number } }>('/newsletters/:id', { schema: { params: id } }, async req => newsletter.get(req.params.id));
+  app.put<{ Params: { id: number }; Body: { subject?: string; preheader?: string; body?: string } }>('/newsletters/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false, properties: {
+    subject: { type: 'string', minLength: 1, maxLength: 150 }, preheader: { type: 'string', maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 20_000 } } } } },
+  async req => newsletter.update(req.params.id, req.body));
+  app.get<{ Params: { id: number } }>('/newsletters/:id/preview', { schema: { params: id } }, async (req, reply) =>
+    reply.type('text/html; charset=utf-8').send(newsletter.html(newsletter.get(req.params.id), 'preview@example.com')));
+  app.post<{ Params: { id: number } }>('/newsletters/:id/test', { schema: { params: id } }, async req => newsletter.test(req.params.id));
+  for (const act of ['approve', 'reject', 'reopen'] as const)
+    app.post<{ Params: { id: number } }>(`/newsletters/:id/${act}`, { schema: { params: id } }, async req => newsletter.move(req.params.id, act));
 
   // The week's content: an article draft and a few scheduled posts from it, all waiting for approval.
   app.get('/plan/week', async () => savedPlan());

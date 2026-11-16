@@ -70,6 +70,7 @@ export const IMAP_PASS = env.IMAP_PASS || SMTP_PASS;
 export const RESEND_API_KEY = env.RESEND_API_KEY ?? '';
 export const RESEND_API_URL = env.RESEND_API_URL || 'https://api.resend.com'; // tests point this at a fake
 export const NEWS_FROM = env.NEWS_FROM || 'Red Cherry IT <news@news.redcherryit.com>';
+export const NEWS_TEST_TO = env.NEWS_TEST_TO ?? ''; // where test newsletters go; blank uses the address in SMTP_FROM
 export const SIGNUP_DAILY_CAP = Number(env.SIGNUP_DAILY_CAP || 50); // confirm emails a day, so the form cannot be used to spam people
 
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
