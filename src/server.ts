@@ -383,7 +383,7 @@ export function buildApp() {
     const b = signupBody(req.body), json = !(typeof req.body === 'string');
     try {
       const name = String(b.name ?? '').trim() || [b.first_name, b.last_name].map(v => String(v ?? '').trim()).filter(Boolean).join(' ');
-      if (!b.website) await contacts.signup({ email: String(b.email ?? '').slice(0, 200), name, from: String(b.from ?? '') }, String(req.headers['x-forwarded-for'] ?? req.ip).split(',')[0].trim()); // behind Coolify's proxy // website = a hidden field only bots fill in
+      if (!b.hp) await contacts.signup({ email: String(b.email ?? '').slice(0, 200), name, from: String(b.from ?? '') }, String(req.headers['x-forwarded-for'] ?? req.ip).split(',')[0].trim()); // behind Coolify's proxy // hp = a hidden field only bots fill in. Not called "website": phone autofill fills that and the sign up was silently dropped
       return json ? { ok: true } : page(reply, 'Thanks. Check your inbox for an email from us and press the button in it to confirm.', back);
     } catch (e: any) {
       if (json) throw e;

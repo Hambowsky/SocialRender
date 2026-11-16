@@ -79,7 +79,7 @@ test('a website sign up gets a confirm email and joins only when the button is p
 
   await app.inject({ method: 'POST', url: '/subscribe', headers: form, payload: 'email=new%40person.example' });
   assert.equal(sent.length, 1, 'a second sign up the same day sends nothing more');
-  await app.inject({ method: 'POST', url: '/subscribe', headers: form, payload: 'email=bot%40spam.example&website=x' });
+  await app.inject({ method: 'POST', url: '/subscribe', headers: form, payload: 'email=bot%40spam.example&hp=x' });
   assert.equal(sent.length, 1, 'the hidden field catches bots');
 
   const open = await app.inject({ method: 'GET', url: link });
@@ -90,6 +90,8 @@ test('a website sign up gets a confirm email and joins only when the button is p
   const c = (await call('GET', '/contacts')).json().contacts.find((x: any) => x.email === 'new@person.example');
   assert.deepEqual([c.status, c.source, c.tags, c.name], ['subscribed', 'signup', 'newsletter, popup', 'Nia Bell Jones']);
   assert.deepEqual(pushed.at(-1), ['POST', '/contacts', { email: 'new@person.example', first_name: 'Nia', last_name: 'Bell Jones', unsubscribed: false }], 'into Resend with first and last name');
+  await app.inject({ method: 'POST', url: '/subscribe', headers: form, payload: 'email=phone%40person.example&website=https%3A%2F%2Fx.example' });
+  assert.equal(sent.at(-1).to[0], 'phone@person.example', 'a phone that autofills a website field still signs up');
 
   const forged = await app.inject({ method: 'POST', url: '/subscribe/confirm?e=ann%40shop.example&t=wrongwrongwrongwrongwron' });
   assert.equal(forged.statusCode, 400);
