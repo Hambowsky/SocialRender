@@ -248,6 +248,19 @@ const migrations = [
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    );
    CREATE INDEX contacts_status ON contacts (status)`,
+
+  `CREATE TABLE newsletters (          -- one per month, drafted by Claude, edited and approved by David
+     id INTEGER PRIMARY KEY,
+     subject TEXT NOT NULL,
+     preheader TEXT NOT NULL DEFAULT '', -- the line inboxes show after the subject
+     body TEXT NOT NULL,               -- Markdown
+     focus TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'draft', -- draft, approved, rejected or sent
+     cost_gbp REAL NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+     approved_at TEXT
+   )`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
