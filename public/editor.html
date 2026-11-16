@@ -509,12 +509,15 @@
 <section class="view" data-view="newsletter" hidden>
   <div class="cols wide-left">
     <div class="card">
-      <div class="card-head"><h2>Monthly newsletter</h2><select id="nlList" style="width:auto"></select></div>
-      <p class="muted">Claude drafts it from your new guides, a client story and one of the AI tools. Edit it, send yourself a test, then approve it. Nobody on the list gets it until you send it.</p>
-      <div class="row"><input id="nlFocus" maxlength="1000" placeholder="Anything to focus on (optional), for example Christmas opening hours" style="flex:1 1 280px;width:auto"><button type="button" class="small" id="nlDraft">Draft this month's newsletter</button></div>
+      <div class="card-head"><h2>Newsletters and emails</h2><select id="nlList" style="width:auto"></select></div>
+      <p class="muted">The monthly newsletter is drafted from your new guides, a client story and one of the AI tools. A one off email is drafted from what you tell it. Claude picks the Resend segment and topic, and you can change them. Edit it, send yourself a test, approve it, then send it. Nobody gets it until you press Send.</p>
+      <div class="row"><select id="nlKind" style="width:auto"><option value="monthly">Monthly newsletter</option><option value="oneoff">One off email</option></select>
+        <input id="nlFocus" maxlength="2000" placeholder="Anything to focus on (optional), for example Christmas opening hours" style="flex:1 1 280px;width:auto"><button type="button" class="small" id="nlDraft">Draft it</button></div>
       <span class="muted" id="nlOut"></span>
       <div id="nlEditor" class="fields" hidden>
         <div id="nlStatus"></div>
+        <div class="row"><label>Send to segment <select id="nlSeg"></select></label><label>Topic <select id="nlTopic"></select></label></div>
+        <p class="muted" id="nlPick"></p>
         <label>Subject <input id="nlSubject" maxlength="150"></label>
         <label>Preview line (shown after the subject in the inbox) <input id="nlPre" maxlength="200"></label>
         <label>Body <textarea id="nlBody" rows="16"></textarea></label>
@@ -1175,11 +1178,19 @@
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
   };
   // Monthly newsletter
-  const NL_STATUS = { draft: ['pending', 'Draft'], approved: ['sent', 'Approved, ready to send'], rejected: ['', 'Rejected'], sent: ['sent', 'Sent'] };
+  const NL_STATUS = { draft: ['pending', 'Draft'], approved: ['sent', 'Approved, ready to send'], rejected: ['', 'Rejected'], sending: ['pending', 'Handed to Resend, check Broadcasts there'], sent: ['sent', 'Sent'] };
+  let nlCur = null;
+  function nlPickers() { // Resend's segments and topics, with this email's choices selected
+    if (!nlCur) return;
+    const opt = (v, label, on) => `<option value="${esc(v)}"${on ? ' selected' : ''}>${esc(label)}</option>`;
+    $('nlSeg').innerHTML = opt('', 'Pick a segment', !nlCur.segment_id) + aud.segments.map(g => opt(g.id, `${g.name} (${Object.values(aud.members).filter(m => m.includes(g.id)).length})`, g.id === nlCur.segment_id)).join('');
+    $('nlTopic').innerHTML = opt('', 'No topic: everyone in the segment', !nlCur.topic_id) + aud.topics.map(t => opt(t.id, t.name, t.id === nlCur.topic_id)).join('');
+    $('nlSeg').disabled = $('nlTopic').disabled = nlCur.status !== 'draft';
+  }
   async function loadNewsletters(select) {
     try {
       const list = await (await api('/newsletters')).json(), pick = select ?? $('nlList').value;
-      $('nlList').innerHTML = list.length ? list.map(n => `<option value="${n.id}">${esc(n.subject)} (${esc(NL_STATUS[n.status]?.[1] ?? n.status)})</option>`).join('') : '<option value="">None yet</option>';
+      $('nlList').innerHTML = list.length ? list.map(n => `<option value="${n.id}">${n.kind === 'oneoff' ? 'Email: ' : ''}${esc(n.subject)} (${esc(n.status === 'sending' ? 'Sending' : NL_STATUS[n.status]?.[1] ?? n.status)})</option>`).join('') : '<option value="">None yet</option>';
       if (list.some(n => String(n.id) === String(pick))) $('nlList').value = pick;
       await showNewsletter();
     } catch (e) { $('nlOut').textContent = e.message; }
@@ -1188,20 +1199,26 @@
     const id = $('nlList').value;
     $('nlEditor').hidden = !id;
     if (!id) return $('nlPreview').srcdoc = '<p style="font:15px Archivo,system-ui;color:#8a8282;text-align:center;margin-top:30vh">Draft a newsletter to see it here.</p>';
-    const n = await (await api(`/newsletters/${id}`)).json(), draft = n.status === 'draft';
+    const n = nlCur = await (await api(`/newsletters/${id}`)).json(), draft = n.status === 'draft';
+    nlPickers();
+    $('nlPick').textContent = n.status === 'sent' ? `Sent ${dm(`${n.sent_at}Z`)}.` : n.pick_note ? `Claude: ${n.pick_note}` : '';
     $('nlSubject').value = n.subject; $('nlPre').value = n.preheader; $('nlBody').value = n.body;
     for (const k of ['nlSubject', 'nlPre', 'nlBody']) $(k).readOnly = !draft;
     const [cls, label] = NL_STATUS[n.status] ?? ['', n.status];
     $('nlStatus').innerHTML = `<span class="badge ${cls}">${esc(label)}</span> <span class="muted">${n.body.split(/\s+/).filter(Boolean).length} words${n.cost_gbp ? `, drafted for ${money(n.cost_gbp)}` : ''}</span>`;
     const b = (act, text, cls = 'plain') => `<button type="button" class="${cls} small" data-nl="${act}">${text}</button>`;
-    $('nlButtons').innerHTML = (draft ? b('save', 'Save') + b('test', 'Send me a test') + b('approve', 'Approve', '') + b('reject', 'Reject') : b('test', 'Send me a test') + b('reopen', 'Back to draft'));
+    $('nlButtons').innerHTML = draft ? b('save', 'Save') + b('test', 'Send me a test') + b('approve', 'Approve', '') + b('reject', 'Reject')
+      : n.status === 'approved' ? b('send', 'Send to the segment', '') + b('test', 'Send me a test') + b('reopen', 'Back to draft')
+      : n.status === 'sending' ? b('reject', 'Mark as not sent') : n.status === 'rejected' ? b('reopen', 'Back to draft') : '';
     $('nlPreview').srcdoc = await (await api(`/newsletters/${id}/preview`)).text();
   }
   $('nlList').addEventListener('change', showNewsletter);
+  $('nlKind').addEventListener('change', () => $('nlFocus').placeholder = $('nlKind').value === 'oneoff'
+    ? 'What is it about? For example: we are closed 24 December to 2 January, book website changes before then' : 'Anything to focus on (optional), for example Christmas opening hours');
   $('nlDraft').addEventListener('click', async () => {
     const b = $('nlDraft'); b.disabled = true; $('nlOut').textContent = 'Drafting. This can take a minute...';
     try {
-      const n = await apiJob('/newsletters', { focus: $('nlFocus').value.trim() || undefined });
+      const n = await apiJob('/newsletters', { kind: $('nlKind').value, focus: $('nlFocus').value.trim() || undefined });
       if (n?.error) throw new Error(n.error);
       $('nlOut').textContent = `Drafted for ${money(n.cost_gbp)}. Check it, then send yourself a test.`;
       await loadNewsletters(n.id);
@@ -1213,11 +1230,16 @@
     if (!act || !id) return;
     try {
       if (act === 'save' || act === 'test' || act === 'approve') if (!$('nlBody').readOnly)
-        await api(`/newsletters/${id}`, { method: 'PUT', body: JSON.stringify({ subject: $('nlSubject').value, preheader: $('nlPre').value, body: $('nlBody').value }) });
+        await api(`/newsletters/${id}`, { method: 'PUT', body: JSON.stringify({ subject: $('nlSubject').value, preheader: $('nlPre').value, body: $('nlBody').value, segment_id: $('nlSeg').value, topic_id: $('nlTopic').value }) });
+      if (act === 'send') {
+        const seg = $('nlSeg').selectedOptions[0]?.textContent, topic = $('nlTopic').value ? `, except anyone who opted out of ${$('nlTopic').selectedOptions[0].textContent}` : '';
+        if (!confirm(`Send "${$('nlSubject').value}" to everyone in ${seg}${topic}? This cannot be undone.`)) return;
+      }
       if (act === 'test') { const r = await (await api(`/newsletters/${id}/test`, { method: 'POST' })).json(); $('nlOut').textContent = `Test sent to ${r.sent_to}.`; }
       else if (act !== 'save') await api(`/newsletters/${id}/${act}`, { method: 'POST' });
       if (act === 'save') $('nlOut').textContent = 'Saved.';
-      if (act === 'approve') $('nlOut').textContent = 'Approved. Sending to the list comes in the next update.';
+      if (act === 'approve') $('nlOut').textContent = 'Approved. Press Send to the segment when you are ready.';
+      if (act === 'send') $('nlOut').textContent = 'Sent. Resend is delivering it now; Broadcasts in Resend shows opens and clicks.';
       await loadNewsletters(id);
     } catch (err) { $('nlOut').textContent = err.message; }
   });
@@ -1230,6 +1252,7 @@
     $('ctSeg').innerHTML = '<option value="">Any</option><option value="-">In no segment</option>' + aud.segments.map(g => `<option value="${esc(g.id)}"${g.id === seg ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
     if (seg === '-') $('ctSeg').value = '-';
     $('audSegs').innerHTML = audError ? `<p class="bad">${esc(audError)}</p>` : aud.segments.map(g => `<div><b>${esc(g.name)}</b><span class="muted">${count(g.id)} ${count(g.id) === 1 ? 'person' : 'people'}</span></div>`).join('') || '<p class="muted">No segments yet.</p>';
+    nlPickers();
     $('audTopics').innerHTML = audError ? '' : aud.topics.map(t => `<div><b>${esc(t.name)}</b><span class="muted">${t.default_subscription === 'opt_in' ? 'Everyone unless they opt out' : 'Only people who opt in'}</span></div>`).join('') || '<p class="muted">No topics yet.</p>';
   }
   const segNames = email => (aud.members[email.toLowerCase()] ?? []).map(id => aud.segments.find(g => g.id === id)?.name).filter(Boolean);

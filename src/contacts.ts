@@ -103,14 +103,14 @@ export async function importResend() {
 
 // Segments and topics live in Resend, where David manages them, so the studio reads and changes them there.
 // Resend accepts an email address wherever it wants a contact id.
-async function resend(path: string, init: { method?: string; body?: unknown } = {}) {
+export async function resend(path: string, init: { method?: string; body?: unknown } = {}) {
   if (!RESEND_API_KEY) fail(503, 'RESEND_API_KEY is not set');
   const res = await fetch(`${RESEND_API_URL}${path}`, { method: init.method ?? 'GET', signal: AbortSignal.timeout(30_000),
     headers: { authorization: `Bearer ${RESEND_API_KEY}`, 'content-type': 'application/json' }, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
   const body = await res.json().catch(() => ({})) as any;
-  if (res.status === 401 || res.status === 403) fail(502, `Resend said no (${body.message ?? res.status}). The API key needs Full access, not Sending access only.`);
-  if (!res.ok) fail(res.status === 404 ? 404 : 502, `Resend: ${body.message ?? res.status}`);
-  return body;
+  if (res.ok) return body;
+  const msg = res.status === 401 || res.status === 403 ? `Resend said no (${body.message ?? res.status}). The API key needs Full access, not Sending access only.` : `Resend: ${body.message ?? res.status}`;
+  throw Object.assign(new Error(msg), { statusCode: res.status === 404 ? 404 : 502, resendStatus: res.status }); // resendStatus: what Resend itself answered
 }
 async function all(path: string) {
   const out: any[] = [];
