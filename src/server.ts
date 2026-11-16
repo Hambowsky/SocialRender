@@ -412,6 +412,20 @@ export function buildApp() {
   async req => contacts.update(req.params.id, req.body));
   app.delete<{ Params: { id: number } }>('/contacts/:id', { schema: { params: id } }, async req => contacts.remove(req.params.id));
 
+  // Resend segments and topics: shown against each contact and changed in Resend itself.
+  const rid = { type: 'string', minLength: 1, maxLength: 100 };
+  app.get('/contacts/audience', async () => contacts.audience());
+  app.post<{ Body: { name: string } }>('/contacts/segments', { schema: { body: { type: 'object', required: ['name'], additionalProperties: false,
+    properties: { name: { type: 'string', minLength: 1, maxLength: 100 } } } } }, async req => contacts.createSegment(req.body.name));
+  app.post<{ Body: { name: string; description?: string; default_subscription: 'opt_in' | 'opt_out' } }>('/contacts/topics', { schema: { body: { type: 'object', required: ['name', 'default_subscription'], additionalProperties: false,
+    properties: { name: { type: 'string', minLength: 1, maxLength: 50 }, description: { type: 'string', maxLength: 200 }, default_subscription: { enum: ['opt_in', 'opt_out'] } } } } },
+  async req => contacts.createTopic(req.body));
+  app.get<{ Params: { id: number } }>('/contacts/:id/resend', { schema: { params: id } }, async req => contacts.resendOf(req.params.id));
+  app.put<{ Params: { id: number }; Body: { segments: string[]; topics: { id: string; subscription: 'opt_in' | 'opt_out' }[] } }>('/contacts/:id/resend', { schema: { params: id, body: {
+    type: 'object', required: ['segments', 'topics'], additionalProperties: false, properties: { segments: { type: 'array', maxItems: 50, items: rid },
+      topics: { type: 'array', maxItems: 50, items: { type: 'object', required: ['id', 'subscription'], additionalProperties: false, properties: { id: rid, subscription: { enum: ['opt_in', 'opt_out'] } } } } } } } },
+  async req => contacts.setResend(req.params.id, req.body));
+
   // The monthly newsletter: drafted by Claude, edited and approved here. Nothing goes to contacts from these routes.
   app.get('/newsletters', async () => newsletter.list());
   app.post<{ Body: { focus?: string } }>('/newsletters', { schema: { body: { type: 'object', additionalProperties: false, properties: { focus: { type: 'string', maxLength: 1000 } } } } },
