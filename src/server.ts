@@ -426,17 +426,21 @@ export function buildApp() {
       topics: { type: 'array', maxItems: 50, items: { type: 'object', required: ['id', 'subscription'], additionalProperties: false, properties: { id: rid, subscription: { enum: ['opt_in', 'opt_out'] } } } } } } } },
   async req => contacts.setResend(req.params.id, req.body));
 
-  // The monthly newsletter: drafted by Claude, edited and approved here. Nothing goes to contacts from these routes.
+  // The monthly newsletter and one off emails: drafted by Claude, edited and approved here. Only /send emails contacts.
   app.get('/newsletters', async () => newsletter.list());
-  app.post<{ Body: { focus?: string } }>('/newsletters', { schema: { body: { type: 'object', additionalProperties: false, properties: { focus: { type: 'string', maxLength: 1000 } } } } },
-    async (req, reply) => background(reply, () => newsletter.draft(req.body ?? {})));
+  app.post<{ Body: { focus?: string; kind?: 'monthly' | 'oneoff' } }>('/newsletters', { schema: { body: { type: 'object', additionalProperties: false, properties: {
+    focus: { type: 'string', maxLength: 2000 }, kind: { enum: ['monthly', 'oneoff'] } } } } },
+    async (req, reply) => req.body?.kind === 'oneoff' && !req.body.focus?.trim() ? reply.code(400).send({ error: 'Say what the email is about' })
+      : background(reply, () => newsletter.draft(req.body ?? {})));
   app.get<{ Params: { id: number } }>('/newsletters/:id', { schema: { params: id } }, async req => newsletter.get(req.params.id));
-  app.put<{ Params: { id: number }; Body: { subject?: string; preheader?: string; body?: string } }>('/newsletters/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false, properties: {
-    subject: { type: 'string', minLength: 1, maxLength: 150 }, preheader: { type: 'string', maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 20_000 } } } } },
+  app.put<{ Params: { id: number }; Body: { subject?: string; preheader?: string; body?: string; segment_id?: string; topic_id?: string } }>('/newsletters/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false, properties: {
+    subject: { type: 'string', minLength: 1, maxLength: 150 }, preheader: { type: 'string', maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 20_000 },
+    segment_id: { type: 'string', maxLength: 100 }, topic_id: { type: 'string', maxLength: 100 } } } } },
   async req => newsletter.update(req.params.id, req.body));
   app.get<{ Params: { id: number } }>('/newsletters/:id/preview', { schema: { params: id } }, async (req, reply) =>
     reply.type('text/html; charset=utf-8').send(newsletter.html(newsletter.get(req.params.id), 'preview@example.com')));
   app.post<{ Params: { id: number } }>('/newsletters/:id/test', { schema: { params: id } }, async req => newsletter.test(req.params.id));
+  app.post<{ Params: { id: number } }>('/newsletters/:id/send', { schema: { params: id } }, async req => newsletter.send(req.params.id));
   for (const act of ['approve', 'reject', 'reopen'] as const)
     app.post<{ Params: { id: number } }>(`/newsletters/:id/${act}`, { schema: { params: id } }, async req => newsletter.move(req.params.id, act));
 

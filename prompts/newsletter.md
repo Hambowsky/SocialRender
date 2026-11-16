@@ -24,6 +24,17 @@ Write:
   5. "## Recent work": the client story in two sentences, with a link to {site}/case-studies.
   6. A one line sign off, then "David" on its own line.
 
+Then choose who gets it, from what is set up in Resend:
+* segment: the one segment below it should go to, copied exactly. Usually the widest list of people who know us. Leave it empty if none fits or there are none.
+* topic: the one topic below that matches a monthly newsletter, copied exactly, so people who opted out of it are skipped. Leave it empty if none fits.
+* why: one sentence for David on why that segment and topic.
+
+Segments:
+{segments}
+
+Topics:
+{topics}
+
 Rules:
 * Links only to {site} pages listed here or in what we offer. Never invent a page or a fact.
 * Write to one reader as "you". Friendly and direct, like an email from someone they know.

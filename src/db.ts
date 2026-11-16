@@ -261,6 +261,14 @@ const migrations = [
      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
      approved_at TEXT
    )`,
+
+  `ALTER TABLE newsletters ADD COLUMN kind TEXT NOT NULL DEFAULT 'monthly'; -- monthly or oneoff
+   ALTER TABLE newsletters ADD COLUMN segment_id TEXT NOT NULL DEFAULT ''; -- the Resend segment it goes to
+   ALTER TABLE newsletters ADD COLUMN topic_id TEXT NOT NULL DEFAULT '';   -- the Resend topic, so people who opted out are skipped
+   ALTER TABLE newsletters ADD COLUMN broadcast_id TEXT;                    -- set once Resend has it, so a retry never sends twice
+   ALTER TABLE newsletters ADD COLUMN sent_at TEXT;
+   -- pick_note: why Claude picked that segment and topic
+   ALTER TABLE newsletters ADD COLUMN pick_note TEXT NOT NULL DEFAULT ''`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

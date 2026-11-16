@@ -16,16 +16,24 @@ process.env.PUBLIC_URL = 'https://studio.example';
 process.env.SMTP_FROM = 'David Hanmer <david@redcherryit.com>';
 
 let prompt = '';
-const sent: any[] = [];
+const sent: any[] = [], broadcasts: any[] = [], patched: string[] = [];
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => body += c);
   req.on('end', () => {
-    if (req.url === '/emails') { sent.push(JSON.parse(body)); res.setHeader('content-type', 'application/json'); return res.end('{"id":"msg_1"}'); }
+    const json = (b: unknown) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(b)); };
+    const list = (data: unknown[]) => json({ object: 'list', has_more: false, data });
+    if (req.url === '/emails') { sent.push(JSON.parse(body)); return json({ id: 'msg_1' }); }
+    if (req.url?.startsWith('/segments')) return list([{ id: 'seg_all', name: 'Everyone' }, { id: 'seg_cl', name: 'Clients' }]);
+    if (req.url?.startsWith('/topics')) return list([{ id: 'top_news', name: 'Monthly newsletter', default_subscription: 'opt_in' }]);
+    if (req.url?.startsWith('/contacts?')) return list(req.url.includes('seg_all') ? [{ id: 'a', email: 'ok@x.example' }, { id: 'b', email: 'gone@x.example' }] : []);
+    if (req.method === 'PATCH') { patched.push(decodeURIComponent(req.url!)); return json({}); }
+    if (req.url === '/broadcasts') { broadcasts.push(JSON.parse(body)); return json({ id: 'bc_1' }); }
     prompt = body;
     sendStream(res, { id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'end_turn', stop_sequence: null,
       content: [{ type: 'text', text: JSON.stringify({ subject: 'Three quick wins for your website this winter', preheader: 'Plus a tool that answers enquiries while you work.',
-        body: 'Hi,\n\nHere is what is new.\n\n## New on the blog\n\n- [Why speed matters](https://redcherryit.com/guides/learn/speed): faster pages win more enquiries.\n\n## Quick tip\n\nCheck your opening hours on Google.\n\nThanks for reading,\n\nDavid' }) }],
+        body: 'Hi,\n\nHere is what is new.\n\n## New on the blog\n\n- [Why speed matters](https://redcherryit.com/guides/learn/speed): faster pages win more enquiries.\n\n## Quick tip\n\nCheck your opening hours on Google.\n\nThanks for reading,\n\nDavid',
+        segment: 'everyone', topic: 'Monthly newsletter', why: 'It is for everyone who knows us.' }) }],
       usage: { input_tokens: 2000, output_tokens: 600 } });
   });
 });
@@ -59,6 +67,8 @@ test('Claude drafts the newsletter from new guides and a client story, and nothi
   assert.match(prompt, /missed calls/);
   assert.match(prompt, /A client story you may use:\\n[A-Z]/, 'one of the case studies');
   assert.equal(sent.length, 0);
+  assert.match(prompt, /Segments:\\nEveryone\\nClients/);
+  assert.deepEqual([n.kind, n.segment_id, n.topic_id, n.pick_note], ['monthly', 'seg_all', 'top_news', 'It is for everyone who knows us.'], 'names map to Resend ids');
 });
 
 test('the email has the preheader, the logo, styled links and a working unsubscribe link', async () => {
@@ -83,4 +93,30 @@ test('a test goes to David only, then the draft is edited and approved', async (
   assert.equal((await call('PUT', '/newsletters/1', { subject: 'Again' })).statusCode, 409, 'an approved newsletter is not edited by accident');
   assert.equal((await call('POST', '/newsletters/1/approve')).statusCode, 409);
   assert.equal((await call('POST', '/newsletters/1/reopen')).json().status, 'draft');
+});
+
+test('sending hands it to Resend once, to the segment and topic, with Do not email people unsubscribed first', async () => {
+  const { db } = await import('../src/db.ts');
+  db.exec(`INSERT INTO suppression (email, reason) VALUES ('gone@x.example', 'unsubscribed')`);
+  assert.equal((await call('POST', '/newsletters/1/send')).statusCode, 409, 'a draft is never sent');
+  await call('POST', '/newsletters/1/approve');
+  const n = (await call('POST', '/newsletters/1/send')).json();
+  assert.equal(n.status, 'sent');
+  assert.deepEqual(patched, ['/contacts/gone@x.example']);
+  assert.equal(broadcasts.length, 1);
+  assert.deepEqual([broadcasts[0].segment_id, broadcasts[0].topic_id, broadcasts[0].send], ['seg_all', 'top_news', true]);
+  assert.match(broadcasts[0].html, /\{\{\{RESEND_UNSUBSCRIBE_URL\}\}\}/);
+  assert.doesNotMatch(broadcasts[0].html, /studio\.example\/unsubscribe/);
+  assert.equal((await call('POST', '/newsletters/1/send')).statusCode, 409, 'never twice');
+  assert.equal(broadcasts.length, 1);
+});
+
+test('a one off email needs a brief and uses its own prompt', async () => {
+  assert.equal((await call('POST', '/newsletters', { kind: 'oneoff', focus: ' ' })).statusCode, 400);
+  const { job } = (await call('POST', '/newsletters', { kind: 'oneoff', focus: 'closed over Christmas' })).json();
+  let r: any;
+  do { r = (await call('GET', `/jobs/${job}`)).json(); await new Promise(ok => setTimeout(ok, 20)); } while (r.done === false);
+  assert.equal(r.result.kind, 'oneoff');
+  assert.match(prompt, /one off email/);
+  assert.match(prompt, /closed over Christmas/);
 });

@@ -97,8 +97,8 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
   },
   newsletter: {
     type: 'object', additionalProperties: false,
-    required: ['subject', 'preheader', 'body'],
-    properties: { subject: str, preheader: str, body: str },
+    required: ['subject', 'preheader', 'body', 'segment', 'topic', 'why'],
+    properties: { subject: str, preheader: str, body: str, segment: str, topic: str, why: str },
   },
   'link-review': {
     type: 'object', additionalProperties: false,
@@ -117,7 +117,7 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
 // `followUp` continues an earlier run of the same prompt with one more message.
 export async function runPrompt(name: string, vars: Record<string, string>,
   opts: { body?: string; job?: string; followUp?: { history: Anthropic.MessageParam[]; note: string } } = {}) {
-  const schema = SCHEMAS[name.startsWith('article-') ? 'article' : name] ?? fail(400, `${name} is not a prompt that can be run on its own`);
+  const schema = SCHEMAS[name.startsWith('article-') ? 'article' : name === 'email' ? 'newsletter' : name] ?? fail(400, `${name} is not a prompt that can be run on its own`);
   const p = parsePrompt(opts.body ?? current(name).body);
   const messages: Anthropic.MessageParam[] = opts.followUp
     ? [...opts.followUp.history, { role: 'user', content: opts.followUp.note }]
