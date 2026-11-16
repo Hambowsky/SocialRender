@@ -48,6 +48,9 @@ All in environment variables, listed in `.env.example`.
 | `SIGNALS_MONTHLY_CALLS` | `200` | Most Firecrawl searches a month for Signals (about four a day: one per campaign town, up to five, plus one for the UK). |
 | `LINKS_MONTHLY_CALLS` | `150` | Most Firecrawl searches a month for Links (four a day). |
 | `GSC_CREDENTIALS` | | Google service account key for Search Console (the JSON file, or base64 of it). Blank turns the Google search card off. |
+| `RESEND_API_KEY` | | Resend key for email marketing (newsletter sign up confirmations, later the newsletter). Blank turns sending off. |
+| `NEWS_FROM` | `Red Cherry IT <news@news.redcherryit.com>` | Sender for email marketing. The domain must be verified in Resend. |
+| `SIGNUP_DAILY_CAP` | 50 | Most sign up confirm emails a day, so the website form cannot be used to spam people. |
 | `GSC_SITE` | `sc-domain:redcherryit.com` | The Search Console property. Use `https://redcherryit.com/` for a URL prefix property. |
 
 ## API

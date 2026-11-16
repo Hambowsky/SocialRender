@@ -25,6 +25,7 @@ import { esc } from './markdown.ts';
 import { registerMcp } from './mcp.ts';
 import * as signals from './signals.ts';
 import * as links from './links.ts';
+import * as contacts from './contacts.ts';
 import { planWeek, savedPlan, type PlanInput } from './plan.ts';
 
 type Fields = Record<string, string>;
@@ -55,7 +56,7 @@ export function buildApp() {
   // Everything else needs the key.
   app.addHook('onRequest', async (req, reply) => {
     const p = req.url.split('?')[0];
-    if (p === '/health' || p === '/' || p === '/unsubscribe' || publicFile(p) || p.startsWith('/public/renders/')) return;
+    if (p === '/health' || p === '/' || p === '/unsubscribe' || p === '/subscribe' || p === '/subscribe/confirm' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
     const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') || p.endsWith('/email') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
@@ -371,6 +372,43 @@ export function buildApp() {
     outreach.unsubscribe(req.query.e, req.query.t);
     return page(reply, `Done. ${esc(req.query.e)} will not get any more emails from us.`);
   });
+
+  // Newsletter sign up from the website: a plain form post (or JSON), then a confirm email. Same answer whether or not
+  // the address is already on the list, so the form cannot be used to find out who is.
+  const signupBody = (b: unknown) => (typeof b === 'string' ? Object.fromEntries(new URLSearchParams(b)) : (b ?? {})) as Record<string, string>;
+  const back = '<p><a href="https://redcherryit.com" style="color:#b5333f">Back to redcherryit.com</a></p>';
+  app.post('/subscribe', async (req, reply) => {
+    const b = signupBody(req.body), json = !(typeof req.body === 'string');
+    try {
+      if (!b.website) await contacts.signup({ email: String(b.email ?? '').slice(0, 200), name: String(b.name ?? '') }, String(req.headers['x-forwarded-for'] ?? req.ip).split(',')[0].trim()); // behind Coolify's proxy // website = a hidden field only bots fill in
+      return json ? { ok: true } : page(reply, 'Thanks. Check your inbox for an email from us and press the button in it to confirm.', back);
+    } catch (e: any) {
+      if (json) throw e;
+      return page(reply.code(e.statusCode ?? 500), esc(e.statusCode && e.statusCode < 500 ? e.message : 'Sorry, something went wrong. Please try again later.'), back);
+    }
+  });
+  const confirmQs = { querystring: { type: 'object', required: ['e', 't'], properties: { e: { type: 'string', maxLength: 200 }, t: { type: 'string', maxLength: 64 } } } };
+  // Opening the link only asks, like unsubscribe, so a mail scanner that opens every link cannot confirm for someone.
+  app.get<{ Querystring: { e: string; t: string } }>('/subscribe/confirm', { schema: confirmQs }, async (req, reply) => !contacts.validConfirm(req.query.e, req.query.t)
+    ? page(reply.code(400), 'That link is not complete. Please sign up again on redcherryit.com.', back)
+    : page(reply, `Confirm the Red Cherry IT newsletter for ${esc(req.query.e)}?`,
+      `<form method="post"><button style="font:inherit;padding:10px 18px;border:0;border-radius:8px;background:#b5333f;color:#fff;cursor:pointer">Yes, sign me up</button></form>`));
+  app.post<{ Querystring: { e: string; t: string } }>('/subscribe/confirm', { schema: confirmQs }, async (req, reply) => {
+    try { contacts.confirm(req.query.e, req.query.t); } catch (e: any) { return page(reply.code(e.statusCode ?? 500), esc(e.message), back); }
+    return page(reply, `You are on the list. Expect practical website and marketing tips from us once a month, and unsubscribe any time from the link in each email.`, back);
+  });
+
+  // Newsletter contacts, managed on the Email page.
+  app.get<{ Querystring: { tag?: string; status?: string } }>('/contacts', { schema: { querystring: { type: 'object', properties: {
+    tag: { type: 'string', maxLength: 60 }, status: { enum: ['subscribed', 'pending', 'unsubscribed'] } } } } }, async req => contacts.list(req.query));
+  app.post<{ Body: { text: string; tags?: string } }>('/contacts', { schema: { body: { type: 'object', required: ['text'], additionalProperties: false, properties: {
+    text: { type: 'string', minLength: 3, maxLength: 200_000 }, tags: { type: 'string', maxLength: 200 } } } } },
+  async req => contacts.save(contacts.parse(req.body.text).map(r => ({ ...r, tags: req.body.tags })), 'added'));
+  app.post('/contacts/import-replied', async () => contacts.importReplied());
+  app.patch<{ Params: { id: number }; Body: { name?: string; business?: string; tags?: string } }>('/contacts/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false,
+    properties: { name: { type: 'string', maxLength: 100 }, business: { type: 'string', maxLength: 200 }, tags: { type: 'string', maxLength: 200 } } } } },
+  async req => contacts.update(req.params.id, req.body));
+  app.delete<{ Params: { id: number } }>('/contacts/:id', { schema: { params: id } }, async req => contacts.remove(req.params.id));
 
   // The week's content: an article draft and a few scheduled posts from it, all waiting for approval.
   app.get('/plan/week', async () => savedPlan());

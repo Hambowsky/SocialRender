@@ -66,6 +66,12 @@ export const IMAP_PORT = Number(env.IMAP_PORT || 993);
 export const IMAP_USER = env.IMAP_USER || SMTP_USER;
 export const IMAP_PASS = env.IMAP_PASS || SMTP_PASS;
 
+// Email marketing (newsletter, sign up confirmations) sends through Resend from its own subdomain, apart from outreach.
+export const RESEND_API_KEY = env.RESEND_API_KEY ?? '';
+export const RESEND_API_URL = env.RESEND_API_URL || 'https://api.resend.com'; // tests point this at a fake
+export const NEWS_FROM = env.NEWS_FROM || 'Red Cherry IT <news@news.redcherryit.com>';
+export const SIGNUP_DAILY_CAP = Number(env.SIGNUP_DAILY_CAP || 50); // confirm emails a day, so the form cannot be used to spam people
+
 export const RENDERS_DIR = path.join(DATA_DIR, 'renders');
 export const MAX_FIELD_CHARS = 300;
 

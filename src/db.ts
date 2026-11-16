@@ -233,6 +233,21 @@ const migrations = [
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    );
    CREATE INDEX links_status ON links (status)`,
+
+  `CREATE TABLE contacts (             -- who can get the newsletter: people David knows, or who signed up and confirmed
+     id INTEGER PRIMARY KEY,
+     email TEXT NOT NULL UNIQUE,       -- lower case
+     name TEXT NOT NULL DEFAULT '',
+     business TEXT NOT NULL DEFAULT '',
+     tags TEXT NOT NULL DEFAULT '',    -- comma separated, such as client or enquiry
+     source TEXT NOT NULL,             -- added, import, lead or signup
+     status TEXT NOT NULL,             -- pending (signed up, not confirmed yet) or subscribed
+     lead_id INTEGER REFERENCES leads (id) ON DELETE SET NULL,
+     confirm_sent_at TEXT,
+     confirmed_at TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE INDEX contacts_status ON contacts (status)`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
