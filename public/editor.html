@@ -247,6 +247,7 @@
     <a href="#social" data-view="social" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>Social</a>
     <a href="#articles" data-view="articles" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>Articles</a>
     <a href="#links" data-view="links" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>Links</a>
+    <a href="#search" data-view="search" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Search Console</a>
     <a href="#templates" data-view="templates" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>Templates</a>
     <a href="#prompts" data-view="prompts" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Prompts</a>
     <a href="#sales" data-view="sales" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Dashboard</a>
@@ -498,6 +499,10 @@
   </div>
 </section>
 
+<section class="view" data-view="search" hidden>
+  <div class="card" id="gscBox"><h2>Search Console</h2><p class="muted">Loading...</p></div>
+</section>
+
 <section class="view" data-view="links" hidden>
   <div class="card">
     <div class="card-head"><h2>Links</h2><div class="row"><label class="chip"><input type="checkbox" id="lkAll">Show done and hidden</label><button type="button" class="small" id="lkScan">Search now</button></div></div>
@@ -630,6 +635,7 @@
     if (view === 'emails') loadEmails();
     if (view === 'signals') loadSignals();
     if (view === 'links') loadLinks();
+    if (view === 'search') loadGsc();
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -1077,8 +1083,8 @@
     try {
       const d = await (await api(`/dashboard/${area}`)).json();
       if (area === 'marketing') {
-        setTimeout(loadPlan); setTimeout(loadGsc);
-        box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div><div class="card" id="gscBox"><h2>Google search</h2><p class="muted">Loading...</p></div>'
+        setTimeout(loadPlan);
+        box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div>'
           + `<div class="tiles">${tile(d.posts_this_month, 'Posts sent to Buffer this month', '', '#social')}${tile(d.posts_scheduled, 'Posts scheduled ahead', '', '#social')}
             ${tile(d.articles_this_month, 'Articles published this month', `${d.articles_published} in total`, '#articles')}${tile(d.images_this_month, 'Images made this month')}</div>
           <div class="cols wide-left"><div class="card"><h2>Posts sent, by week</h2>${bars(d.posts_by_week, dm)}</div>${spendCard(d)}</div>
@@ -1119,20 +1125,22 @@
       const delta = (n, was, better = 'up') => { const d = +(n - was).toFixed(1); return d ? `<small class="${(d > 0) === (better === 'up') ? 'good' : 'bad'}"> ${d > 0 ? '+' : ''}${d}</small>` : ''; };
       const path = u => esc(u.replace(/^https?:\/\/[^/]+/, '') || '/');
       const list = (rows, f) => rows.length ? `<div class="list">${rows.map(f).join('')}</div>` : '<p class="muted">None this week.</p>';
-      box.innerHTML = `<div class="card-head"><h2>Google search</h2><span class="muted">${esc(dm(g.from))} to ${esc(dm(g.to))}, against the week before</span></div>
+      box.innerHTML = `<div class="card-head"><h2>Search Console</h2><span class="muted">${esc(dm(g.from))} to ${esc(dm(g.to))}, against the week before</span></div>
         <div class="tiles">${tile(`${t.clicks}${delta(t.clicks, b.clicks)}`, 'Clicks')}${tile(`${t.impressions}${delta(t.impressions, b.impressions)}`, 'Times shown')}
           ${tile(`${t.ctr}%${delta(t.ctr, b.ctr)}`, 'Click rate')}${tile(`${t.position}${delta(t.position, b.position, 'down')}`, 'Average position', 'Lower is better')}</div>
         <div class="cols two"><div><h3>Rising</h3>${list(g.rising, m => `<div><a href="${esc(m.page)}" target="_blank" rel="noopener">${path(m.page)}</a><span class="good">+${m.change} clicks</span></div>`)}</div>
           <div><h3>Falling</h3>${list(g.falling, m => `<div><a href="${esc(m.page)}" target="_blank" rel="noopener">${path(m.page)}</a><span class="bad">${m.change} clicks</span></div>`)}</div></div>
         <h3>Nearly on page one</h3><p class="muted">Searches you already show for at positions 8 to 20. A better page on one of these is the quickest ranking to win, so Plan the week aims its article at them unless you give it a focus.</p>
         ${list(g.chances, c => `<div><span>${esc(c.query)}</span><span class="muted">position ${c.position}, shown ${c.impressions} times <button type="button" class="plain small" data-focus="${esc(c.query)}">Plan around this</button></span></div>`)}`;
-    } catch (e) { box.innerHTML = `<h2>Google search</h2><p class="${/not set/.test(e.message) ? 'muted' : 'bad'}">${esc(e.message)}</p>`; }
+    } catch (e) { box.innerHTML = `<h2>Search Console</h2><p class="${/not set/.test(e.message) ? 'muted' : 'bad'}">${esc(e.message)}</p>`; }
   }
-  $('mDash').addEventListener('click', e => {
+  // Plan around this: open the dashboard and fill in Plan the week's focus once it has loaded.
+  let planFocus = '';
+  $('gscBox').addEventListener('click', e => {
     const q = e.target.dataset?.focus;
-    if (!q || !$('plFocus')) return;
-    $('plFocus').value = `An article that ranks for "${q}"`;
-    $('planBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!q) return;
+    planFocus = `An article that ranks for "${q}"`;
+    location.hash = 'dashboard';
   });
 
   async function loadPlan() {
@@ -1150,6 +1158,7 @@
         <div class="row" id="plChannels">${chans instanceof Error ? `<span class="bad">${esc(chans.message)}</span>` : chans.map(c => `<label class="chip"><input type="checkbox" value="${esc(c.id)}" data-name="${esc(c.name + ' (' + c.service + ')')}" checked>${esc(service(c.service))} <span class="muted">${esc(c.name)}</span></label>`).join('') || '<span class="muted">No channels in Buffer yet.</span>'}</div>
         <div class="row"><button type="button" class="small" id="plGo" data-week="next" data-again="${saved.plan ? 1 : ''}">${saved.plan ? 'Plan next week again' : 'Plan next week'}</button>
           <button type="button" class="plain small" id="plThis" data-week="this" data-again="${tw.plan ? 1 : ''}">${tw.plan ? 'Plan this week again' : 'Plan this week'}</button><span id="plOut" class="muted"></span></div>`;
+      if (planFocus) { $('plFocus').value = planFocus; planFocus = ''; box.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
     } catch (e) { box.innerHTML = `<h2>Plan the week</h2><p class="bad">${esc(e.message)}</p>`; }
   }
   $('mDash').addEventListener('click', async e => {
