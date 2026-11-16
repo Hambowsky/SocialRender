@@ -52,6 +52,7 @@ All in environment variables, listed in `.env.example`.
 | `NEWS_FROM` | `Red Cherry IT <news@news.redcherryit.com>` | Sender for email marketing. The domain must be verified in Resend. |
 | `SIGNUP_DAILY_CAP` | 50 | Most sign up confirm emails a day, so the website form cannot be used to spam people. |
 | `NEWS_TEST_TO` | | Where test newsletters go. Blank uses the address in `SMTP_FROM`. |
+| `RESEND_WEBHOOK_SECRET` | | Signing secret of the webhook in Resend pointing at `/resend/webhook`. Bounces, complaints and unsubscribes then reach the Do not email list, and opens and clicks show per email. |
 | `GSC_SITE` | `sc-domain:redcherryit.com` | The Search Console property. Use `https://redcherryit.com/` for a URL prefix property. |
 
 ## API

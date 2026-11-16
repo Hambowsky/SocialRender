@@ -269,6 +269,16 @@ const migrations = [
    ALTER TABLE newsletters ADD COLUMN sent_at TEXT;
    -- pick_note: why Claude picked that segment and topic
    ALTER TABLE newsletters ADD COLUMN pick_note TEXT NOT NULL DEFAULT ''`,
+
+  `CREATE TABLE email_events (         -- what Resend reports about each email it sent: delivered, opened, clicked, bounced
+     id TEXT PRIMARY KEY,              -- Resend's svix-id, so a retried webhook is counted once
+     type TEXT NOT NULL,
+     broadcast_id TEXT NOT NULL DEFAULT '',
+     email TEXT NOT NULL DEFAULT '',
+     link TEXT NOT NULL DEFAULT '',
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE INDEX email_events_broadcast ON email_events (broadcast_id, type)`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

@@ -544,7 +544,6 @@
     <label>New website sign ups go into <select id="audSignup"></select></label>
     <span id="audOut" class="muted"></span>
   </div>
-  <div class="cols two">
     <div class="card">
       <h2>Add people you know</h2>
       <p class="muted">One per line: email, name, business. A spreadsheet pasted with a header row works too. They go straight on the list, so only add people who know you, such as clients and people who have enquired.</p>
@@ -552,12 +551,6 @@
       <label>Tags (optional) <input id="ctTags" placeholder="client"></label>
       <div class="row"><button type="button" class="small" id="ctAdd">Add to the list</button><button type="button" class="plain small" id="ctReplied">Add leads who replied</button><button type="button" class="plain small" id="ctResend">Get contacts from Resend</button><span id="ctOut" class="muted"></span></div>
     </div>
-    <div class="card">
-      <h2>Sign up box for the website</h2>
-      <p class="muted">The website's sign up box sends people here. They get an email asking them to confirm, and join the list only when they press its button. It needs RESEND_API_KEY set in Coolify.</p>
-      <pre class="note" id="ctForm"></pre>
-    </div>
-  </div>
 </section>
 
 <section class="view" data-view="search" hidden>
@@ -1148,7 +1141,8 @@
         setTimeout(loadPlan);
         box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div>'
           + `<div class="tiles">${tile(d.posts_this_month, 'Posts sent to Buffer this month', '', '#social')}${tile(d.posts_scheduled, 'Posts scheduled ahead', '', '#social')}
-            ${tile(d.articles_this_month, 'Articles published this month', `${d.articles_published} in total`, '#articles')}${tile(d.images_this_month, 'Images made this month')}</div>
+            ${tile(d.articles_this_month, 'Articles published this month', `${d.articles_published} in total`, '#articles')}${tile(d.images_this_month, 'Images made this month')}
+            ${d.last_email ? tile(d.last_email.stats?.delivered ? `${Math.round(d.last_email.stats.opened / d.last_email.stats.delivered * 100)}%` : 'n/a', 'Last email opened', `${esc(d.last_email.subject)}${d.last_email.stats?.delivered ? `, ${d.last_email.stats.clicked} clicked` : ''}`, '#newsletter') : ''}</div>
           <div class="cols wide-left"><div class="card"><h2>Posts sent, by week</h2>${bars(d.posts_by_week, dm)}</div>${spendCard(d)}</div>
           <div class="cols two"><div class="card"><h2>Coming up</h2><div class="list">${d.upcoming.map(p => `<div><span>${esc(p.text.slice(0, 70))}${p.text.length > 70 ? '...' : ''}</span><span class="muted">${esc(p.channel_name)}, ${esc(new Date(p.due_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</span></div>`).join('') || '<p class="muted">Nothing scheduled.</p>'}</div></div>
             <div class="card"><h2>Latest articles</h2><div class="list">${d.recent_articles.map(a => `<div><span>${esc(a.title)}</span><span class="muted">${esc(dm(a.published_at))}</span></div>`).join('') || '<p class="muted">None published yet.</p>'}</div></div></div>`;
@@ -1202,7 +1196,9 @@
     if (!id) return $('nlPreview').srcdoc = '<p style="font:15px Archivo,system-ui;color:#8a8282;text-align:center;margin-top:30vh">Draft a newsletter to see it here.</p>';
     const n = nlCur = await (await api(`/newsletters/${id}`)).json(), draft = n.status === 'draft';
     nlPickers();
-    $('nlPick').textContent = n.status === 'sent' ? `Sent ${dm(`${n.sent_at}Z`)}.` : n.pick_note ? `Claude: ${n.pick_note}` : '';
+    const st = n.stats, pc = (x, of) => of ? ` (${Math.round(x / of * 100)}%)` : '';
+    $('nlPick').textContent = n.status === 'sent' ? `Sent ${dm(`${n.sent_at}Z`)}. ${st && st.delivered ? `Delivered to ${st.delivered}, opened by ${st.opened}${pc(st.opened, st.delivered)}, clicked by ${st.clicked}${pc(st.clicked, st.delivered)}${st.bounced ? `, ${st.bounced} bounced` : ''}${st.complained ? `, ${st.complained} marked it as spam` : ''}.${st.links.length ? ` Most clicked: ${st.links.map(l => `${l.link.replace(/^https?:\/\/(www\.)?/, '')} (${l.n})`).join(', ')}.` : ''}` : 'Opens and clicks show here as Resend reports them.'}`
+      : n.pick_note ? `Claude: ${n.pick_note}` : '';
     $('nlSubject').value = n.subject; $('nlPre').value = n.preheader; $('nlBody').value = n.body;
     for (const k of ['nlSubject', 'nlPre', 'nlBody']) $(k).readOnly = !draft;
     const [cls, label] = NL_STATUS[n.status] ?? ['', n.status];
@@ -1259,7 +1255,6 @@
   }
   const segNames = email => (aud.members[email.toLowerCase()] ?? []).map(id => aud.segments.find(g => g.id === id)?.name).filter(Boolean);
   async function loadContacts() {
-    $('ctForm').textContent = `<form action="${location.origin}/subscribe" method="post">\n  <input type="email" name="email" required placeholder="Your email">\n  <input type="text" name="name" placeholder="Your name">\n  <input type="text" name="website" tabindex="-1" autocomplete="off" style="display:none">\n  <button>Sign up</button>\n</form>`;
     try {
       const q = new URLSearchParams(Object.entries({ status: $('ctStatus').value, tag: $('ctTag').value }).filter(([, v]) => v));
       const r = await (await api(`/contacts?${q}`)).json(), pick = $('ctTag').value;
@@ -1270,7 +1265,7 @@
         <td>${segNames(c.email).map(n => `<span class="seg-tag">${esc(n)}</span>`).join(' ')}</td>
         <td>${c.unsubscribed ? '<span class="badge bad">Unsubscribed</span>' : c.status === 'pending' ? '<span class="badge pending">Waiting to confirm</span>' : '<span class="badge sent">Subscribed</span>'}<small>${esc({ added: 'Added by you', lead: 'Lead who replied', signup: 'Website sign up', resend: 'From Resend' }[c.source] ?? c.source)}</small></td>
         <td>${esc(dm(`${c.created_at}Z`))}</td><td><div class="row"><button type="button" class="plain small" data-seg>Segments</button><button type="button" class="plain small" data-del>Remove</button></div></td></tr>`).join('')
-        || '<tr><td colspan="8" class="muted">Nobody yet. Add people you know, or add the sign up box to the website.</td></tr>';
+        || '<tr><td colspan="8" class="muted">Nobody yet. Add people you know, or wait for sign ups from the website.</td></tr>';
     } catch (e) { $('ctList').innerHTML = `<tr><td colspan="8" class="bad">${esc(e.message)}</td></tr>`; }
   }
   for (const id of ['ctStatus', 'ctTag', 'ctSeg']) $(id).addEventListener('change', loadContacts);
