@@ -36,7 +36,8 @@ const fake = http.createServer((req, res) => {
     const rows = !q.dimensions.length ? [row([], thisWeek ? 120 : 100, 4000, thisWeek ? 18.2 : 19)]
       : q.dimensions[0] === 'page' ? (thisWeek ? [row(['https://redcherryit.com/pricing'], 40, 900, 6), row(['https://redcherryit.com/guides/learn/seo'], 5, 300, 12)]
         : [row(['https://redcherryit.com/pricing'], 20, 800, 7), row(['https://redcherryit.com/guides/learn/seo'], 15, 400, 9)])
-      : [row(['web design durham'], 2, 400, 11.4), row(['website cost uk'], 1, 250, 14), row(['red cherry it'], 30, 60, 1), row(['rare search'], 0, 5, 12)];
+      : [row(['web design durham', 'https://redcherryit.com/'], 2, 300, 11), row(['web design durham', 'https://redcherryit.com/pricing'], 0, 100, 12.6),
+        row(['website cost uk', 'https://redcherryit.com/guides/learn/website-cost'], 1, 250, 14), row(['red cherry it', 'https://redcherryit.com/'], 30, 60, 1), row(['rare search', 'https://redcherryit.com/'], 0, 5, 12)];
     res.end(JSON.stringify({ rows }));
   });
 });
@@ -60,6 +61,9 @@ test('the Search Console watch compares last week with the one before and finds 
   assert.deepEqual(g.rising.map((m: any) => [m.page, m.change]), [['https://redcherryit.com/pricing', 20]]);
   assert.deepEqual(g.falling.map((m: any) => [m.page, m.change]), [['https://redcherryit.com/guides/learn/seo', -10]]);
   assert.deepEqual(g.chances.map((c: any) => c.query), ['web design durham', 'website cost uk'], 'positions 8 to 20 with enough impressions');
+  assert.deepEqual(g.chances.map((c: any) => [c.impressions, c.position, c.page]), [[400, 11.4, 'https://redcherryit.com/'], [250, 14, 'https://redcherryit.com/guides/learn/website-cost']], 'one row per search, from its best page');
+  assert.deepEqual(g.chances.map((c: any) => [c.build.kind, c.build.category, c.build.slug]), [['article', '/guides/local/', undefined], ['update', '/guides/learn/', 'website-cost']],
+    'a local search gets a local guide, a guide that already ranks gets updated');
   const calls = queries.length;
   await week(new Date('2026-11-06T18:00:00Z'));
   assert.equal(queries.length, calls, 'asked once a day');

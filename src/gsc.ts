@@ -58,10 +58,10 @@ const round = (n: number, dp = 1) => +n.toFixed(dp);
 export async function week(now = new Date()) {
   const key = `gsc:${now.toISOString().slice(0, 10)}`;
   const saved = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
-  if (saved) return JSON.parse(saved.value); // once a day is plenty: the numbers only move daily
+  if (saved) return withBuild(JSON.parse(saved.value)); // once a day is plenty: the numbers only move daily
   const to = day(now, 3), from = day(now, 9), prevTo = day(now, 10), prevFrom = day(now, 16);
   const [total, totalPrev, pages, pagesPrev, queries] = await Promise.all([
-    query(from, to, []), query(prevFrom, prevTo, []), query(from, to, ['page']), query(prevFrom, prevTo, ['page']), query(from, to, ['query'])]);
+    query(from, to, []), query(prevFrom, prevTo, []), query(from, to, ['page']), query(prevFrom, prevTo, ['page']), query(from, to, ['query', 'page'])]);
   const sum = (r?: Row) => ({ clicks: r?.clicks ?? 0, impressions: r?.impressions ?? 0, ctr: round((r?.ctr ?? 0) * 100), position: round(r?.position ?? 0) });
   const before = new Map(pagesPrev.map(r => [r.keys[0], r]));
   const moves = [...new Set([...pages.map(r => r.keys[0]), ...before.keys()])].map(page => {
@@ -75,13 +75,41 @@ export async function week(now = new Date()) {
     falling: moves.filter(m => m.change < 0).sort((a, b) => a.change - b.change).slice(0, 5),
     top_pages: [...pages].sort((a, b) => b.clicks - a.clicks).slice(0, 5).map(r => ({ page: r.keys[0], clicks: r.clicks, position: round(r.position) })),
     // Searches we already show for but just off page one: the cheapest rankings to win with a better page.
-    chances: queries.filter(r => r.position >= 8 && r.position <= 20 && r.impressions >= 10).sort((a, b) => b.impressions - a.impressions).slice(0, 10)
-      .map(r => ({ query: r.keys[0], impressions: r.impressions, clicks: r.clicks, position: round(r.position) })),
+    chances: byQuery(queries).filter(r => r.position >= 8 && r.position <= 20 && r.impressions >= 10).sort((a, b) => b.impressions - a.impressions).slice(0, 10),
   };
   db.prepare(`INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value`).run(key, JSON.stringify(result));
   db.prepare(`DELETE FROM settings WHERE key LIKE 'gsc:%' AND key < ?`).run(`gsc:${day(now, 14)}`);
-  return result;
+  return withBuild(result);
 }
+
+// Query and page rows folded into one per search: totals, the average position weighted by impressions,
+// and the page Google shows most for it.
+function byQuery(rows: Row[]) {
+  const out = new Map<string, { query: string; impressions: number; clicks: number; position: number; page: string; top: number }>();
+  for (const r of rows) {
+    const q = out.get(r.keys[0]) ?? { query: r.keys[0], impressions: 0, clicks: 0, position: 0, page: '', top: -1 };
+    q.position = (q.position * q.impressions + r.position * r.impressions) / (q.impressions + r.impressions || 1);
+    q.impressions += r.impressions; q.clicks += r.clicks;
+    if (r.impressions > q.top) { q.top = r.impressions; q.page = r.keys[1] ?? ''; }
+    out.set(r.keys[0], q);
+  }
+  return [...out.values()].map(({ top, ...q }) => ({ ...q, position: round(q.position) }));
+}
+
+// What to build for a search we nearly rank for. Plain rules, no Claude: a guide that already ranks gets
+// updated; otherwise a new guide aimed at the search, in the category that fits, linking to the page that ranks.
+const LOCAL = /\bnear me\b|\b(newcastle|durham|sunderland|gateshead|middlesbrough|teesside|darlington|hartlepool|stockton|northumberland|tyneside|tyne and wear|north east|cumbria|carlisle|scotland|midlands)\b/;
+export function recommend(query: string, page: string, position: number) {
+  const q = query.toLowerCase(), path = page.replace(/^https?:\/\/[^/]+/, '').replace(/\.html$/, '') || '/';
+  const guide = path.match(/^\/(guides\/[^/]+\/)([^/]+)$/);
+  if (guide) return { kind: 'update', label: 'Update the guide', category: `/${guide[1]}`, slug: guide[2],
+    why: `Your guide ${path} already shows for this at position ${position}. Add a section that answers it directly and publish it again.` };
+  const category = LOCAL.test(q) ? '/guides/local/' : /\bvs\b|versus|compar|\bbest\b|\bor\b/.test(q) ? '/guides/comparisons/' : /checklist|\bsteps\b|\btips\b/.test(q) ? '/guides/checklists/' : '/guides/learn/';
+  const where = path === '/' ? 'your home page' : path;
+  return { kind: 'article', label: category === '/guides/local/' ? 'Write a local guide' : 'Write a guide', category,
+    why: `${path === '/' ? 'Your home page' : `The page ${path}`} shows for this at position ${position} but is not built around it. A guide aimed at this search that links to ${where} gives Google a closer match.` };
+}
+const withBuild = (g: any) => ({ ...g, chances: g.chances.map((c: any) => ({ ...c, build: c.page ? recommend(c.query, c.page, c.position) : undefined })) });
 
 // For Plan the week: when David gives no focus, aim the article at searches we nearly rank for.
 export async function planFocus() {
