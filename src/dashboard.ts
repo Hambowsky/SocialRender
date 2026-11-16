@@ -4,6 +4,7 @@ import { db } from './db.ts';
 import { CLAUDE_MONTHLY_CAP_GBP, GBP_PER_USD, OUTREACH_DAILY_CAP } from './config.ts';
 import { usage } from './leads.ts';
 import { followUpsDue, sentToday } from './outreach.ts';
+import { stats } from './tracking.ts';
 
 const n = (sql: string, ...args: (string | number)[]) => (db.prepare(sql).get(...args) as { n: number }).n;
 const MONTH = `datetime('now', 'start of month')`;
@@ -30,6 +31,11 @@ function series(table: string, column: string, where: string, days: number, step
   return out;
 }
 
+function lastEmail() {
+  const e = db.prepare(`SELECT id, subject, sent_at, broadcast_id FROM newsletters WHERE status = 'sent' ORDER BY sent_at DESC LIMIT 1`).get() as { id: number; subject: string; sent_at: string; broadcast_id: string } | undefined;
+  return e ? { id: e.id, subject: e.subject, sent_at: e.sent_at, stats: stats(e.broadcast_id) } : null;
+}
+
 export function marketing() {
   return {
     needs: {
@@ -48,6 +54,7 @@ export function marketing() {
     spend_gbp: spend(false), cap_gbp: CLAUDE_MONTHLY_CAP_GBP, all_spend_gbp: spend(),
     posts_by_week: series('posts', 'sent_at', `status = 'sent'`, 56, 'week'),
     upcoming: db.prepare(`SELECT channel_name, text, due_at FROM posts WHERE status = 'sent' AND due_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ORDER BY due_at LIMIT 5`).all(),
+    last_email: lastEmail(),
     recent_articles: db.prepare(`SELECT title, category, slug, published_at FROM articles WHERE status = 'published' ORDER BY published_at DESC LIMIT 5`).all(),
   };
 }

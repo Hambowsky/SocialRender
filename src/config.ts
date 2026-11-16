@@ -68,6 +68,7 @@ export const IMAP_PASS = env.IMAP_PASS || SMTP_PASS;
 
 // Email marketing (newsletter, sign up confirmations) sends through Resend from its own subdomain, apart from outreach.
 export const RESEND_API_KEY = env.RESEND_API_KEY ?? '';
+export const RESEND_WEBHOOK_SECRET = env.RESEND_WEBHOOK_SECRET ?? ''; // the signing secret of the studio's webhook in Resend (whsec_...)
 export const RESEND_API_URL = env.RESEND_API_URL || 'https://api.resend.com'; // tests point this at a fake
 export const NEWS_FROM = env.NEWS_FROM || 'Red Cherry IT <news@news.redcherryit.com>';
 export const NEWS_TEST_TO = env.NEWS_TEST_TO ?? ''; // where test newsletters go; blank uses the address in SMTP_FROM

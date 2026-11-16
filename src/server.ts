@@ -27,6 +27,7 @@ import * as signals from './signals.ts';
 import * as links from './links.ts';
 import * as contacts from './contacts.ts';
 import * as newsletter from './newsletter.ts';
+import * as tracking from './tracking.ts';
 import { planWeek, savedPlan, type PlanInput } from './plan.ts';
 
 type Fields = Record<string, string>;
@@ -57,7 +58,7 @@ export function buildApp() {
   // Everything else needs the key.
   app.addHook('onRequest', async (req, reply) => {
     const p = req.url.split('?')[0];
-    if (p === '/health' || p === '/' || p === '/unsubscribe' || p === '/subscribe' || p === '/subscribe/confirm' || publicFile(p) || p.startsWith('/public/renders/')) return;
+    if (p === '/health' || p === '/' || p === '/unsubscribe' || p === '/subscribe' || p === '/subscribe/confirm' || p === '/resend/webhook' || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
     const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p === '/newsletters' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') || p.endsWith('/email') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
@@ -412,6 +413,12 @@ export function buildApp() {
     properties: { name: { type: 'string', maxLength: 100 }, business: { type: 'string', maxLength: 200 }, tags: { type: 'string', maxLength: 200 } } } } },
   async req => contacts.update(req.params.id, req.body));
   app.delete<{ Params: { id: number } }>('/contacts/:id', { schema: { params: id } }, async req => contacts.remove(req.params.id));
+
+  // Resend's webhook, signed, so it is checked against the raw body before anything is read from it.
+  app.register(async scope => {
+    scope.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => done(null, body));
+    scope.post('/resend/webhook', async req => { const body = String(req.body ?? ''); return tracking.handle(tracking.verify(body, req.headers), JSON.parse(body)); });
+  });
 
   // Resend segments and topics: shown against each contact and changed in Resend itself.
   const rid = { type: 'string', minLength: 1, maxLength: 100 };

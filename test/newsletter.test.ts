@@ -12,6 +12,7 @@ process.env.API_KEY = 'test-key';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-newsletter-'));
 process.env.ANTHROPIC_API_KEY = 'fake';
 process.env.RESEND_API_KEY = 're_test';
+process.env.RESEND_WEBHOOK_SECRET = `whsec_${Buffer.from('webhook-test-secret').toString('base64')}`;
 process.env.PUBLIC_URL = 'https://studio.example';
 process.env.SMTP_FROM = 'David Hanmer <david@redcherryit.com>';
 
@@ -119,4 +120,28 @@ test('a one off email needs a brief and uses its own prompt', async () => {
   assert.equal(r.result.kind, 'oneoff');
   assert.match(prompt, /one off email/);
   assert.match(prompt, /closed over Christmas/);
+});
+
+test('Resend webhooks are checked, counted once, and bounces and complaints go on the Do not email list', async () => {
+  const crypto = await import('node:crypto');
+  const secret = Buffer.from('webhook-test-secret').toString('base64');
+  const post = (id: string, event: unknown, sign = true) => {
+    const body = JSON.stringify(event), ts = String(Math.floor(Date.now() / 1000));
+    const sig = crypto.createHmac('sha256', Buffer.from(secret, 'base64')).update(`${id}.${ts}.${body}`).digest('base64');
+    return app.inject({ method: 'POST', url: '/resend/webhook', headers: { 'content-type': 'application/json', 'svix-id': id, 'svix-timestamp': ts, 'svix-signature': `v1,${sign ? sig : 'bad'}` }, payload: body });
+  };
+  const ev = (type: string, to: string, extra = {}) => ({ type, data: { broadcast_id: 'bc_1', to: [to], ...extra } });
+  assert.equal((await post('m0', ev('email.opened', 'ok@x.example'), false)).statusCode, 401, 'unsigned posts are refused');
+  for (const [id, e] of [['m1', ev('email.delivered', 'ok@x.example')], ['m2', ev('email.delivered', 'b@x.example')], ['m3', ev('email.opened', 'ok@x.example')],
+    ['m3', ev('email.opened', 'ok@x.example')], ['m4', ev('email.opened', 'ok@x.example')], ['m5', ev('email.clicked', 'ok@x.example', { click: { link: 'https://redcherryit.com/seo' } })],
+    ['m6', ev('email.bounced', 'b@x.example', { bounce: { type: 'Permanent' } })], ['m7', ev('email.complained', 'c@x.example')],
+    ['m8', { type: 'contact.updated', data: { email: 'U@x.example', unsubscribed: true } }]] as const)
+    assert.equal((await post(id, e)).statusCode, 200);
+  const n = (await call('GET', '/newsletters/1')).json();
+  assert.deepEqual([n.stats.delivered, n.stats.opened, n.stats.clicked, n.stats.bounced, n.stats.complained], [2, 1, 1, 1, 1], 'each person counted once');
+  assert.deepEqual(n.stats.links, [{ link: 'https://redcherryit.com/seo', n: 1 }]);
+  const { db } = await import('../src/db.ts');
+  assert.deepEqual(db.prepare(`SELECT email, reason FROM suppression WHERE email IN ('b@x.example', 'c@x.example', 'u@x.example') ORDER BY email`).all().map((r: any) => [r.email, r.reason]),
+    [['b@x.example', 'bounced'], ['c@x.example', 'complained'], ['u@x.example', 'unsubscribed']]);
+  assert.equal((await call('GET', '/dashboard/marketing')).json().last_email.stats.opened, 1);
 });

@@ -6,12 +6,14 @@ import { runPrompt } from './copy.ts';
 import { caseStudies, unsubscribeUrl } from './outreach.ts';
 import { esc, toHtml } from './markdown.ts';
 import { audience, resend, sendEmail } from './contacts.ts';
+import { stats } from './tracking.ts';
 
 type Newsletter = { id: number; kind: 'monthly' | 'oneoff'; subject: string; preheader: string; body: string; focus: string; status: string; cost_gbp: number;
   segment_id: string; topic_id: string; pick_note: string; broadcast_id: string | null; sent_at: string | null; created_at: string; updated_at: string; approved_at: string | null };
 
 export const list = () => db.prepare('SELECT id, kind, subject, status, created_at, approved_at, sent_at FROM newsletters ORDER BY id DESC LIMIT 50').all();
-export const get = (id: number) => (db.prepare('SELECT * FROM newsletters WHERE id = ?').get(id) as Newsletter | undefined) ?? fail(404, `There is no newsletter ${id}`);
+const row = (id: number) => (db.prepare('SELECT * FROM newsletters WHERE id = ?').get(id) as Newsletter | undefined) ?? fail(404, `There is no newsletter ${id}`);
+export const get = (id: number) => { const n = row(id); return { ...n, stats: stats(n.broadcast_id) }; };
 
 // Resend's segments and topics, for Claude to choose from. Without a key it drafts anyway and David picks later.
 async function choices() {
