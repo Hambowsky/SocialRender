@@ -67,6 +67,14 @@
   .bars div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; font-size: 11px; color: var(--muted); gap: 4px; min-width: 0; }
   .bars i { display: block; width: 100%; background: var(--red); border-radius: 4px 4px 0 0; min-height: 2px; }
   .bars i.zero { background: var(--line); }
+  .erows { display: grid; gap: 14px; margin-top: 8px; }
+  .erow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: center; color: inherit; text-decoration: none; }
+  .esubj { font-weight: 600; font-size: 14px; overflow: hidden; } .esubj small { display: block; font-weight: 400; }
+  .ebars { display: grid; gap: 4px; } .ebars span { display: flex; align-items: center; gap: 8px; height: 14px; }
+  .ebars i { display: block; height: 100%; min-width: 2px; border-radius: 3px; } .ebars b { font-size: 12px; min-width: 34px; }
+  .e-open { background: var(--red); } .e-click { background: #a89c9c; }
+  .key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin: 0 4px 0 10px; vertical-align: -1px; }
+  @media (max-width: 640px) { .erow { grid-template-columns: 1fr; gap: 6px; } }
   .meter { height: 8px; border-radius: 999px; background: var(--grey-soft); overflow: hidden; }
   .meter i { display: block; height: 100%; background: var(--red); }
   .list { display: grid; gap: 8px; font-size: 14px; }
@@ -1102,6 +1110,12 @@
     return `<div class="bars">${rows.map(r => `<div title="${esc(r.count)}">${r.count || ''}<i class="${r.count ? '' : 'zero'}" style="height:${r.count / max * 100}%"></i>${esc(label(r.date))}</div>`).join('')}</div>`;
   };
   const dm = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  // Each sent email as a row: the share of people it reached who opened it, and who clicked.
+  const emailCard = emails => `<div class="card"><div class="card-head"><h2>Email results</h2><span class="muted"><span class="key e-open"></span>Opened <span class="key e-click"></span>Clicked, as a share of people it reached</span></div>
+    ${emails.length ? `<div class="erows">${emails.map(e => { const s = e.stats, pc = x => s?.delivered ? Math.round(x / s.delivered * 100) : 0;
+      return `<a class="erow" href="#newsletter"><span class="esubj">${esc(e.subject)}<small class="muted">${esc(dm(`${e.sent_at}Z`))}${s?.delivered ? `, reached ${s.delivered}` : ', waiting for Resend'}${s?.bounced ? `, ${s.bounced} bounced` : ''}</small></span>
+        <span class="ebars"><span><i class="e-open" style="width:${pc(s?.opened)}%"></i><b>${pc(s?.opened)}%</b></span><span><i class="e-click" style="width:${pc(s?.clicked)}%"></i><b>${pc(s?.clicked)}%</b></span></span></a>`; }).join('')}</div>`
+      : '<p class="muted">Nothing sent yet. Results show here once an email goes out.</p>'}</div>`;
   const spendCard = d => `<div class="card"><div class="card-head"><h2>Claude this month</h2><span class="muted">${money(d.all_spend_gbp)} of ${money(d.cap_gbp)} in total</span></div>
     <div class="meter"><i style="width:${Math.min(100, d.all_spend_gbp / d.cap_gbp * 100)}%"></i></div><span class="muted">${money(d.spend_gbp)} of that was for this area.</span></div>`;
   const marketingTodo = m => { const nd = m.needs; return [[nd.posts_to_approve, ['post waiting for your approval', 'posts waiting for your approval'], '#social'],
@@ -1142,8 +1156,9 @@
         box.innerHTML = todo(marketingTodo(d)) + '<div class="card" id="planBox"><h2>Plan the week</h2><p class="muted">Loading...</p></div>'
           + `<div class="tiles">${tile(d.posts_this_month, 'Posts sent to Buffer this month', '', '#social')}${tile(d.posts_scheduled, 'Posts scheduled ahead', '', '#social')}
             ${tile(d.articles_this_month, 'Articles published this month', `${d.articles_published} in total`, '#articles')}${tile(d.images_this_month, 'Images made this month')}
-            ${d.last_email ? tile(d.last_email.stats?.delivered ? `${Math.round(d.last_email.stats.opened / d.last_email.stats.delivered * 100)}%` : 'n/a', 'Last email opened', `${esc(d.last_email.subject)}${d.last_email.stats?.delivered ? `, ${d.last_email.stats.clicked} clicked` : ''}`, '#newsletter') : ''}</div>
+            ${d.emails[0] ? tile(d.emails[0].stats?.delivered ? `${Math.round(d.emails[0].stats.opened / d.emails[0].stats.delivered * 100)}%` : 'n/a', 'Last email opened', `${esc(d.emails[0].subject)}${d.emails[0].stats?.delivered ? `, ${d.emails[0].stats.clicked} clicked` : ''}`, '#newsletter') : ''}</div>
           <div class="cols wide-left"><div class="card"><h2>Posts sent, by week</h2>${bars(d.posts_by_week, dm)}</div>${spendCard(d)}</div>
+          ${emailCard(d.emails)}
           <div class="cols two"><div class="card"><h2>Coming up</h2><div class="list">${d.upcoming.map(p => `<div><span>${esc(p.text.slice(0, 70))}${p.text.length > 70 ? '...' : ''}</span><span class="muted">${esc(p.channel_name)}, ${esc(new Date(p.due_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</span></div>`).join('') || '<p class="muted">Nothing scheduled.</p>'}</div></div>
             <div class="card"><h2>Latest articles</h2><div class="list">${d.recent_articles.map(a => `<div><span>${esc(a.title)}</span><span class="muted">${esc(dm(a.published_at))}</span></div>`).join('') || '<p class="muted">None published yet.</p>'}</div></div></div>`;
       } else {

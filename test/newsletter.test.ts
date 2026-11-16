@@ -143,5 +143,5 @@ test('Resend webhooks are checked, counted once, and bounces and complaints go o
   const { db } = await import('../src/db.ts');
   assert.deepEqual(db.prepare(`SELECT email, reason FROM suppression WHERE email IN ('b@x.example', 'c@x.example', 'u@x.example') ORDER BY email`).all().map((r: any) => [r.email, r.reason]),
     [['b@x.example', 'bounced'], ['c@x.example', 'complained'], ['u@x.example', 'unsubscribed']]);
-  assert.equal((await call('GET', '/dashboard/marketing')).json().last_email.stats.opened, 1);
+  assert.equal((await call('GET', '/dashboard/marketing')).json().emails[0].stats.opened, 1);
 });

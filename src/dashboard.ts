@@ -31,10 +31,9 @@ function series(table: string, column: string, where: string, days: number, step
   return out;
 }
 
-function lastEmail() {
-  const e = db.prepare(`SELECT id, subject, sent_at, broadcast_id FROM newsletters WHERE status = 'sent' ORDER BY sent_at DESC LIMIT 1`).get() as { id: number; subject: string; sent_at: string; broadcast_id: string } | undefined;
-  return e ? { id: e.id, subject: e.subject, sent_at: e.sent_at, stats: stats(e.broadcast_id) } : null;
-}
+// The last six emails sent, newest first, with what Resend reported for each.
+const emailHistory = () => (db.prepare(`SELECT id, subject, sent_at, broadcast_id FROM newsletters WHERE status = 'sent' ORDER BY sent_at DESC LIMIT 6`).all() as
+  { id: number; subject: string; sent_at: string; broadcast_id: string }[]).map(e => ({ id: e.id, subject: e.subject, sent_at: e.sent_at, stats: stats(e.broadcast_id) }));
 
 export function marketing() {
   return {
@@ -54,7 +53,7 @@ export function marketing() {
     spend_gbp: spend(false), cap_gbp: CLAUDE_MONTHLY_CAP_GBP, all_spend_gbp: spend(),
     posts_by_week: series('posts', 'sent_at', `status = 'sent'`, 56, 'week'),
     upcoming: db.prepare(`SELECT channel_name, text, due_at FROM posts WHERE status = 'sent' AND due_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ORDER BY due_at LIMIT 5`).all(),
-    last_email: lastEmail(),
+    emails: emailHistory(),
     recent_articles: db.prepare(`SELECT title, category, slug, published_at FROM articles WHERE status = 'published' ORDER BY published_at DESC LIMIT 5`).all(),
   };
 }
