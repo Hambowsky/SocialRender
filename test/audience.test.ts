@@ -71,3 +71,13 @@ test('someone not in Resend is added first, but only once they are subscribed', 
   const wait = (await call('GET', '/contacts')).json().contacts.find((c: any) => c.email === 'wait@shop.example');
   assert.equal((await call('PUT', `/contacts/${wait.id}/resend`, { segments: ['s1'], topics: [] })).statusCode, 409);
 });
+
+test('the segment for new sign ups is saved and shown', async () => {
+  assert.equal((await call('PUT', '/contacts/signup-segment', { segment_id: 's2' })).statusCode, 200);
+  assert.equal((await call('GET', '/contacts/audience')).json().signup_segment, 's2');
+  const { db } = await import('../src/db.ts');
+  db.prepare("INSERT INTO contacts (email, name, status, source) VALUES ('sam@shop.example', 'Sam Lee', 'pending', 'signup')").run();
+  const t = (await import('node:crypto')).createHmac('sha256', 'test-key').update('confirm:sam@shop.example').digest('base64url').slice(0, 24);
+  await (await import('../src/contacts.ts')).confirm('sam@shop.example', t);
+  assert.ok(people['sam@shop.example']?.segs.has('s2'), 'a confirmed sign up lands in Resend, in that segment');
+});

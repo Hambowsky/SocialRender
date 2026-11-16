@@ -12,13 +12,18 @@ process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rct-contacts-'));
 process.env.RESEND_API_KEY = 're_test';
 process.env.PUBLIC_URL = 'https://studio.example';
 
-const sent: any[] = [];
+const sent: any[] = [], pushed: any[] = [];
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => body += c);
   req.on('end', () => {
     assert.equal(req.headers.authorization, 'Bearer re_test');
     res.setHeader('content-type', 'application/json');
+    if (req.url?.startsWith('/contacts/') || req.url === '/contacts' && req.method === 'POST') { // a confirmed sign up going into Resend
+      pushed.push([req.method, decodeURIComponent(req.url), body && JSON.parse(body)]);
+      res.statusCode = req.method === 'GET' ? 404 : 200;
+      return res.end(req.method === 'GET' ? '{"message":"not found"}' : '{}');
+    }
     if (req.url?.startsWith('/contacts')) { // two pages, as Resend pages them
       const after = new URL(req.url, 'http://x').searchParams.get('after');
       return res.end(JSON.stringify(after === 'c2'
@@ -64,7 +69,7 @@ test('leads who replied can be added, cold leads never are', async () => {
 
 test('a website sign up gets a confirm email and joins only when the button is pressed', async () => {
   const form = { 'content-type': 'application/x-www-form-urlencoded' };
-  const res = await app.inject({ method: 'POST', url: '/subscribe', headers: form, payload: 'email=New%40Person.example&name=Nia' });
+  const res = await app.inject({ method: 'POST', url: '/subscribe', headers: form, payload: 'email=New%40Person.example&first_name=Nia&last_name=Bell+Jones&from=popup' });
   assert.equal(res.statusCode, 200, 'no API key needed');
   assert.match(res.body, /Check your inbox/);
   assert.equal(sent.length, 1);
@@ -83,7 +88,8 @@ test('a website sign up gets a confirm email and joins only when the button is p
   const yes = await app.inject({ method: 'POST', url: link });
   assert.match(yes.body, /You are on the list/);
   const c = (await call('GET', '/contacts')).json().contacts.find((x: any) => x.email === 'new@person.example');
-  assert.deepEqual([c.status, c.source, c.tags, c.name], ['subscribed', 'signup', 'newsletter', 'Nia']);
+  assert.deepEqual([c.status, c.source, c.tags, c.name], ['subscribed', 'signup', 'newsletter, popup', 'Nia Bell Jones']);
+  assert.deepEqual(pushed.at(-1), ['POST', '/contacts', { email: 'new@person.example', first_name: 'Nia', last_name: 'Bell Jones', unsubscribed: false }], 'into Resend with first and last name');
 
   const forged = await app.inject({ method: 'POST', url: '/subscribe/confirm?e=ann%40shop.example&t=wrongwrongwrongwrongwron' });
   assert.equal(forged.statusCode, 400);
