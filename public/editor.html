@@ -251,6 +251,7 @@
     <a href="#articles" data-view="articles" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg>Articles</a>
     <a href="#links" data-view="links" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg>Links</a>
     <a href="#search" data-view="search" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>Search Console</a>
+    <a href="#newsletter" data-view="newsletter" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Email</a>
     <a href="#templates" data-view="templates" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>Templates</a>
     <a href="#prompts" data-view="prompts" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Prompts</a>
     <a href="#sales" data-view="sales" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Dashboard</a>
@@ -502,6 +503,30 @@
   </div>
 </section>
 
+<section class="view" data-view="newsletter" hidden>
+  <div class="card">
+    <div class="card-head"><h2>Newsletter contacts</h2><span class="muted" id="ctCounts"></span></div>
+    <p class="muted">People who can get the newsletter: people you know, and people who signed up on the website and confirmed. Cold leads are never added. Anyone who unsubscribes, from a newsletter or an outreach email, goes on the Do not email list and is skipped.</p>
+    <div class="row"><label>Show <select id="ctStatus"><option value="">Everyone</option><option value="subscribed">Subscribed</option><option value="pending">Waiting to confirm</option><option value="unsubscribed">Unsubscribed</option></select></label>
+      <label>Tag <select id="ctTag"><option value="">Any</option></select></label></div>
+    <div class="table"><table><thead><tr><th>Email</th><th>Name</th><th>Business</th><th>Tags</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody id="ctList"></tbody></table></div>
+  </div>
+  <div class="cols two">
+    <div class="card">
+      <h2>Add people you know</h2>
+      <p class="muted">One per line: email, name, business. A spreadsheet pasted with a header row works too. They go straight on the list, so only add people who know you, such as clients and people who have enquired.</p>
+      <textarea id="ctText" rows="6" placeholder="jo@example.co.uk, Jo Smith, Smith Plumbing"></textarea>
+      <label>Tags (optional) <input id="ctTags" placeholder="client"></label>
+      <div class="row"><button type="button" class="small" id="ctAdd">Add to the list</button><button type="button" class="plain small" id="ctReplied">Add leads who replied</button><span id="ctOut" class="muted"></span></div>
+    </div>
+    <div class="card">
+      <h2>Sign up box for the website</h2>
+      <p class="muted">The website's sign up box sends people here. They get an email asking them to confirm, and join the list only when they press its button. It needs RESEND_API_KEY set in Coolify.</p>
+      <pre class="note" id="ctForm"></pre>
+    </div>
+  </div>
+</section>
+
 <section class="view" data-view="search" hidden>
   <div class="card" id="gscBox"><h2>Search Console</h2><p class="muted">Loading...</p></div>
 </section>
@@ -639,6 +664,7 @@
     if (view === 'signals') loadSignals();
     if (view === 'links') loadLinks();
     if (view === 'search') loadGsc();
+    if (view === 'newsletter') loadContacts();
     if (view === 'prompts' && !loaded.prompts) { loaded.prompts = true; loadPrompts().catch(e => { $('promptOut').textContent = e.message; }); }
   }
   window.addEventListener('hashchange', show);
@@ -1119,6 +1145,43 @@
       ${[waiting && `<a href="#social">${waiting} waiting for approval</a>`, sent && `${sent} approved`, look && `<a href="#social">${look} needing a look</a>`, dropped && `${dropped} rejected`].filter(Boolean).join(', ') || 'none made'}.</p>
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
   };
+  // Newsletter contacts
+  async function loadContacts() {
+    $('ctForm').textContent = `<form action="${location.origin}/subscribe" method="post">\n  <input type="email" name="email" required placeholder="Your email">\n  <input type="text" name="name" placeholder="Your name">\n  <input type="text" name="website" tabindex="-1" autocomplete="off" style="display:none">\n  <button>Sign up</button>\n</form>`;
+    try {
+      const q = new URLSearchParams(Object.entries({ status: $('ctStatus').value, tag: $('ctTag').value }).filter(([, v]) => v));
+      const r = await (await api(`/contacts?${q}`)).json(), pick = $('ctTag').value;
+      $('ctCounts').textContent = `${r.counts.subscribed} subscribed, ${r.counts.pending} waiting to confirm, ${r.counts.unsubscribed} unsubscribed`;
+      $('ctTag').innerHTML = '<option value="">Any</option>' + r.tags.map(t => `<option${t === pick ? ' selected' : ''}>${esc(t)}</option>`).join('');
+      $('ctList').innerHTML = r.contacts.map(c => `<tr data-contact="${c.id}"><td>${esc(c.email)}</td><td>${esc(c.name)}</td><td>${esc(c.business)}</td><td>${esc(c.tags)}</td>
+        <td>${c.unsubscribed ? '<span class="badge bad">Unsubscribed</span>' : c.status === 'pending' ? '<span class="badge pending">Waiting to confirm</span>' : '<span class="badge sent">Subscribed</span>'}<small>${esc({ added: 'Added by you', lead: 'Lead who replied', signup: 'Website sign up' }[c.source] ?? c.source)}</small></td>
+        <td>${esc(dm(`${c.created_at}Z`))}</td><td><button type="button" class="plain small" data-del>Remove</button></td></tr>`).join('')
+        || '<tr><td colspan="7" class="muted">Nobody yet. Add people you know, or add the sign up box to the website.</td></tr>';
+    } catch (e) { $('ctList').innerHTML = `<tr><td colspan="7" class="bad">${esc(e.message)}</td></tr>`; }
+  }
+  for (const id of ['ctStatus', 'ctTag']) $(id).addEventListener('change', loadContacts);
+  $('ctAdd').addEventListener('click', async () => {
+    try {
+      const r = await (await api('/contacts', { method: 'POST', body: JSON.stringify({ text: $('ctText').value, tags: $('ctTags').value }) })).json();
+      $('ctOut').textContent = `Added ${r.added}, updated ${r.updated}.${r.invalid.length ? ` Not an email address: ${r.invalid.slice(0, 5).join(', ')}${r.invalid.length > 5 ? '...' : ''}` : ''}`;
+      if (!r.invalid.length) $('ctText').value = '';
+      loadContacts();
+    } catch (e) { $('ctOut').textContent = e.message; }
+  });
+  $('ctReplied').addEventListener('click', async () => {
+    try {
+      const r = await (await api('/contacts/import-replied', { method: 'POST' })).json();
+      $('ctOut').textContent = `Added ${r.added} leads who replied${r.updated ? `, updated ${r.updated}` : ''}.`;
+      loadContacts();
+    } catch (e) { $('ctOut').textContent = e.message; }
+  });
+  $('ctList').addEventListener('click', async e => {
+    if (!e.target.closest('[data-del]')) return;
+    const row = e.target.closest('[data-contact]');
+    if (!confirm(`Remove ${row.cells[0].textContent} from the newsletter list? They stay on the Do not email list if they unsubscribed.`)) return;
+    try { await api(`/contacts/${row.dataset.contact}`, { method: 'DELETE' }); loadContacts(); } catch (err) { $('ctOut').textContent = err.message; }
+  });
+
   let gscChances = [];
   // Search Console: last week against the week before, pages moving, and searches we nearly rank for.
   async function loadGsc() {
