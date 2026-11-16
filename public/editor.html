@@ -130,6 +130,9 @@
   .chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--field); font-size: 13px; font-weight: 600; color: var(--body); cursor: pointer; user-select: none; }
   .chip input { display: none; }
   .chip:has(input:checked) { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+  .seg-tag { display: inline-block; padding: 2px 8px; margin: 1px 0; border-radius: 999px; background: var(--red-soft); color: var(--red); font-size: 12px; font-weight: 600; white-space: nowrap; }
+  label.check { display: flex; flex-direction: row; align-items: center; gap: 8px; font-weight: 500; }
+  label.check input { width: auto; }
 
   /* Preview */
   .frame { width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: #fff; position: relative; border: 1px solid var(--line); }
@@ -524,8 +527,18 @@
     <div class="card-head"><h2>Newsletter contacts</h2><span class="muted" id="ctCounts"></span></div>
     <p class="muted">People who can get the newsletter: people you know, and people who signed up on the website and confirmed. Cold leads are never added. Anyone who unsubscribes, from a newsletter or an outreach email, goes on the Do not email list and is skipped.</p>
     <div class="row"><label>Show <select id="ctStatus"><option value="">Everyone</option><option value="subscribed">Subscribed</option><option value="pending">Waiting to confirm</option><option value="unsubscribed">Unsubscribed</option></select></label>
-      <label>Tag <select id="ctTag"><option value="">Any</option></select></label></div>
-    <div class="table"><table><thead><tr><th>Email</th><th>Name</th><th>Business</th><th>Tags</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody id="ctList"></tbody></table></div>
+      <label>Tag <select id="ctTag"><option value="">Any</option></select></label>
+      <label>Segment <select id="ctSeg"><option value="">Any</option></select></label></div>
+    <div class="table"><table><thead><tr><th>Email</th><th>Name</th><th>Business</th><th>Tags</th><th>Segments</th><th>Status</th><th>Added</th><th></th></tr></thead><tbody id="ctList"></tbody></table></div>
+  </div>
+  <div class="card">
+    <div class="card-head"><h2>Segments and topics</h2><span class="muted">Kept in Resend</span></div>
+    <p class="muted">Segments are groups you send to, such as clients. Topics are what people can choose to get or not, such as the monthly newsletter, and they show on Resend's unsubscribe page. Press Segments on a contact to change theirs.</p>
+    <div class="cols two"><div><h3>Segments</h3><div id="audSegs" class="list"></div>
+        <div class="row"><input id="audSegName" maxlength="100" placeholder="New segment, such as Clients"><button type="button" class="small" id="audSegAdd">Add segment</button></div></div>
+      <div><h3>Topics</h3><div id="audTopics" class="list"></div>
+        <div class="row"><input id="audTopicName" maxlength="50" placeholder="New topic, such as Monthly newsletter"><select id="audTopicDefault"><option value="opt_in">Everyone gets it unless they opt out</option><option value="opt_out">Only people who opt in</option></select><button type="button" class="small" id="audTopicAdd">Add topic</button></div></div></div>
+    <span id="audOut" class="muted"></span>
   </div>
   <div class="cols two">
     <div class="card">
@@ -1210,6 +1223,16 @@
   });
 
   // Newsletter contacts
+  let aud = { segments: [], topics: [], members: {} }, audError = '';
+  async function loadAudience() {
+    try { aud = await (await api('/contacts/audience')).json(); audError = ''; } catch (e) { audError = e.message; }
+    const seg = $('ctSeg').value, count = id => Object.values(aud.members).filter(m => m.includes(id)).length;
+    $('ctSeg').innerHTML = '<option value="">Any</option><option value="-">In no segment</option>' + aud.segments.map(g => `<option value="${esc(g.id)}"${g.id === seg ? ' selected' : ''}>${esc(g.name)}</option>`).join('');
+    if (seg === '-') $('ctSeg').value = '-';
+    $('audSegs').innerHTML = audError ? `<p class="bad">${esc(audError)}</p>` : aud.segments.map(g => `<div><b>${esc(g.name)}</b><span class="muted">${count(g.id)} ${count(g.id) === 1 ? 'person' : 'people'}</span></div>`).join('') || '<p class="muted">No segments yet.</p>';
+    $('audTopics').innerHTML = audError ? '' : aud.topics.map(t => `<div><b>${esc(t.name)}</b><span class="muted">${t.default_subscription === 'opt_in' ? 'Everyone unless they opt out' : 'Only people who opt in'}</span></div>`).join('') || '<p class="muted">No topics yet.</p>';
+  }
+  const segNames = email => (aud.members[email.toLowerCase()] ?? []).map(id => aud.segments.find(g => g.id === id)?.name).filter(Boolean);
   async function loadContacts() {
     $('ctForm').textContent = `<form action="${location.origin}/subscribe" method="post">\n  <input type="email" name="email" required placeholder="Your email">\n  <input type="text" name="name" placeholder="Your name">\n  <input type="text" name="website" tabindex="-1" autocomplete="off" style="display:none">\n  <button>Sign up</button>\n</form>`;
     try {
@@ -1217,13 +1240,21 @@
       const r = await (await api(`/contacts?${q}`)).json(), pick = $('ctTag').value;
       $('ctCounts').textContent = `${r.counts.subscribed} subscribed, ${r.counts.pending} waiting to confirm, ${r.counts.unsubscribed} unsubscribed`;
       $('ctTag').innerHTML = '<option value="">Any</option>' + r.tags.map(t => `<option${t === pick ? ' selected' : ''}>${esc(t)}</option>`).join('');
-      $('ctList').innerHTML = r.contacts.map(c => `<tr data-contact="${c.id}"><td>${esc(c.email)}</td><td>${esc(c.name)}</td><td>${esc(c.business)}</td><td>${esc(c.tags)}</td>
+      const seg = $('ctSeg').value, inSeg = c => seg === '-' ? !segNames(c.email).length : (aud.members[c.email.toLowerCase()] ?? []).includes(seg);
+      $('ctList').innerHTML = r.contacts.filter(c => !seg || inSeg(c)).map(c => `<tr data-contact="${c.id}"><td>${esc(c.email)}</td><td>${esc(c.name)}</td><td>${esc(c.business)}</td><td>${esc(c.tags)}</td>
+        <td>${segNames(c.email).map(n => `<span class="seg-tag">${esc(n)}</span>`).join(' ')}</td>
         <td>${c.unsubscribed ? '<span class="badge bad">Unsubscribed</span>' : c.status === 'pending' ? '<span class="badge pending">Waiting to confirm</span>' : '<span class="badge sent">Subscribed</span>'}<small>${esc({ added: 'Added by you', lead: 'Lead who replied', signup: 'Website sign up', resend: 'From Resend' }[c.source] ?? c.source)}</small></td>
-        <td>${esc(dm(`${c.created_at}Z`))}</td><td><button type="button" class="plain small" data-del>Remove</button></td></tr>`).join('')
-        || '<tr><td colspan="7" class="muted">Nobody yet. Add people you know, or add the sign up box to the website.</td></tr>';
-    } catch (e) { $('ctList').innerHTML = `<tr><td colspan="7" class="bad">${esc(e.message)}</td></tr>`; }
+        <td>${esc(dm(`${c.created_at}Z`))}</td><td><div class="row"><button type="button" class="plain small" data-seg>Segments</button><button type="button" class="plain small" data-del>Remove</button></div></td></tr>`).join('')
+        || '<tr><td colspan="8" class="muted">Nobody yet. Add people you know, or add the sign up box to the website.</td></tr>';
+    } catch (e) { $('ctList').innerHTML = `<tr><td colspan="8" class="bad">${esc(e.message)}</td></tr>`; }
   }
-  for (const id of ['ctStatus', 'ctTag']) $(id).addEventListener('change', loadContacts);
+  for (const id of ['ctStatus', 'ctTag', 'ctSeg']) $(id).addEventListener('change', loadContacts);
+  async function addAud(path, body, box) {
+    try { await api(path, { method: 'POST', body: JSON.stringify(body) }); $(box).value = ''; $('audOut').textContent = ''; await loadAudience(); loadContacts(); }
+    catch (e) { $('audOut').textContent = e.message; }
+  }
+  $('audSegAdd').addEventListener('click', () => addAud('/contacts/segments', { name: $('audSegName').value }, 'audSegName'));
+  $('audTopicAdd').addEventListener('click', () => addAud('/contacts/topics', { name: $('audTopicName').value, default_subscription: $('audTopicDefault').value }, 'audTopicName'));
   $('ctAdd').addEventListener('click', async () => {
     try {
       const r = await (await api('/contacts', { method: 'POST', body: JSON.stringify({ text: $('ctText').value, tags: $('ctTags').value }) })).json();
@@ -1245,12 +1276,37 @@
       const r = await (await api('/contacts/import-resend', { method: 'POST' })).json();
       if (!quiet || r.added) $('ctOut').textContent = `Resend has ${r.found} contacts: ${r.added} new here${r.unsubscribed ? `, ${r.unsubscribed} unsubscribed` : ''}.`;
     } catch (e) { if (!quiet || !/not set/.test(e.message)) $('ctOut').textContent = e.message; }
+    await loadAudience();
     loadContacts();
   }
   $('ctResend').addEventListener('click', () => importResend(false));
+  // Segments and topics for one contact, edited in a row under theirs and saved to Resend.
   $('ctList').addEventListener('click', async e => {
+    const row = e.target.closest('[data-contact]'), open = row?.nextElementSibling?.classList.contains('seg-edit');
+    if (e.target.closest('[data-seg]')) {
+      document.querySelectorAll('.seg-edit').forEach(r => r.remove());
+      if (open) return;
+      const edit = row.insertAdjacentElement('afterend', document.createElement('tr'));
+      edit.className = 'seg-edit'; edit.innerHTML = '<td colspan="8" class="muted">Reading Resend...</td>';
+      try {
+        const now = await (await api(`/contacts/${row.dataset.contact}/resend`)).json(), sub = id => now.topics.find(t => t.id === id)?.subscription ?? '';
+        edit.cells[0].className = '';
+        edit.cells[0].innerHTML = `${now.inResend ? '' : '<p class="muted">Not in Resend yet. Saving adds them.</p>'}<div class="cols two"><div><h3>Segments</h3>${aud.segments.map(g => `<label class="check"><input type="checkbox" value="${esc(g.id)}"${now.segments.includes(g.id) ? ' checked' : ''}> ${esc(g.name)}</label>`).join('') || '<p class="muted">No segments yet. Add one below.</p>'}</div>
+          <div><h3>Topics</h3>${aud.topics.map(t => `<label>${esc(t.name)} <select data-topic="${esc(t.id)}"><option value=""${sub(t.id) ? '' : ' selected'}>Default (${t.default_subscription === 'opt_in' ? 'gets it' : 'does not get it'})</option><option value="opt_in"${sub(t.id) === 'opt_in' ? ' selected' : ''}>Gets it</option><option value="opt_out"${sub(t.id) === 'opt_out' ? ' selected' : ''}>Does not get it</option></select></label>`).join('') || '<p class="muted">No topics yet.</p>'}</div></div>
+          <div class="row"><button type="button" class="small" data-seg-save>Save to Resend</button><span class="muted" data-seg-out></span></div>`;
+      } catch (err) { edit.cells[0].innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
+      return;
+    }
+    if (e.target.closest('[data-seg-save]')) {
+      const edit = e.target.closest('.seg-edit'), id = edit.previousElementSibling.dataset.contact, out = edit.querySelector('[data-seg-out]');
+      const body = { segments: [...edit.querySelectorAll('input[type=checkbox]:checked')].map(i => i.value),
+        topics: [...edit.querySelectorAll('[data-topic]')].filter(s => s.value).map(s => ({ id: s.dataset.topic, subscription: s.value })) };
+      out.textContent = 'Saving...';
+      try { await api(`/contacts/${id}/resend`, { method: 'PUT', body: JSON.stringify(body) }); await loadAudience(); loadContacts(); }
+      catch (err) { out.textContent = err.message; }
+      return;
+    }
     if (!e.target.closest('[data-del]')) return;
-    const row = e.target.closest('[data-contact]');
     if (!confirm(`Remove ${row.cells[0].textContent} from the newsletter list? They stay on the Do not email list if they unsubscribed.`)) return;
     try { await api(`/contacts/${row.dataset.contact}`, { method: 'DELETE' }); loadContacts(); } catch (err) { $('ctOut').textContent = err.message; }
   });

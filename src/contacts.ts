@@ -101,6 +101,68 @@ export async function importResend() {
   return out;
 }
 
+// Segments and topics live in Resend, where David manages them, so the studio reads and changes them there.
+// Resend accepts an email address wherever it wants a contact id.
+async function resend(path: string, init: { method?: string; body?: unknown } = {}) {
+  if (!RESEND_API_KEY) fail(503, 'RESEND_API_KEY is not set');
+  const res = await fetch(`${RESEND_API_URL}${path}`, { method: init.method ?? 'GET', signal: AbortSignal.timeout(30_000),
+    headers: { authorization: `Bearer ${RESEND_API_KEY}`, 'content-type': 'application/json' }, body: init.body === undefined ? undefined : JSON.stringify(init.body) });
+  const body = await res.json().catch(() => ({})) as any;
+  if (res.status === 401 || res.status === 403) fail(502, `Resend said no (${body.message ?? res.status}). The API key needs Full access, not Sending access only.`);
+  if (!res.ok) fail(res.status === 404 ? 404 : 502, `Resend: ${body.message ?? res.status}`);
+  return body;
+}
+async function all(path: string) {
+  const out: any[] = [];
+  let after = '';
+  for (let page = 0; page < 100; page++) {
+    const sep = path.includes('?') ? '&' : '?';
+    const body = await resend(`${path}${sep}${new URLSearchParams({ limit: '100', ...(after && { after }) })}`);
+    out.push(...(body.data ?? []));
+    if (!body.has_more || !body.data?.length) break;
+    after = body.data.at(-1).id;
+  }
+  return out;
+}
+
+// Every segment and topic, and who is in each segment, so the contacts table can show them.
+export async function audience() {
+  const [segments, topics] = await Promise.all([all('/segments'), all('/topics')]);
+  const members: Record<string, string[]> = {};
+  for (const s of segments) for (const c of await all(`/contacts?segment_id=${encodeURIComponent(s.id)}`)) (members[norm(c.email)] ??= []).push(s.id);
+  return { segments: segments.map(s => ({ id: s.id, name: s.name })),
+    topics: topics.map(t => ({ id: t.id, name: t.name, description: t.description ?? '', default_subscription: t.default_subscription })), members };
+}
+
+export const createSegment = async (name: string) => resend('/segments', { method: 'POST', body: { name: name.trim() } });
+export const createTopic = async (t: { name: string; description?: string; default_subscription: 'opt_in' | 'opt_out' }) =>
+  resend('/topics', { method: 'POST', body: { name: t.name.trim(), description: t.description?.trim() || undefined, default_subscription: t.default_subscription } });
+
+// One contact's segments and topic choices. Someone not in Resend yet has none.
+export async function resendOf(id: number) {
+  const key = encodeURIComponent(get(id).email);
+  try {
+    const [segs, topics] = await Promise.all([all(`/contacts/${key}/segments`), resend(`/contacts/${key}/topics`)]);
+    return { inResend: true, segments: segs.map(s => s.id as string), topics: (topics.data ?? []).map((t: any) => ({ id: t.id, subscription: t.subscription })) };
+  } catch (e: any) { if (e.statusCode === 404) return { inResend: false, segments: [], topics: [] }; throw e; }
+}
+
+// Puts a contact in exactly these segments and sets these topic choices, adding them to Resend first if needed.
+// Only subscribed people who have not unsubscribed can be added, so nobody unconfirmed ends up on a Resend list.
+export async function setResend(id: number, want: { segments: string[]; topics: { id: string; subscription: 'opt_in' | 'opt_out' }[] }) {
+  const c = get(id) as Contact & { unsubscribed?: number };
+  const now = await resendOf(id), key = encodeURIComponent(c.email);
+  if (!now.inResend) {
+    if (c.status !== 'subscribed' || db.prepare('SELECT 1 FROM suppression WHERE email = ?').get(norm(c.email))) fail(409, 'Only subscribed contacts can be added to Resend');
+    const [first_name, ...rest] = c.name.split(' ');
+    await resend('/contacts', { method: 'POST', body: { email: c.email, first_name: first_name || undefined, last_name: rest.join(' ') || undefined, unsubscribed: false } });
+  }
+  for (const s of want.segments.filter(s => !now.segments.includes(s))) await resend(`/contacts/${key}/segments/${encodeURIComponent(s)}`, { method: 'POST' });
+  for (const s of now.segments.filter(s => !want.segments.includes(s))) await resend(`/contacts/${key}/segments/${encodeURIComponent(s)}`, { method: 'DELETE' });
+  if (want.topics.length) await resend(`/contacts/${key}/topics`, { method: 'PATCH', body: { topics: want.topics } });
+  return resendOf(id);
+}
+
 export function update(id: number, body: { name?: string; business?: string; tags?: string }) {
   get(id);
   db.prepare('UPDATE contacts SET name = coalesce(?, name), business = coalesce(?, business), tags = coalesce(?, tags) WHERE id = ?')
