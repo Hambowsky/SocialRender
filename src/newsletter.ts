@@ -111,9 +111,11 @@ export async function test(id: number) {
 
 // Sends an approved email to its Resend segment, skipping anyone who opted out of its topic. Anyone on the studio's
 // Do not email list is marked unsubscribed in Resend first. Status goes to sending before Resend is asked, so a
-// retry after a crash stops instead of sending twice.
-export async function send(id: number) {
-  const n = get(id);
+// retry after a crash stops instead of sending twice. With a time, Resend holds it until then (it shows as sent with
+// sent_at in the future, and can be cancelled until that time).
+export async function send(id: number, at?: string) {
+  const n = get(id), when = at ? new Date(at) : null;
+  if (when && !(when.getTime() > Date.now() + 60_000)) fail(400, 'Pick a send time in the future, or leave it empty to send now');
   if (n.status !== 'approved') fail(409, n.status === 'sending' ? 'This was already handed to Resend. Check Broadcasts in Resend before trying again.' : 'Approve it before sending');
   if (!n.segment_id) fail(400, 'Pick a segment to send it to');
   const aud = await audience();
@@ -124,11 +126,20 @@ export async function send(id: number) {
   if (!Number(db.prepare(`UPDATE newsletters SET status = 'sending', updated_at = datetime('now') WHERE id = ? AND status = 'approved'`).run(id).changes)) fail(409, 'This is already being sent');
   try {
     const b = await resend('/broadcasts', { method: 'POST', body: { segment_id: n.segment_id, topic_id: n.topic_id || undefined, from: NEWS_FROM, subject: n.subject,
-      html: html(n, '', RESEND_UNSUB), text: text(n, '', RESEND_UNSUB), name: `${n.kind === 'oneoff' ? 'Email' : 'Newsletter'} ${n.id}: ${n.subject}`, send: true } });
-    db.prepare(`UPDATE newsletters SET status = 'sent', broadcast_id = ?, sent_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`).run(b.id ?? '', id);
+      html: html(n, '', RESEND_UNSUB), text: text(n, '', RESEND_UNSUB), name: `${n.kind === 'oneoff' ? 'Email' : 'Newsletter'} ${n.id}: ${n.subject}`, send: true, scheduled_at: when?.toISOString() } });
+    db.prepare(`UPDATE newsletters SET status = 'sent', broadcast_id = ?, sent_at = datetime(coalesce(?, 'now')), updated_at = datetime('now') WHERE id = ?`).run(b.id ?? '', when?.toISOString() ?? null, id);
   } catch (e: any) {
     if (e.resendStatus >= 400 && e.resendStatus < 500) db.prepare(`UPDATE newsletters SET status = 'approved' WHERE id = ?`).run(id); // Resend refused it, so nothing went out
     throw e;
   }
+  return get(id);
+}
+
+// Stops a scheduled send that has not gone out yet, and puts it back to approved.
+export async function cancel(id: number) {
+  const n = get(id);
+  if (n.status !== 'sent' || !n.broadcast_id || !n.sent_at || Date.parse(`${n.sent_at}Z`) <= Date.now()) fail(409, 'Only a scheduled send that has not gone out yet can be cancelled');
+  await resend(`/broadcasts/${n.broadcast_id}/cancel`, { method: 'POST' });
+  db.prepare(`UPDATE newsletters SET status = 'approved', broadcast_id = NULL, sent_at = NULL, updated_at = datetime('now') WHERE id = ?`).run(id);
   return get(id);
 }

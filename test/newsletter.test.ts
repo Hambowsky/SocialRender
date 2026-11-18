@@ -17,7 +17,7 @@ process.env.PUBLIC_URL = 'https://studio.example';
 process.env.SMTP_FROM = 'David Hanmer <david@redcherryit.com>';
 
 let prompt = '';
-const sent: any[] = [], broadcasts: any[] = [], patched: string[] = [];
+const sent: any[] = [], broadcasts: any[] = [], patched: string[] = [], cancelled: string[] = [];
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => body += c);
@@ -29,6 +29,7 @@ const fake = http.createServer((req, res) => {
     if (req.url?.startsWith('/topics')) return list([{ id: 'top_news', name: 'Monthly newsletter', default_subscription: 'opt_in' }]);
     if (req.url?.startsWith('/contacts?')) return list(req.url.includes('seg_all') ? [{ id: 'a', email: 'ok@x.example' }, { id: 'b', email: 'gone@x.example' }] : []);
     if (req.method === 'PATCH') { patched.push(decodeURIComponent(req.url!)); return json({}); }
+    if (req.url?.endsWith('/cancel')) { cancelled.push(req.url); return json({}); }
     if (req.url === '/broadcasts') { broadcasts.push(JSON.parse(body)); return json({ id: 'bc_1' }); }
     prompt = body;
     sendStream(res, { id: 'm', type: 'message', role: 'assistant', model: 'claude-sonnet-5-5', stop_reason: 'end_turn', stop_sequence: null,
@@ -144,4 +145,16 @@ test('Resend webhooks are checked, counted once, and bounces and complaints go o
   assert.deepEqual(db.prepare(`SELECT email, reason FROM suppression WHERE email IN ('b@x.example', 'c@x.example', 'u@x.example') ORDER BY email`).all().map((r: any) => [r.email, r.reason]),
     [['b@x.example', 'bounced'], ['c@x.example', 'complained'], ['u@x.example', 'unsubscribed']]);
   assert.equal((await call('GET', '/dashboard/marketing')).json().emails[0].stats.opened, 1);
+});
+
+test('an approved email can be scheduled for later, and cancelled until then', async () => {
+  await call('POST', '/newsletters/2/approve');
+  assert.equal((await call('POST', '/newsletters/2/send', { at: '2020-01-01T09:00:00Z' })).statusCode, 400, 'not in the past');
+  const at = new Date(Date.now() + 3 * 86_400_000).toISOString();
+  const n = (await call('POST', '/newsletters/2/send', { at })).json();
+  assert.equal(broadcasts.at(-1).scheduled_at, at);
+  assert.equal(`${n.sent_at.replace(' ', 'T')}Z`, at.replace(/\.\d+Z$/, 'Z'), 'sent_at is the scheduled time');
+  const back = (await call('POST', '/newsletters/2/cancel')).json();
+  assert.deepEqual([back.status, back.sent_at, cancelled], ['approved', null, ['/broadcasts/bc_1/cancel']]);
+  assert.equal((await call('POST', '/newsletters/1/cancel')).statusCode, 409, 'one already sent cannot be cancelled');
 });
