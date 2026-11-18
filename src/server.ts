@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyReply } from 'fastify';
 import { API_KEY, CLAUDE_MONTHLY_CAP_GBP, fail, IMAP_HOST, OUTREACH_DAILY_CAP, OUTREACH_FOLLOW_UP_DAYS, HOST, MAX_FIELD_CHARS, PORT, RENDERS_PER_MIN, ROOT } from './config.ts';
 import { db } from './db.ts';
-import { closeBrowser, publicFile, render, renderPath, renderVideo } from './render.ts';
+import { closeBrowser, pdf, publicFile, render, renderPath, renderVideo } from './render.ts';
 import { current, fieldsOf, fill, list, rollback, sampleOf, save, seed, sizesOf, versions } from './templates.ts';
 import { NAME_PATTERN } from './versions.ts';
 import * as prompts from './copy.ts';
@@ -28,6 +28,7 @@ import * as links from './links.ts';
 import * as contacts from './contacts.ts';
 import * as newsletter from './newsletter.ts';
 import * as tracking from './tracking.ts';
+import * as magnets from './magnets.ts';
 import { planWeek, savedPlan, type PlanInput } from './plan.ts';
 
 type Fields = Record<string, string>;
@@ -58,9 +59,9 @@ export function buildApp() {
   // Everything else needs the key.
   app.addHook('onRequest', async (req, reply) => {
     const p = req.url.split('?')[0];
-    if (p === '/health' || p === '/' || p === '/unsubscribe' || p === '/subscribe' || p === '/subscribe/confirm' || p === '/resend/webhook' || publicFile(p) || p.startsWith('/public/renders/')) return;
+    if (p === '/health' || p === '/' || p === '/unsubscribe' || p === '/subscribe' || p === '/subscribe/confirm' || p === '/resend/webhook' || p.startsWith('/free-guides/') || publicFile(p) || p.startsWith('/public/renders/')) return;
     if (!keyMatches(req.headers['x-api-key'])) return reply.code(401).send({ error: 'Missing or wrong API key' });
-    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p === '/newsletters' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') || p.endsWith('/email') ? 'claude' : 'other';
+    const group = p === '/render' || p === '/render/video' ? 'render' : p === '/copy' || p === '/templates/design' || p === '/templates/tweak' || p === '/articles' && req.method === 'POST' || p === '/newsletters' && req.method === 'POST' || p === '/guides' && req.method === 'POST' || p.endsWith('/social') || p.endsWith('/test') || p.endsWith('/research') || p.endsWith('/sources') || p.endsWith('/analyse') || p.endsWith('/email') ? 'claude' : 'other';
     if (!allow(group, { render: RENDERS_PER_MIN, claude: 20, other: 600 }[group]))
       return reply.code(429).header('retry-after', '60').send({ error: 'Rate limit reached. Try again in a minute.' });
   });
@@ -289,7 +290,7 @@ export function buildApp() {
   const campaignBody = { type: 'object', additionalProperties: false, required: ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], properties: {
     name: { type: 'string', minLength: 1, maxLength: 120 }, industries: { type: 'string', minLength: 1, maxLength: 1000 }, towns: { type: 'string', minLength: 1, maxLength: 1000 },
     lead_type: { enum: leads.LEAD_TYPES }, max_leads: { type: 'integer', minimum: 1, maximum: 100 },
-    sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } } } };
+    sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } }, guide_id: { type: ['integer', 'null'], minimum: 1 } } };
   app.get('/campaigns', async () => leads.campaigns());
   app.get('/campaigns/usage', async () => leads.usage());
   app.get<{ Querystring: { q: string } }>('/campaigns/towns', { schema: { querystring: { type: 'object', required: ['q'], properties: { q: { type: 'string', maxLength: 60 } } } } },
@@ -383,7 +384,7 @@ export function buildApp() {
     const b = signupBody(req.body), json = !(typeof req.body === 'string');
     try {
       const name = String(b.name ?? '').trim() || [b.first_name, b.last_name].map(v => String(v ?? '').trim()).filter(Boolean).join(' ');
-      if (!b.hp) await contacts.signup({ email: String(b.email ?? '').slice(0, 200), name, from: String(b.from ?? '') }, String(req.headers['x-forwarded-for'] ?? req.ip).split(',')[0].trim()); // behind Coolify's proxy // hp = a hidden field only bots fill in. Not called "website": phone autofill fills that and the sign up was silently dropped
+      if (!b.hp) await contacts.signup({ email: String(b.email ?? '').slice(0, 200), name, from: String(b.from ?? ''), guide: String(b.guide ?? '').slice(0, 100) || undefined }, String(req.headers['x-forwarded-for'] ?? req.ip).split(',')[0].trim()); // behind Coolify's proxy // hp = a hidden field only bots fill in. Not called "website": phone autofill fills that and the sign up was silently dropped
       return json ? { ok: true } : page(reply, 'Thanks. Check your inbox for an email from us and press the button in it to confirm.', back);
     } catch (e: any) {
       if (json) throw e;
@@ -397,8 +398,17 @@ export function buildApp() {
     : page(reply, `Confirm the Red Cherry IT newsletter for ${esc(req.query.e)}?`,
       `<form method="post"><button style="font:inherit;padding:10px 18px;border:0;border-radius:8px;background:#b5333f;color:#fff;cursor:pointer">Yes, sign me up</button></form>`));
   app.post<{ Querystring: { e: string; t: string } }>('/subscribe/confirm', { schema: confirmQs }, async (req, reply) => {
-    try { await contacts.confirm(req.query.e, req.query.t); } catch (e: any) { return page(reply.code(e.statusCode ?? 500), esc(e.message), back); }
-    return page(reply, `You are on the list. Expect practical website and marketing tips from us once a month, and unsubscribe any time from the link in each email.`, back);
+    let done;
+    try { done = await contacts.confirm(req.query.e, req.query.t); } catch (e: any) { return page(reply.code(e.statusCode ?? 500), esc(e.message), back); }
+    const guides = done.guides.map(g => `<p><a href="${esc(g.url)}" style="display:inline-block;padding:10px 18px;background:#b5333f;color:#fff;border-radius:8px;text-decoration:none">Download ${esc(g.title)}</a></p>`).join('');
+    return page(reply, `You are on the list.${guides ? ' Your guide is below, and we have emailed you a copy.' : ''} Expect practical website and marketing tips from us once a month, and unsubscribe any time from the link in each email.`, guides + back);
+  });
+
+  // A free guide's PDF, for whoever has the link (it is in the email sent once they confirm).
+  app.get<{ Params: { file: string } }>('/free-guides/:file', async (req, reply) => {
+    const g = magnets.live(req.params.file.replace(/\.pdf$/, ''));
+    if (!g || !req.params.file.endsWith('.pdf') || !fs.existsSync(magnets.pdfFile(g.slug))) return reply.code(404).type('text/plain').send('Not found');
+    return reply.type('application/pdf').header('content-disposition', `inline; filename="${g.slug}.pdf"`).send(fs.createReadStream(magnets.pdfFile(g.slug)));
   });
 
   // Newsletter contacts, managed on the Email page.
@@ -437,6 +447,25 @@ export function buildApp() {
   async req => contacts.setResend(req.params.id, req.body));
 
   // The monthly newsletter and one off emails: drafted by Claude, edited and approved here. Only /send emails contacts.
+  // Free guides (lead magnets), on the Sales side.
+  const guideText = (max: number) => ({ type: 'string', maxLength: max });
+  app.get('/guides', async () => magnets.list());
+  app.post<{ Body: { topic: string; audience?: string } }>('/guides', { schema: { body: { type: 'object', required: ['topic'], additionalProperties: false, properties: {
+    topic: { type: 'string', minLength: 3, maxLength: 500 }, audience: guideText(300) } } } }, async (req, reply) => background(reply, () => magnets.draft(req.body)));
+  app.get<{ Params: { id: number } }>('/guides/:id', { schema: { params: id } }, async req => magnets.get(req.params.id));
+  app.put<{ Params: { id: number }; Body: Record<string, string> }>('/guides/:id', { schema: { params: id, body: { type: 'object', additionalProperties: false, properties: {
+    title: guideText(150), summary: guideText(400), body: guideText(60_000), sources: guideText(30_000), headline: guideText(150), pitch: guideText(1000), bullets: guideText(2000), slug: guideText(80) } } } },
+    async req => magnets.update(req.params.id, req.body));
+  app.get<{ Params: { id: number } }>('/guides/:id/pdf', { schema: { params: id } }, async (req, reply) => {
+    const g = magnets.get(req.params.id);
+    return reply.type('application/pdf').header('content-disposition', `inline; filename="${g.slug}.pdf"`).send(await pdf(magnets.guideHtml(g)));
+  });
+  app.get<{ Params: { id: number } }>('/guides/:id/page', { schema: { params: id } }, async (req, reply) =>
+    reply.type('text/html; charset=utf-8').send(magnets.landing(magnets.get(req.params.id)).replace('<head>', `<head><base href="${esc(magnets.pageUrl({ slug: '' }))}">`))); // so the site's styles load in the preview
+  app.post<{ Params: { id: number } }>('/guides/:id/publish', { schema: { params: id } }, async req => magnets.publish(req.params.id));
+  for (const act of ['approve', 'reject', 'reopen'] as const)
+    app.post<{ Params: { id: number } }>(`/guides/:id/${act}`, { schema: { params: id } }, async req => magnets.move(req.params.id, act));
+
   app.get('/newsletters', async () => newsletter.list());
   app.post<{ Body: { focus?: string; kind?: 'monthly' | 'oneoff' } }>('/newsletters', { schema: { body: { type: 'object', additionalProperties: false, properties: {
     focus: { type: 'string', maxLength: 2000 }, kind: { enum: ['monthly', 'oneoff'] } } } } },

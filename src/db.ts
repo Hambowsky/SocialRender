@@ -279,6 +279,27 @@ const migrations = [
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    );
    CREATE INDEX email_events_broadcast ON email_events (broadcast_id, type)`,
+
+  `CREATE TABLE magnets (              -- free guides given away for an email address, each with a landing page on the site
+     id INTEGER PRIMARY KEY,
+     slug TEXT NOT NULL UNIQUE,        -- the landing page is /guides/free/<slug>, the PDF /free-guides/<slug>.pdf
+     topic TEXT NOT NULL,
+     audience TEXT NOT NULL DEFAULT '',
+     title TEXT NOT NULL,
+     summary TEXT NOT NULL,
+     body TEXT NOT NULL,               -- Markdown
+     sources TEXT NOT NULL,
+     headline TEXT NOT NULL,           -- landing page headline
+     pitch TEXT NOT NULL,              -- landing page: why it is worth reading
+     bullets TEXT NOT NULL,            -- landing page: what is inside, one per line
+     status TEXT NOT NULL DEFAULT 'draft', -- draft, approved, rejected or published
+     cost_gbp REAL NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+     published_at TEXT
+   );
+   -- the free guide a campaign's outreach emails offer
+   ALTER TABLE campaigns ADD COLUMN guide_id INTEGER`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

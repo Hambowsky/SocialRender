@@ -1,0 +1,147 @@
+<!-- Landing page shell for free guides, from site/article.html. {{slots}} are filled in by src/magnets.ts. Update this if the site layout changes. -->
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<!-- Google tag (gtag.js) -->
+<script>
+window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('consent', 'default', {
+  'analytics_storage': (function () {
+    try { return localStorage.getItem('rc_cookie_consent') === 'accepted' ? 'granted' : 'denied'; }
+    catch (e) { return 'denied'; }
+  })()
+});
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-2G5VH9HZ2E"></script>
+<script>
+gtag('js', new Date());
+gtag('config', 'G-2G5VH9HZ2E');
+</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} | Free Guide | Red Cherry IT</title>
+<meta name="description" content="{{description}}">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="{{url}}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Red Cherry IT">
+<meta property="og:title" content="{{title}}">
+<meta property="og:description" content="{{description}}">
+<meta property="og:url" content="{{url}}">
+<meta property="og:image" content="https://redcherryit.com/images/og-image.png">
+<link rel="icon" href="../../favicon.ico" sizes="any"><link rel="icon" href="../../images/favicon.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="../../css/style.css?v=20261116b">
+<style>
+.guide-hero { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 48px; align-items: start; }
+.guide-lead { font-size: 1.15rem; color: var(--muted); margin: 0 0 24px; }
+.guide-inside { font-size: 1.15rem; margin: 0 0 12px; }
+.guide-points { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.guide-points li { position: relative; padding-left: 30px; }
+.guide-points li::before { content: ""; position: absolute; left: 0; top: 4px; width: 18px; height: 18px; border-radius: 50%; background: var(--cherry); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 14.2-4-4 1.4-1.4 2.6 2.6 5.6-5.6 1.4 1.4z'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.2 14.2-4-4 1.4-1.4 2.6 2.6 5.6-5.6 1.4 1.4z'/%3E%3C/svg%3E") center / contain no-repeat; }
+.guide-signup { display: grid; gap: 12px; padding: 28px; background: #fff; border-radius: var(--radius); box-shadow: var(--e3); border-top: 4px solid var(--cherry); }
+.guide-cover { display: grid; gap: 10px; padding: 26px 22px; margin-bottom: 6px; border-radius: 10px; background: var(--navy); color: #fff; }
+.guide-cover span { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #f0b9be; }
+.guide-cover strong { font-size: 1.25rem; line-height: 1.25; }
+.guide-cover em { font-style: normal; font-size: 0.85rem; opacity: 0.75; }
+.guide-names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.guide-signup label { display: grid; gap: 4px; font-size: 0.85rem; font-weight: 600; }
+.guide-signup input[type="text"], .guide-signup input[type="email"] { width: 100%; min-width: 0; padding: 11px 12px; border: 1px solid var(--border); border-radius: 8px; font: inherit; font-size: 16px; }
+.guide-signup input:focus { outline: 2px solid var(--cherry); outline-offset: 1px; }
+.guide-signup .btn { width: 100%; justify-content: center; }
+.guide-signup .hp { position: absolute; left: -9999px; width: 1px; height: 1px; }
+.guide-note { font-size: 0.8rem; color: var(--muted); margin: 0; }
+@media (max-width: 860px) { .guide-hero { grid-template-columns: 1fr; gap: 28px; } }
+@media (max-width: 380px) { .guide-names { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="brand" href="/"><img src="../../images/logo.png" alt="Red Cherry IT logo" width="223" height="42"></a>
+    <nav class="main-nav" aria-label="Primary">
+      <button class="nav-toggle" aria-label="Toggle menu" aria-expanded="false"><span></span></button>
+      <ul class="nav-links">
+        <li><a href="/">Home</a></li><li><a href="../../about">About</a></li>
+        <li class="has-dropdown"><a href="../../services" class="dropdown-toggle">Services<svg class="caret" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></a><ul class="nav-dropdown"><li><a href="../../pricing">Web Design</a></li><li><a href="../../seo">SEO</a></li><li><a href="../../website-care-plans">Website Care Plans</a></li><li><a href="../../conversion-rate-optimisation">Conversion Rate Optimisation</a></li></ul></li>
+        <li><a href="../../pricing">Pricing</a></li>
+        <li><a href="../../how-it-works">How It Works</a></li>
+        <li><a href="../../testimonials">Testimonials</a></li><li><a href="../../faq">FAQs</a></li>
+        </ul>
+    </nav>
+    <a class="btn btn-primary" href="../../contact">Build My Website</a>
+  </div>
+</header>
+
+<main id="main">
+  <div class="container">
+    <nav class="breadcrumb" aria-label="Breadcrumb">
+      <ol>
+        <li><a href="/">Home</a></li>
+        <li><a href="..">Guides</a></li>
+        <li aria-current="page">{{title}}</li>
+      </ol>
+    </nav>
+  </div>
+
+  <section class="section">
+    <div class="container guide-hero">
+      <div>
+        <span class="eyebrow">Free guide</span>
+        <h1>{{headline}}</h1>
+        <p class="guide-lead">{{pitch}}</p>
+        <h2 class="guide-inside">What is inside</h2>
+        <ul class="guide-points">
+            {{bullets}}
+        </ul>
+      </div>
+      <form class="guide-signup" action="{{subscribe}}" method="post">
+        <div class="guide-cover"><span>Free guide</span><strong>{{title}}</strong><em>Red Cherry IT</em></div>
+        <div class="guide-names">
+          <label>First name <input type="text" name="first_name" required autocomplete="given-name"></label>
+          <label>Last name <input type="text" name="last_name" autocomplete="family-name"></label>
+        </div>
+        <label>Email <input type="email" name="email" required autocomplete="email"></label>
+        <input class="hp" type="text" name="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+        <input type="hidden" name="from" value="guide"><input type="hidden" name="guide" value="{{slug}}">
+        <button type="submit" class="btn btn-primary">Send me the guide</button>
+        <p class="guide-note">We will email you a link to confirm, then send the guide straight away. You will also get our monthly website and marketing tips, and you can unsubscribe any time. See our <a href="../../privacy-policy#newsletter">privacy policy</a>.</p>
+      </form>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <img src="../../images/logo.png" alt="Red Cherry IT logo" width="212" height="40">
+        <p>Affordable, professional websites for businesses across the UK, proudly rooted in the North East.</p>
+        <form class="footer-signup" action="https://studio.redcherryit.com/subscribe" method="post">
+          <label for="signup-email">Monthly website and marketing tips</label>
+          <div><input id="signup-email" type="email" name="email" required placeholder="Your email" autocomplete="email"><button type="submit">Sign up</button></div>
+          <input class="hp" type="text" name="hp" tabindex="-1" autocomplete="off" aria-hidden="true"><input type="hidden" name="from" value="footer">
+        </form>
+        <div class="social-row">
+          <a href="https://www.facebook.com/redcherryit1" aria-label="Red Cherry IT on Facebook" rel="me noopener">f</a>
+          <a href="https://www.linkedin.com/company/redcherryit" aria-label="Red Cherry IT on LinkedIn" rel="me noopener">in</a>
+          <a href="https://uk.trustpilot.com/review/redcherryit.com" aria-label="Red Cherry IT on Trustpilot" rel="me noopener">tp</a>
+        </div>
+      </div>
+      <div><h3>Company</h3><ul class="footer-links"><li><a href="../../about">About</a></li><li><a href="../../contact">Contact</a></li><li><a href="../../how-it-works">How It Works</a></li><li><a href="../../pricing">Pricing</a></li><li><a href="../../testimonials">Testimonials</a></li><li><a href="../../seo">SEO</a></li><li><a href="../../website-care-plans">Website Care Plans</a></li><li><a href="../../conversion-rate-optimisation">Conversion Rate Optimisation</a></li></ul></div>
+      <div><h3>Locations</h3><ul class="footer-links"><li><a href="../../locations">North East England</a></li><li><a href="../../locations/cumbria">North West England</a></li><li><a href="../../locations/scotland">Scotland</a></li><li><a href="../../locations/east-midlands">East Midlands</a></li><li><a href="../../locations/west-midlands">West Midlands</a></li></ul></div>
+      <div><h3>Resources</h3><ul class="footer-links"><li><a href="../../industries">All Industries</a></li><li><a href="../../locations">All Locations</a></li><li><a href="../../case-studies">Case Studies</a></li><li><a href="../../faq">FAQs</a></li><li><a href="../../guides">Guides</a></li></ul></div>
+    </div>
+    <div class="footer-bottom">
+      <span>Copyright &copy; 2026 Red Cherry IT</span>
+      <span><a href="../../privacy-policy">Privacy Policy</a> &middot; <a href="../../terms-conditions">Terms &amp; Conditions</a> &middot; <a href="../../cookie-policy">Cookie Policy</a> &middot; <a href="#" id="manage-cookies">Cookie Settings</a></span>
+    </div>
+  </div>
+</footer>
+<script src="../../js/main.js?v=20261118a"></script>
+</body>
+</html>

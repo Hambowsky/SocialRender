@@ -142,8 +142,7 @@ function checkCategory(category: string) {
 }
 
 // Plain rule checks, no AI. Errors stop approval; warnings are for David to look at.
-export function checks(a: Pick<Article, 'body' | 'sources' | 'category'>) {
-  const rules = parsePrompt(currentPrompt(promptFor(a.category)).body).settings;
+export function checks(a: Pick<Article, 'body' | 'sources' | 'category'>, rules = parsePrompt(currentPrompt(promptFor(a.category)).body).settings) {
   const errors: string[] = [], warnings: string[] = [];
   const words = a.body.replace(/[#*_>\[\]()]/g, ' ').split(/\s+/).filter(Boolean).length;
   const min = Number(rules.min_words || 0), max = Number(rules.max_words || Infinity);
@@ -264,7 +263,7 @@ export async function siteGuides() {
   const seen = new Set<string>();
   return [...listed, ...own].filter(g => !seen.has(g.category + g.slug) && seen.add(g.category + g.slug));
 }
-async function siteLinks() {
+export async function siteLinks() {
   const pages = [...SERVICES.map(([, slug, , title]) => [title, slug]), ['See More Of Our Client Success Stories', 'case-studies']].map(([title, slug]) => `${title}: ${SITE_URL}/${slug}`);
   return [...(await siteGuides()).map(g => `${unesc(g.title)}: ${SITE_URL}${g.category}${g.slug}`), ...pages].join('\n');
 }
