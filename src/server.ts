@@ -450,7 +450,9 @@ export function buildApp() {
   app.get<{ Params: { id: number } }>('/newsletters/:id/preview', { schema: { params: id } }, async (req, reply) =>
     reply.type('text/html; charset=utf-8').send(newsletter.html(newsletter.get(req.params.id), 'preview@example.com')));
   app.post<{ Params: { id: number } }>('/newsletters/:id/test', { schema: { params: id } }, async req => newsletter.test(req.params.id));
-  app.post<{ Params: { id: number } }>('/newsletters/:id/send', { schema: { params: id } }, async req => newsletter.send(req.params.id));
+  app.post<{ Params: { id: number }; Body: { at?: string } }>('/newsletters/:id/send', { schema: { params: id, body: { type: ['object', 'null'], additionalProperties: false, properties: { at: { type: 'string', maxLength: 40 } } } } },
+    async req => newsletter.send(req.params.id, req.body?.at || undefined));
+  app.post<{ Params: { id: number } }>('/newsletters/:id/cancel', { schema: { params: id } }, async req => newsletter.cancel(req.params.id));
   for (const act of ['approve', 'reject', 'reopen'] as const)
     app.post<{ Params: { id: number } }>(`/newsletters/:id/${act}`, { schema: { params: id } }, async req => newsletter.move(req.params.id, act));
 

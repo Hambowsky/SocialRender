@@ -1212,15 +1212,18 @@
     const n = nlCur = await (await api(`/newsletters/${id}`)).json(), draft = n.status === 'draft';
     nlPickers();
     const st = n.stats, pc = (x, of) => of ? ` (${Math.round(x / of * 100)}%)` : '';
-    $('nlPick').textContent = n.status === 'sent' ? `Sent ${dm(`${n.sent_at}Z`)}. ${st && st.delivered ? `Delivered to ${st.delivered}, opened by ${st.opened}${pc(st.opened, st.delivered)}, clicked by ${st.clicked}${pc(st.clicked, st.delivered)}${st.bounced ? `, ${st.bounced} bounced` : ''}${st.complained ? `, ${st.complained} marked it as spam` : ''}.${st.links.length ? ` Most clicked: ${st.links.map(l => `${l.link.replace(/^https?:\/\/(www\.)?/, '')} (${l.n})`).join(', ')}.` : ''}` : 'Opens and clicks show here as Resend reports them.'}`
+    const later = n.status === 'sent' && new Date(`${n.sent_at}Z`) > new Date(); // scheduled: Resend is holding it until then
+    $('nlPick').textContent = later ? `Scheduled for ${new Date(`${n.sent_at}Z`).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}. You can cancel it until then.`
+      : n.status === 'sent' ? `Sent ${dm(`${n.sent_at}Z`)}. ${st && st.delivered ? `Delivered to ${st.delivered}, opened by ${st.opened}${pc(st.opened, st.delivered)}, clicked by ${st.clicked}${pc(st.clicked, st.delivered)}${st.bounced ? `, ${st.bounced} bounced` : ''}${st.complained ? `, ${st.complained} marked it as spam` : ''}.${st.links.length ? ` Most clicked: ${st.links.map(l => `${l.link.replace(/^https?:\/\/(www\.)?/, '')} (${l.n})`).join(', ')}.` : ''}` : 'Opens and clicks show here as Resend reports them.'}`
       : n.pick_note ? `Claude: ${n.pick_note}` : '';
     $('nlSubject').value = n.subject; $('nlPre').value = n.preheader; $('nlBody').value = n.body;
     for (const k of ['nlSubject', 'nlPre', 'nlBody']) $(k).readOnly = !draft;
-    const [cls, label] = NL_STATUS[n.status] ?? ['', n.status];
+    const [cls, label] = later ? ['pending', 'Scheduled'] : NL_STATUS[n.status] ?? ['', n.status];
     $('nlStatus').innerHTML = `<span class="badge ${cls}">${esc(label)}</span> <span class="muted">${n.body.split(/\s+/).filter(Boolean).length} words${n.cost_gbp ? `, drafted for ${money(n.cost_gbp)}` : ''}</span>`;
     const b = (act, text, cls = 'plain') => `<button type="button" class="${cls} small" data-nl="${act}">${text}</button>`;
     $('nlButtons').innerHTML = draft ? b('save', 'Save') + b('test', 'Send me a test') + b('approve', 'Approve', '') + b('reject', 'Reject')
-      : n.status === 'approved' ? b('send', 'Send to the segment', '') + b('test', 'Send me a test') + b('reopen', 'Back to draft')
+      : n.status === 'approved' ? `<label class="small">Send on (leave empty to send now) <input type="datetime-local" id="nlAt"></label>` + b('send', 'Send to the segment', '') + b('test', 'Send me a test') + b('reopen', 'Back to draft')
+      : later ? b('cancel', 'Cancel the send', 'plain')
       : n.status === 'sending' ? b('reject', 'Mark as not sent') : n.status === 'rejected' ? b('reopen', 'Back to draft') : '';
     $('nlPreview').srcdoc = await (await api(`/newsletters/${id}/preview`)).text();
   }
@@ -1245,13 +1248,18 @@
         await api(`/newsletters/${id}`, { method: 'PUT', body: JSON.stringify({ subject: $('nlSubject').value, preheader: $('nlPre').value, body: $('nlBody').value, segment_id: $('nlSeg').value, topic_id: $('nlTopic').value }) });
       if (act === 'send') {
         const seg = $('nlSeg').selectedOptions[0]?.textContent, topic = $('nlTopic').value ? `, except anyone who opted out of ${$('nlTopic').selectedOptions[0].textContent}` : '';
-        if (!confirm(`Send "${$('nlSubject').value}" to everyone in ${seg}${topic}? This cannot be undone.`)) return;
+        const at = $('nlAt').value ? new Date($('nlAt').value) : null; // the browser's local time, so UK time for David
+        if (!confirm(`Send "${$('nlSubject').value}" to everyone in ${seg}${topic} ${at ? `on ${at.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}` : 'now'}?${at ? ' You can cancel it until then.' : ' This cannot be undone.'}`)) return;
+        await api(`/newsletters/${id}/send`, { method: 'POST', body: JSON.stringify({ at: at?.toISOString() }) });
+        $('nlOut').textContent = at ? 'Scheduled. Resend will send it at that time.' : 'Sent. Resend is delivering it now; Broadcasts in Resend shows opens and clicks.';
+        return loadNewsletters(id);
       }
+      if (act === 'cancel' && !confirm('Cancel this scheduled send? It goes back to approved.')) return;
       if (act === 'test') { const r = await (await api(`/newsletters/${id}/test`, { method: 'POST' })).json(); $('nlOut').textContent = `Test sent to ${r.sent_to}.`; }
       else if (act !== 'save') await api(`/newsletters/${id}/${act}`, { method: 'POST' });
       if (act === 'save') $('nlOut').textContent = 'Saved.';
       if (act === 'approve') $('nlOut').textContent = 'Approved. Press Send to the segment when you are ready.';
-      if (act === 'send') $('nlOut').textContent = 'Sent. Resend is delivering it now; Broadcasts in Resend shows opens and clicks.';
+      if (act === 'cancel') $('nlOut').textContent = 'Cancelled. Nothing was sent.';
       await loadNewsletters(id);
     } catch (err) { $('nlOut').textContent = err.message; }
   });

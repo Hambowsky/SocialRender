@@ -32,7 +32,7 @@ function series(table: string, column: string, where: string, days: number, step
 }
 
 // The last six emails sent, newest first, with what Resend reported for each.
-const emailHistory = () => (db.prepare(`SELECT id, subject, sent_at, broadcast_id FROM newsletters WHERE status = 'sent' ORDER BY sent_at DESC LIMIT 6`).all() as
+const emailHistory = () => (db.prepare(`SELECT id, subject, sent_at, broadcast_id FROM newsletters WHERE status = 'sent' AND sent_at <= datetime('now') ORDER BY sent_at DESC LIMIT 6`).all() as
   { id: number; subject: string; sent_at: string; broadcast_id: string }[]).map(e => ({ id: e.id, subject: e.subject, sent_at: e.sent_at, stats: stats(e.broadcast_id) }));
 
 export function marketing() {
