@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { db } from './db.ts';
 import { API_KEY, fail, NEWS_FROM, PUBLIC_URL, RESEND_API_KEY, RESEND_API_URL, SIGNUP_DAILY_CAP } from './config.ts';
 import { esc } from './markdown.ts';
+import * as magnets from './magnets.ts';
 
 export type Contact = { id: number; email: string; name: string; business: string; tags: string; source: string; status: string;
   lead_id: number | null; confirm_sent_at: string | null; confirmed_at: string | null; created_at: string; unsubscribed: number };
@@ -214,8 +215,8 @@ export const validConfirm = (email: string, token: string) => {
 };
 const recent = new Map<string, number[]>(); // ponytail: in memory, so a restart forgets; fine for one small server
 
-const FROM_TAGS = ['popup', 'footer', 'enquiry']; // where on the website they signed up, kept as a tag
-export async function signup(input: { email: string; name?: string; from?: string }, ip = '') {
+const FROM_TAGS = ['popup', 'footer', 'enquiry', 'guide']; // where on the website they signed up, kept as a tag
+export async function signup(input: { email: string; name?: string; from?: string; guide?: string }, ip = '') {
   const email = norm(input.email);
   if (!EMAIL.test(email)) fail(400, 'That email address does not look right');
   if (!PUBLIC_URL) fail(503, 'Set PUBLIC_URL first: the confirm email needs a working link');
@@ -223,22 +224,31 @@ export async function signup(input: { email: string; name?: string; from?: strin
   if (mine.length >= 5) fail(429, 'Too many sign ups from here. Please try again later.');
   recent.set(ip, [...mine, Date.now()]);
   const was = db.prepare('SELECT * FROM contacts WHERE email = ?').get(email) as Contact | undefined;
-  // Already on the list, or a confirm email went out in the last day: say the same thing, send nothing.
-  if (was?.status === 'subscribed' && !db.prepare('SELECT 1 FROM suppression WHERE email = ?').get(email)) return { ok: true };
+  // A free guide from its landing page: they are tagged with it, and it is sent once they are on the list.
+  const guide = input.guide ? magnets.live(input.guide) : undefined;
+  const tags = tagList(['newsletter', ...FROM_TAGS.filter(t => t === input.from), guide ? `guide-${guide.slug}` : '', was?.tags ?? ''].join(',')).join(', ');
+  if (was) db.prepare('UPDATE contacts SET tags = ? WHERE id = ?').run(tags, was.id);
+  // Already on the list: nothing to confirm, so a guide they asked for goes straight out. Or a confirm email went out
+  // in the last day. Either way the page says the same thing.
+  if (was?.status === 'subscribed' && !db.prepare('SELECT 1 FROM suppression WHERE email = ?').get(email)) {
+    if (guide && !tagList(was.tags).includes(`guide-${guide.slug}`)) await magnets.deliver(email, [guide.slug]);
+    return { ok: true };
+  }
   if (was?.confirm_sent_at && Date.parse(`${was.confirm_sent_at}Z`) > Date.now() - 86_400_000) return { ok: true };
   const today = (db.prepare(`SELECT count(*) AS n FROM contacts WHERE confirm_sent_at >= datetime('now', 'start of day')`).get() as { n: number }).n;
   if (today >= SIGNUP_DAILY_CAP) fail(429, 'Sign ups are paused for today. Please try again tomorrow.');
   const link = `${PUBLIC_URL}/subscribe/confirm?${new URLSearchParams({ e: email, t: confirmToken(email) })}`;
   const name = input.name?.trim().slice(0, 100) ?? '';
-  await sendEmail({ to: email, subject: 'Please confirm your Red Cherry IT newsletter sign up',
-    text: `Hi${name ? ` ${name}` : ''},\n\nPlease confirm you would like the Red Cherry IT newsletter: practical website and marketing tips, once a month.\n\n${link}\n\nIf you did not sign up, ignore this email and you will not hear from us.\n\nRed Cherry IT · redcherryit.com`,
+  const what = guide ? `your free guide, ${guide.title}, and the Red Cherry IT newsletter` : 'the Red Cherry IT newsletter';
+  await sendEmail({ to: email, subject: guide ? `Please confirm to get ${guide.title}` : 'Please confirm your Red Cherry IT newsletter sign up',
+    text: `Hi${name ? ` ${name}` : ''},\n\nPlease confirm you would like ${what}: practical website and marketing tips, once a month.\n\n${link}\n\nIf you did not sign up, ignore this email and you will not hear from us.\n\nRed Cherry IT · redcherryit.com`,
     html: `<div style="font:16px/1.5 Arial,sans-serif;color:#1a1a1a;max-width:520px"><p style="color:#b5333f;font-weight:800">Red Cherry IT</p><p>Hi${name ? ` ${esc(name)}` : ''},</p>
-<p>Please confirm you would like the Red Cherry IT newsletter: practical website and marketing tips, once a month.</p>
+<p>Please confirm you would like ${esc(what)}: practical website and marketing tips, once a month.</p>
 <p><a href="${esc(link)}" style="display:inline-block;padding:12px 20px;background:#b5333f;color:#fff;border-radius:8px;text-decoration:none;font-weight:700">Confirm my sign up</a></p>
 <p style="color:#444;font-size:14px">If you did not sign up, ignore this email and you will not hear from us.</p></div>` });
   if (was) db.prepare(`UPDATE contacts SET confirm_sent_at = datetime('now'), name = CASE name WHEN '' THEN ? ELSE name END WHERE id = ?`).run(name, was.id);
   else db.prepare(`INSERT INTO contacts (email, name, tags, source, status, confirm_sent_at) VALUES (?, ?, ?, 'signup', 'pending', datetime('now'))`)
-    .run(email, name, ['newsletter', ...FROM_TAGS.filter(t => t === input.from)].join(', '));
+    .run(email, name, tags);
   return { ok: true };
 }
 
@@ -250,5 +260,7 @@ export async function confirm(email: string, token: string) {
     fail(404, 'We could not find that sign up. Please sign up again on redcherryit.com.');
   db.prepare(`DELETE FROM suppression WHERE email = ? AND reason = 'unsubscribed'`).run(e);
   await toResend(e).catch(err => console.error(`Sign up ${e} not added to Resend: ${err.message}`)); // they are still on the list here
-  return { ok: true };
+  const guides = magnets.guidesIn((db.prepare('SELECT tags FROM contacts WHERE email = ?').get(e) as { tags: string }).tags).map(magnets.live).filter(g => !!g);
+  await magnets.deliver(e, guides.map(g => g!.slug)).catch(err => console.error(`Guide for ${e} not sent: ${err.message}`));
+  return { ok: true, guides: guides.map(g => ({ title: g!.title, url: magnets.pdfUrl(g!) })) };
 }

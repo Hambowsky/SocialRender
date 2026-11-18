@@ -23,7 +23,7 @@ const GOOGLE_FREE = 1000, GOOGLE_USD_EACH = 0.035;
 const MAX_COMBOS = 25;
 const DIRECTORIES = ['yell.com', 'freeindex.co.uk', 'scoot.co.uk', 'checkatrade.com', 'ratedpeople.com', 'mybuilder.com', 'facebook.com/pages', 'linkedin.com/company'];
 
-export type CampaignInput = { name: string; industries: string; towns: string; lead_type: typeof LEAD_TYPES[number]; max_leads: number; sources: string[] };
+export type CampaignInput = { name: string; industries: string; towns: string; lead_type: typeof LEAD_TYPES[number]; max_leads: number; sources: string[]; guide_id?: number | null };
 type Campaign = Omit<CampaignInput, 'sources'> & { id: number; sources: string; status: string; last_run_at: string | null; last_run_summary: string | null };
 type Found = { company_name: string; phone: string; email: string; website_url: string; address: string; postcode: string; town: string;
   industry: string; source: string; source_ref: string; rating: number | null; reviews: number | null };
@@ -63,8 +63,8 @@ export const campaign = (id: number) => view(getRow(id));
 
 export function createCampaign(c: CampaignInput) {
   validate(c);
-  const { lastInsertRowid } = db.prepare('INSERT INTO campaigns (name, industries, towns, lead_type, max_leads, sources) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','));
+  const { lastInsertRowid } = db.prepare('INSERT INTO campaigns (name, industries, towns, lead_type, max_leads, sources, guide_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null);
   return campaign(Number(lastInsertRowid));
 }
 
@@ -72,8 +72,8 @@ export function updateCampaign(id: number, c: CampaignInput) {
   getRow(id);
   if (running.has(id)) fail(409, 'Wait for this campaign to finish running before changing it');
   validate(c);
-  db.prepare('UPDATE campaigns SET name = ?, industries = ?, towns = ?, lead_type = ?, max_leads = ?, sources = ? WHERE id = ?')
-    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), id);
+  db.prepare('UPDATE campaigns SET name = ?, industries = ?, towns = ?, lead_type = ?, max_leads = ?, sources = ?, guide_id = ? WHERE id = ?')
+    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, id);
   return campaign(id);
 }
 

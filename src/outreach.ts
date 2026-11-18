@@ -9,6 +9,7 @@ import { API_KEY, fail, OUTREACH_DAILY_CAP, OUTREACH_DELAY_SECONDS, OUTREACH_FOL
   SMTP_FROM, SMTP_HOST, SMTP_PASS, SMTP_PORT, SMTP_USER } from './config.ts';
 import { lead } from './leads.ts';
 import { runPrompt } from './copy.ts';
+import { offer } from './magnets.ts';
 
 type Email = { id: number; lead_id: number | null; to_email: string; subject: string; body: string; status: string; error: string | null;
   message_id: string | null; created_at: string; approved_at: string | null; sent_at: string | null; follow_up_of: number | null };
@@ -34,6 +35,7 @@ export async function draft(leadId: number) {
     website_issues: describe(l.website_issues), seo_issues: describe(l.seo_issues), pagespeed: a.pagespeed ? String(a.pagespeed.score) : 'not checked',
     gbp: g ? `${g.rating ?? 'no'} stars from ${g.reviews ?? 0} reviews` : 'not found', notes: a.notes ?? l.lead_reason, pitch: a.pitch ?? 'none',
     case_studies: (caseStudies() as CaseStudy[]).map(c => `${c.client} (${c.industry}): ${c.blurb}`).join('\n') || 'none',
+    guide: offer(l.campaign_id),
   }, { job: 'lead:email' });
   db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`).run(leadId, norm(l.email), r.output.subject, r.output.body);
   return get((db.prepare(`SELECT id FROM emails WHERE lead_id = ? AND status IN ('pending_approval', 'approved', 'sending')`).get(leadId) as { id: number }).id);

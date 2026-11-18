@@ -267,6 +267,7 @@
     <a href="#prompts" data-view="prompts" data-section="marketing"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>Prompts</a>
     <a href="#sales" data-view="sales" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Dashboard</a>
     <a href="#campaigns" data-view="campaigns" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Campaigns</a>
+    <a href="#guides" data-view="guides" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5"/></svg>Free guides</a>
     <a href="#leads" data-view="leads" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Leads</a>
     <a href="#emails" data-view="emails" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Emails</a>
     <a href="#signals" data-view="signals" data-section="sales"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.9 19.1a10 10 0 0 1 0-14.2M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M19.1 4.9a10 10 0 0 1 0 14.2"/><circle cx="12" cy="12" r="2"/></svg>Signals</a>
@@ -468,6 +469,7 @@
           </select></label>
           <label>Most leads per run <input id="cMax" type="number" min="1" max="100" value="100"></label>
         </div>
+        <label>Free guide to offer in its emails <select id="cGuide"><option value="">None</option></select></label>
         <div class="fields" style="gap:6px"><span class="muted">Search</span>
           <div class="chips" id="cSources">
             <label class="chip"><input type="checkbox" value="places" checked>Google Maps</label>
@@ -483,6 +485,33 @@
       <span class="muted" id="cUsage"></span>
       <div id="cList" class="queue"></div>
     </div>
+  </div>
+</section>
+
+<section class="view" data-view="guides" hidden>
+  <div class="cols wide-left">
+    <div class="card">
+      <div class="card-head"><h2>Free guides</h2><select id="gList" style="width:auto"></select></div>
+      <p class="muted">A free guide people get for their email address. Claude researches the topic and writes the guide and its landing page. Edit it, approve it, then publish: the landing page goes on redcherryit.com/guides/free, and anyone who signs up and confirms is emailed the guide and joins the newsletter list. Pick a guide on a campaign and its outreach emails offer it.</p>
+      <div class="row"><input id="gTopic" maxlength="500" placeholder="Topic, for example getting more Google reviews" style="flex:2 1 240px;width:auto">
+        <input id="gAudience" maxlength="300" placeholder="Who it is for, for example plumbers and heating engineers" style="flex:2 1 240px;width:auto"><button type="button" class="small" id="gDraft">Research and write it</button></div>
+      <span class="muted" id="gOut"></span>
+      <div id="gEditor" class="fields" hidden>
+        <div id="gStatus"></div>
+        <div id="gChecks"></div>
+        <label>Title <input id="gTitle" maxlength="150"></label>
+        <label>Summary (cover and page description) <input id="gSummary" maxlength="400"></label>
+        <label>Landing page headline <input id="gHeadline" maxlength="150"></label>
+        <label>Landing page pitch <textarea id="gPitch" rows="3" maxlength="1000"></textarea></label>
+        <label>What is inside, one per line <textarea id="gBullets" rows="5" maxlength="2000"></textarea></label>
+        <label>The guide <textarea id="gBody" rows="22"></textarea></label>
+        <label>Sources <textarea id="gSources" rows="6"></textarea></label>
+        <label>Page name (redcherryit.com/guides/free/...) <input id="gSlug" maxlength="80"></label>
+        <div class="row" id="gButtons"></div>
+      </div>
+    </div>
+    <div class="card"><div class="card-head"><h2>Preview</h2><select id="gWhich" style="width:auto"><option value="page">Landing page</option><option value="pdf">Guide PDF</option></select></div>
+      <iframe id="gPreview" class="preview-page" title="Guide preview"></iframe></div>
   </div>
 </section>
 
@@ -694,6 +723,7 @@
     if (view === 'sales') loadDashboard('sales');
     if (view === 'campaigns') loadCampaigns();
     if (view === 'leads') loadLeads();
+    if (view === 'guides') loadGuides();
     if (view === 'emails') loadEmails();
     if (view === 'signals') loadSignals();
     if (view === 'links') loadLinks();
@@ -790,13 +820,13 @@
     .sort((a, b) => b.toLowerCase().startsWith(q.toLowerCase()) - a.toLowerCase().startsWith(q.toLowerCase())).map(name => ({ name })));
   suggest($('cTowns'), async q => (await api(`/campaigns/towns?q=${encodeURIComponent(q)}`)).json());
   const campBody = () => ({ name: $('cName').value, industries: $('cIndustries').value, towns: $('cTowns').value, lead_type: $('cType').value,
-    max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value) });
+    max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value), guide_id: Number($('cGuide').value) || null });
   function editCampaign(c) {
     editing = c?.id ?? null;
     $('cFormTitle').textContent = c ? `Edit ${c.name}` : 'New campaign';
     $('cCancel').hidden = !c;
     $('cName').value = c?.name ?? ''; $('cIndustries').value = c?.industries ?? ''; $('cTowns').value = c?.towns ?? '';
-    $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 100;
+    $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 100; $('cGuide').value = c?.guide_id ?? '';
     for (const i of $('cSources').querySelectorAll('input')) i.checked = c ? c.sources.includes(i.value) : i.value === 'places';
     note('cOut', '');
   }
@@ -832,10 +862,14 @@
         $('cUsage').textContent = `This month: ${u.google_searches} of ${u.google_free.toLocaleString('en-GB')} free Google searches${u.google_cost_gbp ? `, ${money(u.google_cost_gbp)} beyond that` : ''}, ${plural(u.firecrawl_credits, 'Firecrawl credit')}`;
       }).catch(() => {});
       campList = await (await api('/campaigns')).json();
+      const live = (await (await api('/guides')).json()).filter(g => g.status === 'published'), pickedGuide = $('cGuide').value;
+      $('cGuide').innerHTML = '<option value="">None</option>' + live.map(g => `<option value="${g.id}">${esc(g.title)}</option>`).join('');
+      $('cGuide').value = pickedGuide;
+      const guideName = id => live.find(g => g.id === id)?.title;
       $('cList').innerHTML = campList.map(c => `<div class="camp">
           <div class="row" style="justify-content:space-between"><h3>${esc(c.name)}</h3>
             <span class="badge ${{ running: 'pending', done: 'sent', failed: 'bad' }[c.status] ?? ''}">${esc({ draft: 'Not run', running: 'Running', done: 'Done', failed: 'Failed' }[c.status])}</span></div>
-          <span class="muted">${esc(TYPES[c.lead_type])} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run</span>
+          <span class="muted">${esc(TYPES[c.lead_type])} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run${guideName(c.guide_id) ? ` · offers ${esc(guideName(c.guide_id))}` : ''}</span>
           <span style="font-size:13px">${campSummary(c)}</span>
           <span style="font-size:13px">${analysisLine(c)}</span>
           <div class="row">
@@ -1187,6 +1221,72 @@
       ${[waiting && `<a href="#social">${waiting} waiting for approval</a>`, sent && `${sent} approved`, look && `<a href="#social">${look} needing a look</a>`, dropped && `${dropped} rejected`].filter(Boolean).join(', ') || 'none made'}.</p>
     ${p.problems.length ? `<p class="bad" style="font-size:13px">${p.problems.map(esc).join('<br>')}</p>` : ''}<span class="muted">Cost ${money(p.cost_gbp)}.</span>`;
   };
+  // Free guides
+  const G_STATUS = { draft: ['pending', 'Draft'], approved: ['sent', 'Approved, ready to publish'], rejected: ['', 'Rejected'], published: ['sent', 'Published'] };
+  const G_FIELDS = { gTitle: 'title', gSummary: 'summary', gHeadline: 'headline', gPitch: 'pitch', gBullets: 'bullets', gBody: 'body', gSources: 'sources', gSlug: 'slug' };
+  let gUrl = '';
+  async function loadGuides(select) {
+    try {
+      const list = await (await api('/guides')).json(), pick = select ?? $('gList').value;
+      $('gList').innerHTML = list.length ? list.map(g => `<option value="${g.id}">${esc(g.title)} (${esc(G_STATUS[g.status]?.[1] ?? g.status)})</option>`).join('') : '<option value="">None yet</option>';
+      if (list.some(g => String(g.id) === String(pick))) $('gList').value = pick;
+      await showGuide();
+    } catch (e) { $('gOut').textContent = e.message; }
+  }
+  async function guidePreview() {
+    const id = $('gList').value;
+    if (gUrl) URL.revokeObjectURL(gUrl), gUrl = '';
+    if (!id) return $('gPreview').srcdoc = '<p style="font:15px Archivo,system-ui;color:#8a8282;text-align:center;margin-top:30vh">Write a guide to see it here.</p>';
+    if ($('gWhich').value === 'page') { $('gPreview').removeAttribute('src'); return $('gPreview').srcdoc = await (await api(`/guides/${id}/page`)).text(); }
+    $('gPreview').removeAttribute('srcdoc');
+    $('gPreview').src = gUrl = URL.createObjectURL(await (await api(`/guides/${id}/pdf`)).blob());
+  }
+  async function showGuide() {
+    const id = $('gList').value;
+    $('gEditor').hidden = !id;
+    if (id) {
+      const g = await (await api(`/guides/${id}`)).json(), draft = g.status === 'draft';
+      for (const [el, k] of Object.entries(G_FIELDS)) { $(el).value = g[k]; $(el).readOnly = !draft; }
+      const [cls, label] = G_STATUS[g.status] ?? ['', g.status], s = g.signups;
+      $('gStatus').innerHTML = `<span class="badge ${cls}">${esc(label)}</span> <span class="muted">${g.checks.words} words, for ${esc(g.audience)}${g.cost_gbp ? `, written for ${money(g.cost_gbp)}` : ''}</span>`
+        + (g.status === 'published' ? `<p style="margin:6px 0 0">Live at <a href="${esc(g.url)}" target="_blank" rel="noopener">${esc(g.url.replace(/^https?:\/\//, ''))}</a>. ${s.total} sign up${s.total === 1 ? '' : 's'}, ${s.confirmed} confirmed and sent the guide.</p>` : '');
+      const items = [...g.checks.errors.map(e => `<li class="bad">${esc(e)}</li>`), ...g.checks.warnings.slice(0, 8).map(w => `<li class="muted">${esc(w)}</li>`),
+        g.checks.warnings.length > 8 ? `<li class="muted">and ${g.checks.warnings.length - 8} more to check</li>` : ''].join('');
+      $('gChecks').innerHTML = items && draft ? `<ul style="margin:0;padding-left:18px;font-size:13px">${items}</ul>` : '';
+      const b = (act, text, cls = 'plain') => `<button type="button" class="${cls} small" data-g="${act}">${text}</button>`;
+      $('gButtons').innerHTML = draft ? b('save', 'Save') + b('approve', 'Approve', '') + b('reject', 'Reject')
+        : g.status === 'approved' ? b('publish', 'Publish the landing page', '') + b('reopen', 'Back to draft')
+        : g.status === 'published' ? b('publish', 'Update the live page and PDF') + b('reopen', 'Back to draft') : b('reopen', 'Back to draft');
+    }
+    await guidePreview();
+  }
+  $('gList').addEventListener('change', showGuide);
+  $('gWhich').addEventListener('change', () => guidePreview().catch(e => { $('gOut').textContent = e.message; }));
+  $('gDraft').addEventListener('click', async () => {
+    const b = $('gDraft'), topic = $('gTopic').value.trim();
+    if (!topic) return $('gOut').textContent = 'Say what the guide is about first.';
+    b.disabled = true; $('gOut').textContent = 'Researching and writing. This takes a few minutes...';
+    try {
+      const g = await apiJob('/guides', { topic, audience: $('gAudience').value.trim() || undefined });
+      $('gOut').textContent = `Written for ${money(g.cost_gbp)}. Read it through and add your own experience before approving.`;
+      $('gTopic').value = $('gAudience').value = '';
+      await loadGuides(g.id);
+    } catch (e) { $('gOut').textContent = e.message; }
+    b.disabled = false;
+  });
+  $('gButtons').addEventListener('click', async e => {
+    const act = e.target.dataset?.g, id = $('gList').value;
+    if (!act || !id) return;
+    try {
+      if ((act === 'save' || act === 'approve') && !$('gBody').readOnly)
+        await api(`/guides/${id}`, { method: 'PUT', body: JSON.stringify(Object.fromEntries(Object.entries(G_FIELDS).map(([el, k]) => [k, $(el).value]))) });
+      if (act === 'publish' && !confirm('Put the landing page on redcherryit.com now? It goes live on the next deploy.')) return;
+      if (act !== 'save') { e.target.disabled = true; $('gOut').textContent = act === 'publish' ? 'Making the PDF and publishing the page...' : ''; await api(`/guides/${id}/${act}`, { method: 'POST' }); }
+      $('gOut').textContent = { save: 'Saved.', approve: 'Approved. Publish it when you are ready.', publish: 'Published. Pick it on a campaign to offer it in emails.', reject: 'Rejected.', reopen: 'Back to draft.' }[act];
+      await loadGuides(id);
+    } catch (err) { $('gOut').textContent = err.message; e.target.disabled = false; }
+  });
+
   // Monthly newsletter
   const NL_STATUS = { draft: ['pending', 'Draft'], approved: ['sent', 'Approved, ready to send'], rejected: ['', 'Rejected'], sending: ['pending', 'Handed to Resend, check Broadcasts there'], sent: ['sent', 'Sent'] };
   let nlCur = null;
