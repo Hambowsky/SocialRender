@@ -21,6 +21,9 @@ Websites Red Cherry IT has built for other businesses:
 {case_studies}
 
 Free guide this campaign offers: {guide}
+Homepage concept shown in this email: {concept}
+
+If a homepage concept is shown (yes), it is a picture of a new homepage we have already made for them, using their own logo, colours and photos. Then the email is about that picture: say in one short sentence that we have put together a quick idea of how their homepage could look, put the line [concept] on its own straight after that sentence (the picture appears there), and instead of offering a free concept, end with one yes or no question asking whether they would like us to turn it into their real website. The subject can mention the concept, for example "A new homepage idea for {company}". If no concept is shown (no), never write [concept].
 
 Write:
 * subject: specific to this business and worth opening, for example "A free website concept for {company}". No capitals for emphasis, no exclamation marks, never the word "demo", and "free" at most once.

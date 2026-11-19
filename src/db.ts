@@ -300,6 +300,10 @@ const migrations = [
    );
    -- the free guide a campaign's outreach emails offer
    ALTER TABLE campaigns ADD COLUMN guide_id INTEGER`,
+
+  `ALTER TABLE leads ADD COLUMN concept TEXT;            -- a homepage concept made for them: JSON with the brand, the words and when
+   ALTER TABLE emails ADD COLUMN concept INTEGER NOT NULL DEFAULT 0; -- 1 when the concept picture goes inside the email
+   ALTER TABLE campaigns ADD COLUMN concept INTEGER NOT NULL DEFAULT 0`, // 1 to make a concept for every lead before its first email
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

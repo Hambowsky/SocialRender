@@ -106,6 +106,12 @@ const SCHEMAS: Record<string, Record<string, unknown>> = {
     properties: { items: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'keep', 'summary', 'deadline', 'reply'],
       properties: { n: { type: 'integer' }, keep: { type: 'boolean' }, summary: str, deadline: str, reply: str } } } },
   },
+  'lead-concept': {
+    type: 'object', additionalProperties: false,
+    required: ['headline', 'highlight', 'intro', 'cta', 'trust', 'services', 'about_title', 'about', 'closing', 'nav'],
+    properties: { headline: str, highlight: str, intro: str, cta: str, trust: { type: 'array', items: str }, services: { type: 'array', items: { type: 'object',
+      additionalProperties: false, required: ['title', 'text'], properties: { title: str, text: str } } }, about_title: str, about: str, closing: str, nav: { type: 'array', items: str } },
+  },
   caption: {
     type: 'object', additionalProperties: false,
     required: ['caption', 'hashtags'],

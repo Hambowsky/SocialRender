@@ -3,6 +3,7 @@
 // "sending" before the SMTP call, and one whose result is unknown is never retried on its own.
 // Every email has an unsubscribe link, and a suppression list is checked before drafting and before sending.
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import nodemailer from 'nodemailer';
 import { db } from './db.ts';
 import { API_KEY, fail, OUTREACH_DAILY_CAP, OUTREACH_DELAY_SECONDS, OUTREACH_FOLLOW_UP_DAYS, PUBLIC_URL,
@@ -10,9 +11,10 @@ import { API_KEY, fail, OUTREACH_DAILY_CAP, OUTREACH_DELAY_SECONDS, OUTREACH_FOL
 import { lead } from './leads.ts';
 import { runPrompt } from './copy.ts';
 import { offer } from './magnets.ts';
+import * as concept from './concept.ts';
 
 type Email = { id: number; lead_id: number | null; to_email: string; subject: string; body: string; status: string; error: string | null;
-  message_id: string | null; created_at: string; approved_at: string | null; sent_at: string | null; follow_up_of: number | null };
+  message_id: string | null; created_at: string; approved_at: string | null; sent_at: string | null; follow_up_of: number | null; concept: number };
 
 const get = (id: number) => (db.prepare('SELECT * FROM emails WHERE id = ?').get(id) as Email | undefined) ?? fail(404, `There is no email ${id}`);
 const norm = (email: string) => email.trim().toLowerCase();
@@ -28,6 +30,10 @@ export async function draft(leadId: number) {
   if (suppressed(l.email)) fail(409, `${l.email} is on the do not email list`);
   const before = db.prepare(`SELECT sent_at FROM emails WHERE to_email = ? AND status IN ('sent', 'check_sent') ORDER BY id DESC LIMIT 1`).get(norm(l.email)) as { sent_at: string } | undefined;
   if (before) fail(409, `${l.email} was already emailed on ${before.sent_at.slice(0, 10).split('-').reverse().join('/')}`);
+  // A campaign set to show a concept makes one first, unless the lead has one already. Any concept made goes in.
+  if (!concept.hasConcept(leadId) && (db.prepare('SELECT concept FROM campaigns WHERE id = ?').get(l.campaign_id) as { concept: number } | undefined)?.concept)
+    await concept.make(leadId).catch(err => { if (err.statusCode === 402) throw err; note(leadId, `Could not make a concept: ${err.message}`); });
+  const shown = concept.hasConcept(leadId);
   const a = l.analysis, g = a.gbp;
   const describe = (o: Record<string, unknown>) => Object.entries(o).map(([k, v]) => v === true ? k.replace(/_/g, ' ') : `${k.replace(/_/g, ' ')}: ${v}`).join(', ') || 'none';
   const r = await runPrompt('outreach-email', {
@@ -35,9 +41,9 @@ export async function draft(leadId: number) {
     website_issues: describe(l.website_issues), seo_issues: describe(l.seo_issues), pagespeed: a.pagespeed ? String(a.pagespeed.score) : 'not checked',
     gbp: g ? `${g.rating ?? 'no'} stars from ${g.reviews ?? 0} reviews` : 'not found', notes: a.notes ?? l.lead_reason, pitch: a.pitch ?? 'none',
     case_studies: (caseStudies() as CaseStudy[]).map(c => `${c.client} (${c.industry}): ${c.blurb}`).join('\n') || 'none',
-    guide: offer(l.campaign_id),
+    guide: offer(l.campaign_id), concept: shown ? 'yes' : 'no',
   }, { job: 'lead:email' });
-  db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body) VALUES (?, ?, ?, ?) ON CONFLICT DO NOTHING`).run(leadId, norm(l.email), r.output.subject, r.output.body);
+  db.prepare(`INSERT INTO emails (lead_id, to_email, subject, body, concept) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`).run(leadId, norm(l.email), r.output.subject, r.output.body, shown ? 1 : 0);
   return get((db.prepare(`SELECT id FROM emails WHERE lead_id = ? AND status IN ('pending_approval', 'approved', 'sending')`).get(leadId) as { id: number }).id);
 }
 
@@ -161,19 +167,33 @@ const transport = () => nodemailer.createTransport({ host: SMTP_HOST, port: SMTP
 const unsubToken = (email: string) => crypto.createHmac('sha256', API_KEY).update(`unsubscribe:${norm(email)}`).digest('base64url').slice(0, 24);
 export const unsubscribeUrl = (email: string) => `${PUBLIC_URL}/unsubscribe?${new URLSearchParams({ e: norm(email), t: unsubToken(email) })}`;
 
-function message(to: string, subject: string, body: string) {
-  const url = unsubscribeUrl(to);
-  return { from: SMTP_FROM, to, subject,
-    text: `${body.trim()}\n\nRed Cherry IT · redcherryit.com\nIf you would rather not hear from us again, unsubscribe here: ${url}\n`,
-    headers: { 'List-Unsubscribe': `<${url}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } };
+// With a concept, the email also has an HTML part: the same words with the picture where [concept] sits, or above the sign off.
+const MARK = /^[ \t]*\[concept\][ \t]*$/im;
+const escHtml = (s: string) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);
+function message(to: string, subject: string, body: string, conceptOf?: number | null) {
+  const url = unsubscribeUrl(to), footer = `Red Cherry IT · redcherryit.com\nIf you would rather not hear from us again, unsubscribe here: ${url}`;
+  const base = { from: SMTP_FROM, to, subject, headers: { 'List-Unsubscribe': `<${url}>`, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } };
+  const plain = body.replace(MARK, '').replace(/\n{3,}/g, '\n\n').trim();
+  if (!conceptOf) return { ...base, text: `${plain}\n\n${footer}\n` };
+  const file = concept.conceptFile(conceptOf, 'showcase.jpg');
+  if (!fs.existsSync(file)) fail(409, 'The concept picture for this email is missing. Make the concept again, or reject the email.');
+  let marked = body.trim();
+  if (!MARK.test(marked)) { const i = marked.search(/\n[^\n]*\n?David Hanmer/); marked = i < 0 ? `${marked}\n\n[concept]` : `${marked.slice(0, i)}\n\n[concept]\n${marked.slice(i)}`; }
+  const para = (t: string) => t.split(/\n{2,}/).filter(x => x.trim()).map(x => `<p style="margin:0 0 14px">${escHtml(x.trim()).replace(/\n/g, '<br>')}</p>`).join('');
+  const [before, after] = marked.split(MARK);
+  const img = '<p style="margin:4px 0 18px"><img src="cid:concept" alt="A homepage concept for your business" width="600" style="display:block;width:100%;max-width:600px;height:auto;border-radius:8px;border:1px solid #e5e1df"></p>';
+  return { ...base, text: `${plain}\n\n${footer}\n`,
+    html: `<div style="font:15px/1.5 Arial,sans-serif;color:#222;max-width:600px">${para(before)}${img}${para(after ?? '')}<p style="margin:24px 0 0;font-size:12px;color:#888">${escHtml(footer).replace(/\n/g, '<br>').replace(escHtml(url), `<a href="${escHtml(url)}" style="color:#888">${escHtml(url)}</a>`)}</p></div>`,
+    attachments: [{ filename: 'concept.jpg', path: file, cid: 'concept', contentDisposition: 'inline' as const }] };
 }
+const conceptOf = (e: Email) => e.concept ? e.lead_id : null;
 
 // A copy to David's own address, so he sees exactly what the lead will get. Nothing is recorded.
 export async function test(id: number) {
   ready();
   const e = get(id);
   const own = SMTP_FROM.match(/<([^>]+)>/)?.[1] ?? SMTP_FROM;
-  await transport().sendMail(message(own, `[Test] ${e.subject}`, e.body));
+  await transport().sendMail(message(own, `[Test] ${e.subject}`, e.body, conceptOf(e)));
   return { sent_to: own };
 }
 
@@ -213,11 +233,14 @@ export async function pump() {
       if (first && (db.prepare('SELECT status FROM leads WHERE id = ?').get(e.lead_id) as { status: string } | undefined)?.status !== 'contacted') {
         db.prepare(`UPDATE emails SET status = 'rejected', error = 'They answered the first email, so the follow up was not sent' WHERE id = ?`).run(e.id); continue;
       }
+      if (e.concept && e.lead_id && !concept.hasConcept(e.lead_id)) {
+        db.prepare(`UPDATE emails SET status = 'failed', error = 'The concept picture is missing. Make the concept again, then try again.' WHERE id = ?`).run(e.id); continue;
+      }
       const messageId = `<outreach-${e.id}-${crypto.randomBytes(6).toString('hex')}@${(SMTP_FROM.match(/@([^>\s]+)/)?.[1] ?? 'redcherryit.com')}>`;
       if (!db.prepare(`UPDATE emails SET status = 'sending', sent_at = datetime('now'), message_id = ? WHERE id = ? AND status = 'approved'`).run(messageId, e.id).changes) continue;
       try {
         const thread = first?.message_id ? { inReplyTo: first.message_id, references: first.message_id } : {};
-        await transport().sendMail({ ...message(e.to_email, e.subject, e.body), messageId, ...thread });
+        await transport().sendMail({ ...message(e.to_email, e.subject, e.body, conceptOf(e)), messageId, ...thread });
         db.prepare(`UPDATE emails SET status = 'sent' WHERE id = ?`).run(e.id);
         contacted(e);
       } catch (err: any) {
