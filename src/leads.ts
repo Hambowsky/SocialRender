@@ -23,7 +23,7 @@ const GOOGLE_FREE = 1000, GOOGLE_USD_EACH = 0.035;
 const MAX_COMBOS = 25;
 const DIRECTORIES = ['yell.com', 'freeindex.co.uk', 'scoot.co.uk', 'checkatrade.com', 'ratedpeople.com', 'mybuilder.com', 'facebook.com/pages', 'linkedin.com/company'];
 
-export type CampaignInput = { name: string; industries: string; towns: string; lead_type: typeof LEAD_TYPES[number]; max_leads: number; sources: string[]; guide_id?: number | null };
+export type CampaignInput = { name: string; industries: string; towns: string; lead_type: typeof LEAD_TYPES[number]; max_leads: number; sources: string[]; guide_id?: number | null; concept?: boolean };
 type Campaign = Omit<CampaignInput, 'sources'> & { id: number; sources: string; status: string; last_run_at: string | null; last_run_summary: string | null };
 type Found = { company_name: string; phone: string; email: string; website_url: string; address: string; postcode: string; town: string;
   industry: string; source: string; source_ref: string; rating: number | null; reviews: number | null };
@@ -63,8 +63,8 @@ export const campaign = (id: number) => view(getRow(id));
 
 export function createCampaign(c: CampaignInput) {
   validate(c);
-  const { lastInsertRowid } = db.prepare('INSERT INTO campaigns (name, industries, towns, lead_type, max_leads, sources, guide_id) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null);
+  const { lastInsertRowid } = db.prepare('INSERT INTO campaigns (name, industries, towns, lead_type, max_leads, sources, guide_id, concept) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, c.concept ? 1 : 0);
   return campaign(Number(lastInsertRowid));
 }
 
@@ -72,8 +72,8 @@ export function updateCampaign(id: number, c: CampaignInput) {
   getRow(id);
   if (running.has(id)) fail(409, 'Wait for this campaign to finish running before changing it');
   validate(c);
-  db.prepare('UPDATE campaigns SET name = ?, industries = ?, towns = ?, lead_type = ?, max_leads = ?, sources = ?, guide_id = ? WHERE id = ?')
-    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, id);
+  db.prepare('UPDATE campaigns SET name = ?, industries = ?, towns = ?, lead_type = ?, max_leads = ?, sources = ?, guide_id = ?, concept = ? WHERE id = ?')
+    .run(c.name.trim(), list_(c.industries).join(', '), list_(c.towns).join(', '), c.lead_type, c.max_leads, c.sources.join(','), c.guide_id ?? null, c.concept ? 1 : 0, id);
   return campaign(id);
 }
 
@@ -327,7 +327,7 @@ export function leadsCsv(q: LeadFilter) {
 export function lead(id: number) {
   const l = db.prepare('SELECT l.*, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id WHERE l.id = ?').get(id) as Record<string, unknown> | undefined;
   if (!l) fail(404, 'No lead with that id');
-  for (const k of ['website_issues', 'seo_issues', 'social_links', 'analysis']) l![k] = JSON.parse(String(l![k]));
+  for (const k of ['website_issues', 'seo_issues', 'social_links', 'analysis', 'concept']) l![k] = JSON.parse(String(l![k]));
   return { ...l!, activity: db.prepare('SELECT kind, text, created_at FROM lead_activity WHERE lead_id = ? ORDER BY id DESC').all(id) };
 }
 

@@ -34,9 +34,9 @@ async function getBrowser() {
 }
 export const closeBrowser = () => browser?.close();
 
-// Opens the page, runs `work` and closes it. The viewport fits upright posts and 1200 wide article headers.
-async function withPage<T>(html: string, work: (page: Page) => Promise<T>): Promise<T> {
-  const page = await (await getBrowser()).newPage({ viewport: { width: 1200, height: 1920 } });
+// Opens the page, runs `work` and closes it. The default viewport fits upright posts and 1200 wide article headers.
+async function withPage<T>(html: string, work: (page: Page) => Promise<T>, viewport = { width: 1200, height: 1920 }, deviceScaleFactor = 1): Promise<T> {
+  const page = await (await getBrowser()).newPage({ viewport, deviceScaleFactor });
   try {
     // No network at all: the page gets its HTML and local files only, so renders are repeatable.
     await page.route('**/*', route => route.abort());
@@ -171,6 +171,45 @@ export const screenshotSite = (url: string, file: string) => enqueue(async () =>
     }
     await page.screenshot({ path: file, type: 'jpeg', quality: 70 });
     return await page.content(); // the page as the browser built it, so details added by JavaScript can be read too
+  } finally {
+    await context.close().catch(() => {});
+  }
+});
+
+// A page of HTML as a JPEG at the given width, the whole page or just the first screen.
+export const snap = (html: string, width: number, height: number, opts: { scale?: number; full?: boolean } = {}) =>
+  enqueue(() => withPage(html, page => page.screenshot({ type: 'jpeg', quality: 85, fullPage: !!opts.full }), { width, height }, opts.scale ?? 1));
+
+// Reads a lead's website in a real browser, checked like screenshotSite, and runs `script` in it. Every picture the page
+// loaded comes back too, by address, so its logo and photos can be reused without fetching them again.
+export const readSite = <T>(url: string, script: () => T) => enqueue(async () => {
+  const context = await (await getBrowser()).newContext({ viewport: { width: 1280, height: 900 } });
+  const ok = new Map<string, Promise<boolean>>(), images = new Map<string, { type: string; body: Buffer }>();
+  try {
+    await context.route('**/*', route => {
+      const u = new URL(route.request().url());
+      if (u.protocol === 'data:' || u.protocol === 'blob:') return route.continue();
+      if (!ok.has(u.host)) ok.set(u.host, checkUrl(u.href).then(() => true, () => false));
+      return ok.get(u.host)!.then(allowed => allowed ? route.continue() : route.abort());
+    });
+    const page = await context.newPage();
+    page.on('response', async res => {
+      const type = (res.headers()['content-type'] ?? '').split(';')[0];
+      if (!/^image\/(jpeg|png|webp|svg\+xml|gif|avif)$/.test(type)) return;
+      const body = await res.body().catch(() => null);
+      if (body && body.length < 6_000_000) images.set(res.url(), { type, body });
+    });
+    const failed = await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).then(() => null, (err: Error) => err);
+    if (failed && page.url() === 'about:blank') throw new Error(failed.message.split('\n')[0].replace(/^page\.goto: /, ''));
+    for (let i = 0; i < 10; i++) { // wait out a bot check, as screenshotSite does
+      const html = await page.content().catch(() => null);
+      if (html !== null && !isChallenge(html)) break;
+      await page.waitForTimeout(1500);
+    }
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); // lazy loaded photos
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    return { data: await page.evaluate(script), html: await page.content(), images };
   } finally {
     await context.close().catch(() => {});
   }

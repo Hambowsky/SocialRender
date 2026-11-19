@@ -491,6 +491,8 @@
           <label>Most leads per run <input id="cMax" type="number" min="1" max="100" value="100"></label>
         </div>
         <label>Free guide to offer in its emails <select id="cGuide"><option value="">None</option></select></label>
+        <label class="chip" style="justify-self:start"><input type="checkbox" id="cConcept">Show a homepage concept in the first email</label>
+        <span class="muted">Claude makes each lead a homepage concept from their own logo, colours and photos, shown as a picture inside the email. A few pence and about a minute per lead.</span>
         <div class="fields" style="gap:6px"><span class="muted">Search</span>
           <div class="chips" id="cSources">
             <label class="chip"><input type="checkbox" value="places" checked>Google Maps</label>
@@ -704,8 +706,8 @@
     return res;
   }
   // Long Claude work runs as a job on the server; this starts it and checks every two seconds until it is done.
-  async function apiJob(path, body) {
-    const { job } = await (await api(path, { method: 'POST', body: JSON.stringify(body) })).json();
+  async function apiJob(path, body, method = 'POST') {
+    const { job } = await (await api(path, { method, body: JSON.stringify(body ?? {}) })).json();
     for (;;) {
       await new Promise(r => setTimeout(r, 2000));
       const r = await (await api(`/jobs/${job}`)).json();
@@ -839,13 +841,13 @@
     .sort((a, b) => b.toLowerCase().startsWith(q.toLowerCase()) - a.toLowerCase().startsWith(q.toLowerCase())).map(name => ({ name })));
   suggest($('cTowns'), async q => (await api(`/campaigns/towns?q=${encodeURIComponent(q)}`)).json());
   const campBody = () => ({ name: $('cName').value, industries: $('cIndustries').value, towns: $('cTowns').value, lead_type: $('cType').value,
-    max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value), guide_id: Number($('cGuide').value) || null });
+    max_leads: Number($('cMax').value), sources: [...$('cSources').querySelectorAll('input:checked')].map(i => i.value), guide_id: Number($('cGuide').value) || null, concept: $('cConcept').checked });
   function editCampaign(c) {
     editing = c?.id ?? null;
     $('cFormTitle').textContent = c ? `Edit ${c.name}` : 'New campaign';
     $('cCancel').hidden = !c;
     $('cName').value = c?.name ?? ''; $('cIndustries').value = c?.industries ?? ''; $('cTowns').value = c?.towns ?? '';
-    $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 100; $('cGuide').value = c?.guide_id ?? '';
+    $('cType').value = c?.lead_type ?? 'no_website'; $('cMax').value = c?.max_leads ?? 100; $('cGuide').value = c?.guide_id ?? ''; $('cConcept').checked = !!c?.concept;
     for (const i of $('cSources').querySelectorAll('input')) i.checked = c ? c.sources.includes(i.value) : i.value === 'places';
     note('cOut', '');
   }
@@ -888,7 +890,7 @@
       $('cList').innerHTML = campList.map(c => `<div class="camp">
           <div class="row" style="justify-content:space-between"><h3>${esc(c.name)}</h3>
             <span class="badge ${{ running: 'pending', done: 'sent', failed: 'bad' }[c.status] ?? ''}">${esc({ draft: 'Not run', running: 'Running', done: 'Done', failed: 'Failed' }[c.status])}</span></div>
-          <span class="muted">${esc(TYPES[c.lead_type])} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run${guideName(c.guide_id) ? ` · offers ${esc(guideName(c.guide_id))}` : ''}</span>
+          <span class="muted">${esc(TYPES[c.lead_type])} · ${esc(c.industries)} in ${esc(c.towns)} · up to ${c.max_leads} a run${guideName(c.guide_id) ? ` · offers ${esc(guideName(c.guide_id))}` : ''}${c.concept ? ' · shows a concept' : ''}</span>
           <span style="font-size:13px">${campSummary(c)}</span>
           <span style="font-size:13px">${analysisLine(c)}</span>
           <div class="row">
@@ -963,8 +965,9 @@
           ${m.error ? `<span class="bad" style="font-size:13px">${esc(m.error)}${m.status === 'check_sent' ? '. Check with them or your mail provider whether it arrived.' : ''}</span>` : ''}
           ${open ? `<label>Subject <input data-f="subject" value="${esc(m.subject)}" maxlength="200"></label>
             <label>Email <textarea data-f="body" rows="9">${esc(m.body)}</textarea></label>
-            <span class="muted">An unsubscribe line is added at the bottom when it is sent.${m.follow_up_of ? ' It goes in the same thread as the first email, and is dropped if they reply first.' : ''}</span>`
+            <span class="muted">An unsubscribe line is added at the bottom when it is sent.${m.follow_up_of ? ' It goes in the same thread as the first email, and is dropped if they reply first.' : ''}${m.concept ? ' The concept picture shows where [concept] is, or above the sign off.' : ''}</span>`
           : `<details><summary>${esc(m.subject)}</summary><p style="white-space:pre-wrap;font-size:14px">${esc(m.body)}</p></details>`}
+          ${m.concept && m.lead_id ? `<img class="shot" data-concept-lead="${m.lead_id}" alt="The homepage concept in this email" style="max-width:480px">` : ''}
           <div class="row">
             ${open ? `<button type="button" class="small" data-act="approve">Approve and send</button><button type="button" class="plain small" data-act="save">Save changes</button><button type="button" class="plain small" data-act="test">Send me a test</button>` : ''}
             ${m.status === 'failed' ? '<button type="button" class="small" data-act="approve">Try again</button>' : ''}
@@ -973,6 +976,8 @@
             <span data-out></span>
           </div></div>`;
       }).join('') || '<p class="muted">No emails yet. Open a lead with an email address and choose Draft an email.</p>';
+      for (const img of $('eList').querySelectorAll('[data-concept-lead]'))
+        api(`/leads/${img.dataset.conceptLead}/concept/showcase.jpg`).then(r => r.blob()).then(b => { img.src = URL.createObjectURL(b); }, () => { img.hidden = true; });
       const waiting = r.emails.filter(m => m.status === 'pending_approval').length;
       $('eApproveAll').hidden = !waiting;
       $('eFollow').hidden = !r.follow_ups_due;
@@ -1646,6 +1651,25 @@
         <div class="row"><button type="button" class="plain small" id="ldAnalyse" data-id="${l.id}">Analyse again</button>${l.website_url ? `<button type="button" class="plain small" id="ldReport" data-id="${l.id}">Website report (PDF)</button>` : ''}<span class="muted">Checked ${esc(l.analysed_at.slice(0, 10).split('-').reverse().join('/'))}</span></div>
       </div>`;
   }
+  // The homepage concept: the picture that goes in the email, the words to change, and a fresh one if it missed.
+  const conceptHtml = l => {
+    const c = l.concept;
+    if (!c) return `<div class="row"><button type="button" class="plain" id="ldConcept" data-id="${l.id}">Make a homepage concept</button><span class="muted" id="ldConceptOut">Their logo, colours and photos in a cleaner homepage, shown inside their first email. A few pence of Claude.</span></div>`;
+    const k = c.copy, f = (name, label, value, rows = 0) => rows ? `<label>${label} <textarea data-c="${name}" rows="${rows}">${esc(value)}</textarea></label>` : `<label>${label} <input data-c="${name}" value="${esc(value)}"></label>`;
+    return `<div class="fields" style="gap:8px"><strong>Homepage concept</strong>
+      <img class="shot" id="ldConceptImg" alt="The concept, as it shows in the email">
+      <div class="row"><a class="button plain small" data-concept-file="desktop.jpg">Full desktop page</a><a class="button plain small" data-concept-file="phone.jpg">Full phone page</a>
+        <button type="button" class="plain small" id="ldConcept" data-id="${l.id}">Make a new one</button><span class="muted" id="ldConceptOut">Goes inside their next first email.</span></div>
+      <details><summary>Change the words</summary><div class="fields" style="margin-top:10px">
+        ${f('headline', 'Headline', k.headline)}${f('highlight', 'Word in their colour', k.highlight)}${f('intro', 'Intro', k.intro, 2)}${f('cta', 'Button', k.cta)}
+        ${f('trust', 'Reasons to choose them, one per line', k.trust.join('\n'), 3)}${f('services', 'Services, one per line as Title: text', k.services.map(s => `${s.title}: ${s.text}`).join('\n'), 5)}
+        ${f('about_title', 'About heading', k.about_title)}${f('about', 'About', k.about, 3)}${f('closing', 'Closing line', k.closing)}
+        <div class="row"><button type="button" class="small" id="ldConceptSave" data-id="${l.id}">Save and redraw</button></div></div></details></div>`;
+  };
+  async function loadConcept(id) {
+    if (!$('ldConceptImg')) return;
+    try { $('ldConceptImg').src = URL.createObjectURL(await (await api(`/leads/${id}/concept/showcase.jpg`)).blob()); } catch { $('ldConceptImg').hidden = true; }
+  }
   const emailHtml = l => l.email ? `<div class="row"><button type="button" class="plain" id="ldEmailDraft" data-id="${l.id}">Draft an email</button><span class="muted" id="ldEmailOut"></span></div>` : '';
   async function loadShot(id) {
     if (!$('ldShot')) return;
@@ -1663,6 +1687,7 @@
       ${Object.keys(l.seo_issues).length ? `<div class="fields" style="gap:6px"><strong>SEO</strong><div class="facts">${issueChips(l.seo_issues)}</div></div>` : ''}
       ${Object.keys(l.social_links).length ? `<div class="facts">${Object.entries(l.social_links).map(([k, v]) => `<a class="badge" href="${esc(v)}" target="_blank" rel="noopener">${esc(k)}</a>`).join('')}</div>` : ''}
       ${analysisHtml(l)}
+      ${conceptHtml(l)}
       ${emailHtml(l)}
       <div class="cols two">
         <label>Contact name <input id="ldContact" value="${esc(l.contact_name)}"></label>
@@ -1677,12 +1702,31 @@
       <div class="activity">${l.activity.map(a => `<div><span class="muted">${esc(a.created_at.slice(0, 16))}</span><br>${esc(a.text)}</div>`).join('')}</div>`;
     if (!$('leadDialog').open) $('leadDialog').showModal();
     loadShot(l.id);
+    loadConcept(l.id);
   }
   $('leadDialog').addEventListener('click', async e => {
     if (e.target === $('leadDialog') || e.target.dataset.close !== undefined) return $('leadDialog').close();
     const id = e.target.dataset.id;
     try {
       if (e.target.id === 'ldCopy') { await navigator.clipboard.writeText($('ldPitch').textContent); e.target.textContent = 'Copied'; return; }
+      if (e.target.id === 'ldConcept' || e.target.id === 'ldConceptSave') {
+        const save = e.target.id === 'ldConceptSave', box = $('leadDetail');
+        let body;
+        if (save) {
+          const v = n => box.querySelector(`[data-c="${n}"]`).value.trim(), lines = n => v(n).split('\n').map(x => x.trim()).filter(Boolean);
+          body = { headline: v('headline'), highlight: v('highlight'), intro: v('intro'), cta: v('cta'), about_title: v('about_title'), about: v('about'), closing: v('closing'),
+            trust: lines('trust').slice(0, 3), services: lines('services').slice(0, 6).map(x => { const i = x.indexOf(':'); return { title: (i < 0 ? x : x.slice(0, i)).trim(), text: (i < 0 ? x : x.slice(i + 1)).trim() }; }) };
+        }
+        e.target.disabled = true;
+        $('ldConceptOut').textContent = save ? 'Redrawing...' : 'Reading their website and making the concept. This takes about a minute...';
+        try { await apiJob(`/leads/${id}/concept`, body, save ? 'PUT' : 'POST'); await openLead(id); } catch (err) { $('ldConceptOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; e.target.disabled = false; }
+        return;
+      }
+      if (e.target.dataset.conceptFile) {
+        const w = window.open('', '_blank');
+        w.location = URL.createObjectURL(await (await api(`/leads/${$('ldConcept').dataset.id}/concept/${e.target.dataset.conceptFile}`)).blob());
+        return;
+      }
       if (e.target.id === 'ldEmailDraft') {
         e.target.disabled = true;
         $('ldEmailOut').textContent = 'Claude is writing it...';

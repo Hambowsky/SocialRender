@@ -17,6 +17,7 @@ import * as articles from './articles.ts';
 import * as leads from './leads.ts';
 import { analyseCampaign, analyseLead } from './analyse.ts';
 import { reportPdf } from './report.ts';
+import * as concept from './concept.ts';
 import * as dashboard from './dashboard.ts';
 import * as gsc from './gsc.ts';
 import * as outreach from './outreach.ts';
@@ -290,7 +291,7 @@ export function buildApp() {
   const campaignBody = { type: 'object', additionalProperties: false, required: ['name', 'industries', 'towns', 'lead_type', 'max_leads', 'sources'], properties: {
     name: { type: 'string', minLength: 1, maxLength: 120 }, industries: { type: 'string', minLength: 1, maxLength: 1000 }, towns: { type: 'string', minLength: 1, maxLength: 1000 },
     lead_type: { enum: leads.LEAD_TYPES }, max_leads: { type: 'integer', minimum: 1, maximum: 100 },
-    sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } }, guide_id: { type: ['integer', 'null'], minimum: 1 } } };
+    sources: { type: 'array', minItems: 1, uniqueItems: true, items: { enum: leads.SOURCES } }, guide_id: { type: ['integer', 'null'], minimum: 1 }, concept: { type: 'boolean' } } };
   app.get('/campaigns', async () => leads.campaigns());
   app.get('/campaigns/usage', async () => leads.usage());
   app.get<{ Querystring: { q: string } }>('/campaigns/towns', { schema: { querystring: { type: 'object', required: ['q'], properties: { q: { type: 'string', maxLength: 60 } } } } },
@@ -318,6 +319,20 @@ export function buildApp() {
   app.get<{ Querystring: Omit<leads.LeadFilter, 'search'> & { q?: string } }>('/leads.csv', leadQuery,
   async (req, reply) => reply.type('text/csv; charset=utf-8').header('content-disposition', `attachment; filename="leads-${new Date().toISOString().slice(0, 10)}.csv"`)
     .send(leads.leadsCsv({ ...req.query, search: req.query.q })));
+  // A homepage concept: made with Claude in the background, its words changed by David, its pictures fetched by the editor.
+  app.post<{ Params: { id: number } }>('/leads/:id/concept', { schema: { params: id } }, async (req, reply) => { leads.lead(req.params.id); return background(reply, () => concept.make(req.params.id)); });
+  const line = (max: number) => ({ type: 'string', minLength: 1, maxLength: max });
+  app.put<{ Params: { id: number }; Body: Record<string, unknown> }>('/leads/:id/concept', { schema: { params: id, body: { type: 'object', additionalProperties: false, properties: {
+    headline: line(90), highlight: { type: 'string', maxLength: 40 }, intro: line(300), cta: line(40), about_title: line(80), about: line(600), closing: line(100),
+    trust: { type: 'array', maxItems: 3, items: line(60) }, nav: { type: 'array', maxItems: 5, items: line(30) },
+    services: { type: 'array', minItems: 1, maxItems: 6, items: { type: 'object', additionalProperties: false, required: ['title', 'text'], properties: { title: line(60), text: line(200) } } } } } } },
+  async (req, reply) => background(reply, () => concept.edit(req.params.id, req.body)));
+  app.get<{ Params: { id: number; file: string } }>('/leads/:id/concept/:file', { schema: { params: { type: 'object', properties: { id: { type: 'integer', minimum: 1 }, file: { enum: concept.FILES } } } } },
+    async (req, reply) => {
+      const file = concept.conceptFile(req.params.id, req.params.file);
+      if (!fs.existsSync(file)) return reply.code(404).send({ error: 'No concept yet' });
+      return reply.type('image/jpeg').header('cache-control', 'no-store').send(fs.createReadStream(file));
+    });
   app.get<{ Params: { id: number } }>('/leads/:id/report.pdf', { schema: { params: id } }, async (req, reply) => {
     const name = String((leads.lead(req.params.id) as any).company_name).replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
     return reply.type('application/pdf').header('content-disposition', `attachment; filename="website-report-${name}.pdf"`).send(await reportPdf(req.params.id));
