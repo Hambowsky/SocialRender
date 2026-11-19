@@ -55,6 +55,13 @@ export function marketing() {
     upcoming: db.prepare(`SELECT channel_name, text, due_at FROM posts WHERE status = 'sent' AND due_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ORDER BY due_at LIMIT 5`).all(),
     emails: emailHistory(),
     recent_articles: db.prepare(`SELECT title, category, slug, published_at FROM articles WHERE status = 'published' ORDER BY published_at DESC LIMIT 5`).all(),
+    list: {
+      subscribed: n(`SELECT COUNT(*) AS n FROM contacts c WHERE status = 'subscribed' AND NOT EXISTS (SELECT 1 FROM suppression s WHERE s.email = c.email)`),
+      pending: n(`SELECT COUNT(*) AS n FROM contacts c WHERE status = 'pending' AND NOT EXISTS (SELECT 1 FROM suppression s WHERE s.email = c.email)`),
+      joined_this_month: n(`SELECT COUNT(*) AS n FROM contacts WHERE status = 'subscribed' AND coalesce(confirmed_at, created_at) >= ${MONTH}`),
+      by_week: series('contacts', 'coalesce(confirmed_at, created_at)', `status = 'subscribed'`, 84, 'week'),
+      guides_live: n(`SELECT COUNT(*) AS n FROM magnets WHERE status = 'published'`),
+    },
   };
 }
 
