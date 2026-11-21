@@ -87,6 +87,8 @@
   .bars div { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; height: 100%; font-size: 11px; color: var(--muted); gap: 4px; min-width: 0; }
   .bars i { display: block; width: 100%; background: var(--red); border-radius: 4px 4px 0 0; min-height: 2px; }
   .bars i.zero { background: var(--line); }
+  .bars .when { line-height: 1.25; text-align: center; white-space: nowrap; }
+  @media (max-width: 820px) { .bars { gap: 3px; } .bars div { font-size: 9px; } } /* 14 days still fit across a phone */
   .erows { display: grid; gap: 14px; margin-top: 8px; }
   .erow { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 16px; align-items: center; color: inherit; text-decoration: none; }
   .esubj { font-weight: 600; font-size: 14px; overflow: hidden; } .esubj small { display: block; font-weight: 400; }
@@ -1164,9 +1166,11 @@
     return `<div class="card"><h2>Needs you</h2>${shown.length ? `<div class="todo">${shown.map(([n, text, href, attrs]) => `<a href="${href}" ${attrs}><b>${n}</b>${esc(text)}</a>`).join('')}</div>` : '<p class="muted">Nothing is waiting on you.</p>'}</div>`;
   };
   const tile = (big, label, sub = '', href = '') => `<${href ? `a href="${href}"` : 'div'} class="card tile"><span class="muted">${esc(label)}</span><span class="big">${big}</span>${sub ? `<span class="muted">${sub}</span>` : ''}</${href ? 'a' : 'div'}>`;
-  const bars = (rows, label) => {
+  // Every bar is labelled with the day over the month, so labels never wrap differently and the charts line up on phones.
+  const bars = rows => {
     const max = Math.max(1, ...rows.map(r => r.count));
-    return `<div class="bars">${rows.map(r => `<div title="${esc(r.count)}">${r.count || ''}<i class="${r.count ? '' : 'zero'}" style="height:${r.count / max * 100}%"></i>${esc(label(r.date))}</div>`).join('')}</div>`;
+    return `<div class="bars">${rows.map(r => { const d = new Date(r.date);
+      return `<div title="${esc(r.count)}">${r.count || ''}<i class="${r.count ? '' : 'zero'}" style="height:${r.count / max * 100}%"></i><span class="when">${d.getDate()}<br>${esc(d.toLocaleDateString('en-GB', { month: 'short' }))}</span></div>`; }).join('')}</div>`;
   };
   const dm = d => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
   // Each sent email as a row: the share of people it reached who opened it, and who clicked.
@@ -1223,14 +1227,14 @@
           ${kpi({ label: 'Claude this month', big: money(m.all_spend_gbp), sub: `of ${money(m.cap_gbp)}. Sales ${money(s.spend_gbp)}, marketing ${money(m.spend_gbp)}`, viz: `<div class="meter"><i style="width:${Math.min(100, m.all_spend_gbp / m.cap_gbp * 100)}%"></i></div>` })}
         </div>
         <div class="cols wide-left">
-          <div class="card"><div class="card-head"><h2>Outreach emails, last 14 days</h2><a class="muted" href="#emails">Open</a></div>${bars(s.sent_by_day, x => new Date(x).getDate())}</div>
+          <div class="card"><div class="card-head"><h2>Outreach emails, last 14 days</h2><a class="muted" href="#emails">Open</a></div>${bars(s.sent_by_day)}</div>
           <div class="card"><div class="card-head"><h2>Lead pipeline</h2><a class="muted" href="#leads">Open</a></div>
             <div class="funnel">${funnel.map(([k, n, c]) => `<div><span>${k}</span><i class="${c}" style="width:${n / fmax * 100}%"></i><b>${n}</b></div>`).join('')}</div>
             <span class="muted">Hot ${s.priority.hot ?? 0}, warm ${s.priority.warm ?? 0}, cold ${s.priority.cold ?? 0}</span></div>
         </div>
         <div class="cols two">
-          <div class="card"><div class="card-head"><h2>Posts sent, by week</h2><a class="muted" href="#social">Open</a></div>${bars(m.posts_by_week, dm)}</div>
-          <div class="card"><div class="card-head"><h2>New subscribers, by week</h2><a class="muted" href="#contacts">Open</a></div>${bars(m.list.by_week.slice(-8), dm)}</div>
+          <div class="card"><div class="card-head"><h2>Posts sent, by week</h2><a class="muted" href="#social">Open</a></div>${bars(m.posts_by_week)}</div>
+          <div class="card"><div class="card-head"><h2>New subscribers, by week</h2><a class="muted" href="#contacts">Open</a></div>${bars(m.list.by_week.slice(-8))}</div>
         </div>
         ${emailCard(m.emails)}
         <div class="cols three">
