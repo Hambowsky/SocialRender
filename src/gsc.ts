@@ -20,7 +20,7 @@ function credentials(): Credentials {
 // A signed JWT swapped for an access token, kept until a minute before it runs out. The promise is shared,
 // so queries that start together sign in once.
 let token: { value: Promise<string>; until: number } | undefined;
-function accessToken() {
+export function accessToken() {
   if (!token || token.until <= Date.now()) {
     token = { value: signIn(), until: Date.now() + 50 * 60_000 };
     token.value.catch(() => { token = undefined; });
@@ -30,7 +30,7 @@ function accessToken() {
 async function signIn() {
   const c = credentials(), now = Math.floor(Date.now() / 1000);
   const b64 = (v: object) => Buffer.from(JSON.stringify(v)).toString('base64url');
-  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: c.client_email, scope: 'https://www.googleapis.com/auth/webmasters.readonly', aud: GSC_TOKEN_URL, iat: now, exp: now + 3600 })}`;
+  const unsigned = `${b64({ alg: 'RS256', typ: 'JWT' })}.${b64({ iss: c.client_email, scope: 'https://www.googleapis.com/auth/webmasters.readonly https://www.googleapis.com/auth/analytics.readonly', aud: GSC_TOKEN_URL, iat: now, exp: now + 3600 })}`;
   const jwt = `${unsigned}.${crypto.sign('RSA-SHA256', Buffer.from(unsigned), c.private_key).toString('base64url')}`;
   const res = await fetch(GSC_TOKEN_URL, { method: 'POST', signal: AbortSignal.timeout(20_000), headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }) });
@@ -39,14 +39,16 @@ async function signIn() {
   return body.access_token!;
 }
 
-async function query(startDate: string, endDate: string, dimensions: string[]) {
-  const res = await fetch(`${GSC_API_URL}/sites/${encodeURIComponent(GSC_SITE)}/searchAnalytics/query`, {
+export const serviceEmail = () => credentials().client_email;
+
+export async function query(startDate: string, endDate: string, dimensions: string[], site = GSC_SITE) {
+  const res = await fetch(`${GSC_API_URL}/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
     method: 'POST', signal: AbortSignal.timeout(30_000),
     headers: { authorization: `Bearer ${await accessToken()}`, 'content-type': 'application/json' },
     body: JSON.stringify({ startDate, endDate, dimensions, rowLimit: 250 }),
   });
   const body = await res.json().catch(() => ({})) as { rows?: Row[]; error?: { message?: string } };
-  if (res.status === 403) fail(502, `Search Console refused: add ${credentials().client_email} as a user on ${GSC_SITE} in Search Console`);
+  if (res.status === 403) fail(502, `Search Console refused: add ${credentials().client_email} as a user on ${site} in Search Console`);
   if (!res.ok) fail(502, `Search Console: ${body.error?.message ?? res.status}`);
   return body.rows ?? [];
 }

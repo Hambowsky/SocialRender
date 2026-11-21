@@ -306,6 +306,48 @@ const migrations = [
    ALTER TABLE campaigns ADD COLUMN concept INTEGER NOT NULL DEFAULT 0`, // 1 to make a concept for every lead before its first email
 
   `ALTER TABLE leads ADD COLUMN apollo TEXT`, // what Apollo found: the decision maker and company details, JSON
+
+  `CREATE TABLE customers (            -- clients Red Cherry IT works for
+     id INTEGER PRIMARY KEY,
+     business_name TEXT NOT NULL,
+     first_name TEXT NOT NULL DEFAULT '',
+     last_name TEXT NOT NULL DEFAULT '',
+     email TEXT NOT NULL DEFAULT '',
+     phone TEXT NOT NULL DEFAULT '',
+     address TEXT NOT NULL DEFAULT '',
+     website_url TEXT NOT NULL DEFAULT '',
+     services TEXT NOT NULL DEFAULT '[]', -- JSON list of service names
+     ga4_property TEXT NOT NULL DEFAULT '', -- Google Analytics 4 property id, for their analytics
+     gsc_site TEXT NOT NULL DEFAULT '',     -- Search Console property; blank means sc-domain:<their website>
+     lead_id INTEGER,                       -- the lead they came from, if any
+     created_at TEXT NOT NULL DEFAULT (datetime('now')),
+     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE TABLE customer_activity (    -- notes, and a line for each email, invoice and report sent
+     id INTEGER PRIMARY KEY,
+     customer_id INTEGER NOT NULL,
+     kind TEXT NOT NULL,               -- note, email, invoice or report
+     text TEXT NOT NULL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   );
+   CREATE INDEX customer_activity_customer ON customer_activity (customer_id);
+   CREATE TABLE invoices (
+     id INTEGER PRIMARY KEY,
+     customer_id INTEGER NOT NULL,
+     number INTEGER UNIQUE,            -- given when first sent, so numbers run on with no gaps
+     items TEXT NOT NULL,              -- JSON [{description, qty, price}]
+     note TEXT NOT NULL DEFAULT '',
+     vat_rate REAL NOT NULL DEFAULT 0,
+     total REAL NOT NULL,              -- including VAT
+     due_days INTEGER NOT NULL DEFAULT 14,
+     status TEXT NOT NULL DEFAULT 'draft', -- draft, sending, sent or paid
+     error TEXT,
+     issued_on TEXT,
+     due_on TEXT,
+     sent_at TEXT,
+     paid_at TEXT,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   )`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
