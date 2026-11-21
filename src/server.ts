@@ -18,6 +18,7 @@ import * as leads from './leads.ts';
 import { analyseCampaign, analyseLead } from './analyse.ts';
 import { reportPdf } from './report.ts';
 import * as concept from './concept.ts';
+import * as customers from './customers.ts';
 import * as dashboard from './dashboard.ts';
 import * as gsc from './gsc.ts';
 import * as outreach from './outreach.ts';
@@ -345,6 +346,48 @@ export function buildApp() {
   async req => leads.updateLead(req.params.id, req.body));
   app.post<{ Params: { id: number }; Body: { text: string } }>('/leads/:id/notes', { schema: { params: id, body: { type: 'object', required: ['text'],
     additionalProperties: false, properties: { text: { type: 'string', minLength: 1, maxLength: 5000 } } } } }, async req => leads.addNote(req.params.id, req.body.text));
+
+  // Customers: details, notes, email, invoices, their website's numbers and a monthly report.
+  const pdfReply = (reply: FastifyReply, file: string, data: Buffer) => reply.type('application/pdf').header('content-disposition', `attachment; filename="${file}"`).send(data);
+  const custBody = { type: 'object', additionalProperties: false, properties: {
+    business_name: { type: 'string', maxLength: 200 }, first_name: str(100), last_name: str(100), email: str(200), phone: str(40), address: str(500),
+    website_url: str(500), ga4_property: { type: 'string', pattern: '^[0-9]{0,20}$' }, gsc_site: str(300), services: { type: 'array', maxItems: 30, items: str(100) } } };
+  const invBody = { type: 'object', required: ['items'], additionalProperties: false, properties: {
+    items: { type: 'array', minItems: 1, maxItems: 40, items: { type: 'object', required: ['description', 'qty', 'price'], additionalProperties: false,
+      properties: { description: str(300), qty: { type: 'number', minimum: 0, maximum: 100000 }, price: { type: 'number', minimum: -1000000, maximum: 1000000 } } } },
+    note: str(2000), due_days: { type: 'integer', minimum: 0, maximum: 365 } } };
+  const mailBody = (extra: object = {}) => ({ type: 'object', required: ['subject', 'body'], additionalProperties: false,
+    properties: { subject: { type: 'string', minLength: 1, maxLength: 200 }, body: { type: 'string', minLength: 1, maxLength: 20000 }, ...extra } });
+  app.get('/customers', async () => ({ customers: customers.list(), services: customers.SERVICES }));
+  app.post<{ Body: customers.CustomerInput }>('/customers', { schema: { body: { ...custBody, required: ['business_name'] } } }, async req => customers.create(req.body));
+  app.get<{ Params: { id: number } }>('/customers/:id', { schema: { params: id } }, async req => customers.get(req.params.id));
+  app.put<{ Params: { id: number }; Body: customers.CustomerInput }>('/customers/:id', { schema: { params: id, body: custBody } }, async req => customers.update(req.params.id, req.body));
+  app.delete<{ Params: { id: number } }>('/customers/:id', { schema: { params: id } }, async req => customers.remove(req.params.id));
+  app.post<{ Params: { id: number } }>('/leads/:id/customer', { schema: { params: id } }, async req => customers.fromLead(req.params.id));
+  app.post<{ Params: { id: number }; Body: { text: string } }>('/customers/:id/notes', { schema: { params: id, body: { type: 'object', required: ['text'],
+    additionalProperties: false, properties: { text: { type: 'string', minLength: 1, maxLength: 5000 } } } } }, async req => customers.addCustomerNote(req.params.id, req.body.text));
+  app.post<{ Params: { id: number }; Body: { subject: string; body: string } }>('/customers/:id/email', { schema: { params: id, body: mailBody() } },
+    async req => customers.email(req.params.id, req.body.subject, req.body.body));
+  app.get('/invoice-settings', async () => customers.settings());
+  app.put<{ Body: Partial<customers.InvoiceSettings> }>('/invoice-settings', { schema: { body: { type: 'object', additionalProperties: false, properties: {
+    from: str(1000), payment: str(1000), prefix: str(20), start: { type: 'integer', minimum: 1 }, due_days: { type: 'integer', minimum: 0, maximum: 365 },
+    vat_rate: { type: 'number', minimum: 0, maximum: 100 }, vat_number: str(40) } } } }, async req => customers.saveSettings(req.body));
+  app.post<{ Params: { id: number }; Body: customers.InvoiceInput }>('/customers/:id/invoices', { schema: { params: id, body: invBody } }, async req => customers.createInvoice(req.params.id, req.body));
+  app.post<{ Params: { id: number }; Body: customers.InvoiceInput }>('/customers/:id/invoices/preview', { schema: { params: id, body: invBody } },
+    async (req, reply) => pdfReply(reply, 'invoice-draft.pdf', await customers.previewInvoice(req.params.id, req.body)));
+  app.get<{ Params: { id: number } }>('/invoices/:id/pdf', { schema: { params: id } }, async (req, reply) => pdfReply(reply, `invoice-${req.params.id}.pdf`, await customers.invoicePdf(req.params.id)));
+  app.post<{ Params: { id: number }; Body: { message: string } }>('/invoices/:id/send', { schema: { params: id, body: { type: 'object', required: ['message'],
+    additionalProperties: false, properties: { message: { type: 'string', minLength: 1, maxLength: 20000 } } } } }, async req => customers.sendInvoice(req.params.id, req.body.message));
+  app.post<{ Params: { id: number }; Body: { paid: boolean } }>('/invoices/:id/paid', { schema: { params: id, body: { type: 'object', required: ['paid'],
+    additionalProperties: false, properties: { paid: { type: 'boolean' } } } } }, async req => customers.markPaid(req.params.id, req.body.paid));
+  app.delete<{ Params: { id: number } }>('/invoices/:id', { schema: { params: id } }, async req => customers.deleteInvoice(req.params.id));
+  app.post<{ Params: { id: number } }>('/customers/:id/analytics', { schema: { params: id } }, async (req, reply) => { customers.get(req.params.id); return background(reply, () => customers.analytics(req.params.id)); });
+  app.get<{ Params: { id: number } }>('/customers/:id/report/notes', { schema: { params: id } }, async req => ({ notes: customers.recentNotes(req.params.id) }));
+  const workBody = { type: 'object', additionalProperties: false, properties: { work: str(5000) } };
+  app.post<{ Params: { id: number }; Body: { work?: string } }>('/customers/:id/report/preview', { schema: { params: id, body: workBody } },
+    async (req, reply) => pdfReply(reply, 'report.pdf', await customers.reportPdf(req.params.id, req.body.work ?? '')));
+  app.post<{ Params: { id: number }; Body: { work?: string; subject: string; body: string } }>('/customers/:id/report/send', { schema: { params: id, body: mailBody({ work: str(5000) }) } },
+    async (req, reply) => { customers.get(req.params.id); return background(reply, () => customers.sendReport(req.params.id, req.body.work ?? '', req.body.subject, req.body.body)); });
 
   // Outreach
   app.post<{ Params: { id: number } }>('/leads/:id/email', { schema: { params: id } }, async (req, reply) => background(reply, () => outreach.draft(req.params.id)));

@@ -54,6 +54,7 @@ export const GSC_CREDENTIALS = env.GSC_CREDENTIALS ?? '';
 export const GSC_SITE = env.GSC_SITE || 'sc-domain:redcherryit.com';
 export const GSC_TOKEN_URL = env.GSC_TOKEN_URL || 'https://oauth2.googleapis.com/token'; // tests point these at fakes
 export const GSC_API_URL = env.GSC_API_URL || 'https://www.googleapis.com/webmasters/v3';
+export const GA4_API_URL = env.GA4_API_URL || 'https://analyticsdata.googleapis.com/v1beta';
 
 // Outreach. Emails send from David's own mailbox over SMTP, after approval, within a daily cap and with a pause between sends.
 export const SMTP_HOST = env.SMTP_HOST ?? '';

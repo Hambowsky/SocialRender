@@ -217,6 +217,10 @@
   .idea a { color: var(--red); word-break: break-word; }
 
   dialog { border: 0; border-radius: var(--radius); padding: 0; width: min(560px, 92vw); box-shadow: 0 20px 60px rgba(0, 0, 0, .25); }
+  #custDialog { width: min(780px, 94vw); }
+  .cu-panel { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--field); }
+  .inv-line { display: grid; grid-template-columns: 1fr 70px 100px 32px; gap: 8px; align-items: center; }
+  @media (max-width: 820px) { .inv-line { grid-template-columns: 1fr 1fr 32px; } .inv-line [data-i=description] { grid-column: 1 / -1; } }
   dialog::backdrop { background: rgba(26, 26, 26, .4); }
   dialog .card { box-shadow: none; border: 0; }
   dialog img.big { width: 100%; border-radius: 10px; background: var(--grey-soft); aspect-ratio: 1; object-fit: cover; }
@@ -284,6 +288,8 @@
     <p class="nav-group">Email marketing</p>
     <a href="#newsletter" data-view="newsletter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>Newsletters</a>
     <a href="#contacts" data-view="contacts"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Contacts</a>
+    <p class="nav-group">Customers</p>
+    <a href="#customers" data-view="customers"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13h20"/></svg>Customers</a>
     <p class="nav-group">Sales</p>
     <a href="#leads" data-view="leads"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/></svg>Leads</a>
     <a href="#campaigns" data-view="campaigns"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>Campaigns</a>
@@ -560,6 +566,29 @@
     </table></div>
   </div>
 </section>
+<section class="view" data-view="customers" hidden>
+  <div class="card">
+    <div class="card-head"><h2>Customers</h2><div class="row"><span class="muted" id="cuCount"></span><button type="button" class="small" id="cuAdd">Add a customer</button></div></div>
+    <label>Search <input id="cuSearch" type="search" placeholder="Business, name, email or service"></label>
+    <div class="table"><table>
+      <thead><tr><th>Business</th><th>Contact</th><th>Services</th><th>Unpaid</th></tr></thead>
+      <tbody id="cuRows"></tbody>
+    </table></div>
+  </div>
+  <details class="card" id="invSettings">
+    <summary><h2 style="display:inline">Invoice details</h2> <span class="muted">Your name, address and bank details on every invoice</span></summary>
+    <div class="cols two">
+      <label>From (name and address) <textarea id="isFrom" rows="4" placeholder="David Hanmer trading as Red Cherry IT&#10;Address&#10;Postcode"></textarea></label>
+      <label>How to pay <textarea id="isPayment" rows="4" placeholder="Bank transfer to&#10;Account name&#10;Sort code 00-00-00&#10;Account 00000000"></textarea></label>
+      <label>Invoice number prefix <input id="isPrefix" maxlength="20"></label>
+      <label>First invoice number <input id="isStart" type="number" min="1"></label>
+      <label>Days to pay <input id="isDue" type="number" min="0" max="365"></label>
+      <label>VAT rate (0 if not VAT registered) <input id="isVat" type="number" min="0" max="100" step="0.5"></label>
+      <label>VAT number <input id="isVatNo" maxlength="40"></label>
+    </div>
+    <div class="row"><button type="button" class="small" id="isSave">Save invoice details</button><span id="isOut" class="muted"></span></div>
+  </details>
+</section>
 <section class="view" data-view="signals" hidden>
   <div class="card">
     <div class="card-head"><h2>Signals</h2><div class="row"><label class="chip"><input type="checkbox" id="sgAll">Show answered and hidden</label><button type="button" class="small" id="sgScan">Search now</button></div></div>
@@ -663,6 +692,7 @@
   </div>
 </section>
 <dialog id="leadDialog"><div class="card" id="leadDetail"></div></dialog>
+<dialog id="custDialog"><div class="card" id="custDetail"></div></dialog>
 
 <section class="view" data-view="prompts" hidden>
   <div class="cols wide-left">
@@ -746,6 +776,7 @@
     if (view === 'social') { loadPosts(); loadPlan(); } // posts made elsewhere show without a page reload
     if (view === 'campaigns') loadCampaigns();
     if (view === 'leads') loadLeads();
+    if (view === 'customers') loadCustomers();
     if (view === 'guides') loadGuides();
     if (view === 'emails') loadEmails();
     if (view === 'signals') loadSignals();
@@ -1712,7 +1743,7 @@
         <label>Follow up on <input id="ldFollow" type="date" value="${esc(l.follow_up_date ?? '')}"></label>
       </div>
       <label>Add a note <textarea id="ldNote" rows="2" placeholder="Saved with the lead"></textarea></label>
-      <div class="row"><button type="button" id="ldSave" data-id="${l.id}">Save</button><span id="ldOut"></span></div>
+      <div class="row"><button type="button" id="ldSave" data-id="${l.id}">Save</button><button type="button" class="plain" id="ldCustomer" data-id="${l.id}">Make a customer</button><span id="ldOut"></span></div>
       <div class="activity">${l.activity.map(a => `<div><span class="muted">${esc(a.created_at.slice(0, 16))}</span><br>${esc(a.text)}</div>`).join('')}</div>`;
     if (!$('leadDialog').open) $('leadDialog').showModal();
     loadShot(l.id);
@@ -1763,6 +1794,12 @@
         await openLead(id); loadLeads();
         return;
       }
+      if (e.target.id === 'ldCustomer') {
+        const c = await (await api(`/leads/${id}/customer`, { method: 'POST' })).json();
+        $('leadDialog').close(); loadLeads();
+        location.hash = '#customers'; openCustomer(c.id);
+        return;
+      }
       if (e.target.id === 'ldSave') {
         await api(`/leads/${id}`, { method: 'PUT', body: JSON.stringify({ contact_name: $('ldContact').value, phone: $('ldPhone').value, email: $('ldEmail').value,
           website_url: $('ldSite').value, status: $('ldStatus').value, follow_up_date: $('ldFollow').value || null }) });
@@ -1771,6 +1808,168 @@
         $('ldOut').innerHTML = '<span class="good">Saved</span>';
       }
     } catch (err) { alert(err.message); if (e.target.id === 'ldAnalyse') openLead(id); }
+  });
+
+  // Customers: a list, and a page for each with their details, notes, email, invoices, analytics and a report.
+  let custList = [], custServices = [];
+  async function loadCustomers() {
+    const r = await (await api('/customers')).json();
+    custList = r.customers; custServices = r.services;
+    drawCustomers();
+    if (!loaded.invSettings) { loaded.invSettings = true; const s = await (await api('/invoice-settings')).json();
+      $('isFrom').value = s.from; $('isPayment').value = s.payment; $('isPrefix').value = s.prefix; $('isStart').value = s.start; $('isDue').value = s.due_days; $('isVat').value = s.vat_rate; $('isVatNo').value = s.vat_number; }
+  }
+  function drawCustomers() {
+    const q = $('cuSearch').value.trim().toLowerCase();
+    const rows = custList.filter(c => !q || [c.business_name, c.contact_name, c.email, c.services.join(' ')].join(' ').toLowerCase().includes(q));
+    $('cuCount').textContent = `${custList.length} customer${custList.length === 1 ? '' : 's'}`;
+    $('cuRows').innerHTML = rows.map(c => `<tr data-customer="${c.id}" style="cursor:pointer"><td><b>${esc(c.business_name)}</b>${c.website_url ? `<br><span class="muted">${esc(c.website_url.replace(/^https?:\/\//, ''))}</span>` : ''}</td>
+      <td>${esc(c.contact_name)}${c.email ? `<br><span class="muted">${esc(c.email)}</span>` : ''}</td><td>${c.services.map(x => `<span class="badge">${esc(x)}</span>`).join(' ')}</td>
+      <td>${c.unpaid ? `<span class="badge ${c.overdue ? 'bad' : 'pending'}">${money(c.unpaid)}${c.overdue ? ' overdue' : ''}</span>` : ''}</td></tr>`).join('')
+      || `<tr><td colspan="4" class="muted">${custList.length ? 'No customers match.' : 'No customers yet. Add one, or press Make a customer on a lead you have won.'}</td></tr>`;
+  }
+  $('cuSearch').addEventListener('input', drawCustomers);
+  $('cuRows').addEventListener('click', e => { const tr = e.target.closest('tr[data-customer]'); if (tr) openCustomer(Number(tr.dataset.customer)); });
+  $('cuAdd').addEventListener('click', () => openCustomer(null));
+  $('isSave').addEventListener('click', async () => {
+    try {
+      await api('/invoice-settings', { method: 'PUT', body: JSON.stringify({ from: $('isFrom').value, payment: $('isPayment').value, prefix: $('isPrefix').value,
+        start: Number($('isStart').value) || 1, due_days: Number($('isDue').value) || 0, vat_rate: Number($('isVat').value) || 0, vat_number: $('isVatNo').value }) });
+      $('isOut').innerHTML = '<span class="good">Saved</span>';
+    } catch (err) { $('isOut').innerHTML = `<span class="bad">${esc(err.message)}</span>`; }
+  });
+
+  let cust = null;
+  const signOff = '\n\nKind regards,\nDavid Hanmer\nRed Cherry IT';
+  const hi = c => `Hi ${c.first_name || 'there'},\n\n`;
+  const invLine = (l = { description: '', qty: 1, price: '' }) => `<div class="inv-line"><input data-i="description" placeholder="What it is for" value="${esc(l.description)}">
+    <input data-i="qty" type="number" min="0" step="any" value="${esc(l.qty)}" aria-label="Quantity"><input data-i="price" type="number" step="0.01" placeholder="Price" value="${esc(l.price)}" aria-label="Price each">
+    <button type="button" class="icon" data-cu="dropLine" aria-label="Remove line">×</button></div>`;
+  const PANELS = {
+    email: c => `<label>Subject <input id="cuSubject" maxlength="200"></label><label>Message <textarea id="cuBody" rows="9">${esc(hi(c) + signOff)}</textarea></label>
+      <div class="row"><button type="button" data-cu="sendEmail">Send to ${esc(c.email)}</button></div>`,
+    invoice: c => `<div id="invLines" class="fields" style="gap:8px">${invLine()}</div>
+      <div class="row"><button type="button" class="plain small" data-cu="addLine">Add a line</button><b id="invTotal"></b></div>
+      <label>Note on the invoice (optional) <textarea id="invNote" rows="2" placeholder="Such as the month it covers"></textarea></label>
+      <label>Message with it <textarea id="invMsg" rows="7">${esc(`${hi(c)}Please find your invoice attached. The payment details are on it.${signOff}`)}</textarea></label>
+      <div class="row"><button type="button" data-cu="sendInvoice">Send to ${esc(c.email)}</button><button type="button" class="plain" data-cu="previewInvoice">Preview PDF</button><button type="button" class="plain" data-cu="draftInvoice">Save as a draft</button></div>`,
+    analytics: () => '<div id="cuStats"><p class="muted">Getting their numbers from Google...</p></div>',
+    report: c => `<label>What we did this month <textarea id="repWork" rows="5" placeholder="Shown at the top of the report. This month's notes fill it in."></textarea></label>
+      <label>Subject <input id="repSubject" maxlength="200" value="${esc(`Your website report for ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`)}"></label>
+      <label>Message <textarea id="repBody" rows="6">${esc(`${hi(c)}Here is your monthly website report, attached. Any questions, just reply.${signOff}`)}</textarea></label>
+      <div class="row"><button type="button" data-cu="sendReport">Send to ${esc(c.email)}</button><button type="button" class="plain" data-cu="previewReport">Preview PDF</button></div>`,
+    note: () => `<label>Note <textarea id="cuNote" rows="3" placeholder="Saved on their page with the date"></textarea></label><div class="row"><button type="button" data-cu="saveNote">Save note</button></div>`,
+  };
+  async function openCustomer(id, panel) {
+    cust = id ? await (await api(`/customers/${id}`)).json() : { business_name: '', first_name: '', last_name: '', email: '', phone: '', address: '', website_url: '', services: [], ga4_property: '', gsc_site: '', activity: [], invoices: [] };
+    const c = cust, others = c.services.filter(x => !custServices.includes(x));
+    const act = (k, label, needsEmail) => `<button type="button" class="${panel === k ? '' : 'plain '}small" data-panel="${k}" ${needsEmail && !c.email ? 'disabled title="Add their email first"' : ''}>${label}</button>`;
+    $('custDetail').innerHTML = `<div class="card-head"><h2>${esc(c.business_name || 'New customer')}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
+      ${c.id ? `<div class="row">${act('invoice', 'Send an invoice', 1)}${act('email', 'Email them', 1)}${act('analytics', 'Website analytics')}${act('report', 'Send a client report', 1)}${act('note', 'Add a note')}</div>
+        ${panel ? `<div class="cu-panel" id="cuPanel">${PANELS[panel](c)}<span id="cuPanelOut"></span></div>` : ''}` : ''}
+      <div class="cols two">
+        <label>Business name <input id="cuName" value="${esc(c.business_name)}" maxlength="200"></label>
+        <label>Website <input id="cuSite" value="${esc(c.website_url)}" placeholder="https://"></label>
+        <label>First name <input id="cuFirst" value="${esc(c.first_name)}"></label>
+        <label>Surname <input id="cuLast" value="${esc(c.last_name)}"></label>
+        <label>Email <input id="cuEmail" type="email" value="${esc(c.email)}"></label>
+        <label>Telephone <input id="cuPhone" type="tel" value="${esc(c.phone)}"></label>
+      </div>
+      <label>Address <textarea id="cuAddress" rows="3">${esc(c.address)}</textarea></label>
+      <div class="fields" style="gap:6px"><strong>Services they have with us</strong>
+        <div class="chips" id="cuServices">${custServices.map(x => `<label class="chip"><input type="checkbox" value="${esc(x)}" ${c.services.includes(x) ? 'checked' : ''}>${esc(x)}</label>`).join('')}</div>
+        <label>Anything else (comma separated) <input id="cuOther" value="${esc(others.join(', '))}"></label></div>
+      <details><summary class="muted">Google Analytics and Search Console</summary><div class="cols two">
+        <label>Google Analytics property id <input id="cuGa" value="${esc(c.ga4_property)}" inputmode="numeric" placeholder="Such as 123456789"></label>
+        <label>Search Console property <input id="cuGsc" value="${esc(c.gsc_site)}" placeholder="Blank uses their website's domain"></label></div>
+        <p class="muted">${c.service_email ? `In their Google Analytics and Search Console, add <b>${esc(c.service_email)}</b> as a user (Viewer is enough).` : 'Google numbers need GSC_CREDENTIALS set in Coolify.'}</p></details>
+      <div class="row"><button type="button" data-cu="save">${c.id ? 'Save' : 'Add customer'}</button>${c.id ? '<button type="button" class="plain small" data-cu="delete">Delete</button>' : ''}<span id="cuOut"></span></div>
+      ${c.invoices.length ? `<h3>Invoices</h3><div class="list">${c.invoices.map(i => `<div><span><b>${esc(i.label)}</b> ${money(i.total)} <span class="muted">${i.issued_on ? esc(dm(i.issued_on)) : 'not sent'}${i.due_on && i.status === 'sent' ? `, due ${esc(dm(i.due_on))}` : ''}</span>
+          <span class="badge ${i.overdue ? 'bad' : { paid: 'sent', sent: 'pending', draft: 'draft' }[i.status] ?? ''}">${i.overdue ? 'Overdue' : { paid: 'Paid', sent: 'Unpaid', draft: 'Draft', sending: 'Check your sent mail' }[i.status]}</span>${i.error ? ` <span class="bad">${esc(i.error)}</span>` : ''}</span>
+        <span class="row"><button type="button" class="plain small" data-inv-pdf="${i.id}" data-label="${esc(i.label)}">PDF</button>
+          ${i.status === 'sent' ? `<button type="button" class="plain small" data-inv-paid="1" data-inv="${i.id}">Mark paid</button>` : ''}${i.status === 'paid' ? `<button type="button" class="plain small" data-inv-paid="0" data-inv="${i.id}">Mark unpaid</button>` : ''}
+          ${i.status === 'draft' ? `<button type="button" class="small" data-inv-send="${i.id}">Send</button><button type="button" class="plain small" data-inv-del="${i.id}">Delete</button>` : ''}</span></div>`).join('')}</div>` : ''}
+      ${c.activity.length ? `<h3>Notes and history</h3><div class="activity">${c.activity.map(a => `<div><span class="muted">${esc(a.created_at.slice(0, 16).split(' ')[0].split('-').reverse().join('/'))} ${esc(a.created_at.slice(11, 16))}</span><br>${esc(a.text)}</div>`).join('')}</div>` : ''}`;
+    if (!$('custDialog').open) $('custDialog').showModal();
+    if (panel === 'analytics') loadCustStats(c.id);
+    if (panel === 'report') api(`/customers/${c.id}/report/notes`).then(r => r.json()).then(r => { if (!$('repWork').value) $('repWork').value = r.notes.join('\n'); });
+    if (panel === 'invoice') invTotal();
+    $('cuPanel')?.scrollIntoView({ block: 'nearest' });
+  }
+  const custForm = () => ({ business_name: $('cuName').value, first_name: $('cuFirst').value, last_name: $('cuLast').value, email: $('cuEmail').value, phone: $('cuPhone').value,
+    address: $('cuAddress').value, website_url: $('cuSite').value, ga4_property: $('cuGa').value.replace(/\D/g, ''), gsc_site: $('cuGsc').value,
+    services: [...[...$('cuServices').querySelectorAll('input:checked')].map(i => i.value), ...$('cuOther').value.split(',').map(x => x.trim()).filter(Boolean)] });
+  const invForm = () => ({ items: [...$('invLines').querySelectorAll('.inv-line')].map(l => { const v = k => l.querySelector(`[data-i="${k}"]`).value;
+    return { description: v('description').trim(), qty: Number(v('qty')) || 0, price: Number(v('price')) || 0 }; }).filter(l => l.description), note: $('invNote').value });
+  const invTotal = () => { const t = invForm().items.reduce((s, l) => s + l.qty * l.price, 0); $('invTotal').textContent = t ? `Total ${money(t)}` : ''; };
+  async function openPdf(path, body) {
+    const w = window.open('', '_blank');
+    const blob = await (await api(path, body ? { method: 'POST', body: JSON.stringify(body) } : {})).blob();
+    w.location = URL.createObjectURL(blob);
+  }
+  async function loadCustStats(id) {
+    try {
+      const a = await apiJob(`/customers/${id}/analytics`), v = a.visitors, s = a.search, sp = a.speed;
+      const pct = (n, was) => !was ? '' : `<small class="${n >= was ? 'good' : 'bad'}"> ${n >= was ? '+' : ''}${Math.round((n - was) / was * 100)}%</small>`;
+      const list = (rows, f) => rows.length ? `<div class="list">${rows.map(f).join('')}</div>` : '';
+      $('cuStats').innerHTML = `<p class="muted">${esc(dm(a.from))} to ${esc(dm(a.to))}, against the 28 days before</p>
+        ${v ? `<div class="tiles">${tile(`${v.users}${pct(v.users, v.before.users)}`, 'Visitors')}${tile(`${v.sessions}${pct(v.sessions, v.before.sessions)}`, 'Visits')}${tile(`${v.views}${pct(v.views, v.before.views)}`, 'Pages viewed')}</div>
+          <div class="cols two"><div><h3>Where they came from</h3>${list(v.channels, r => `<div><span>${esc(r.name)}</span><span class="muted">${r.sessions}</span></div>`)}</div>
+          <div><h3>Top pages</h3>${list(v.pages, r => `<div><span>${esc(r.path)}</span><span class="muted">${r.views}</span></div>`)}</div></div>` : ''}
+        ${s ? `<div class="tiles">${tile(`${s.clicks}${pct(s.clicks, s.before.clicks)}`, 'Clicks from Google')}${tile(`${s.impressions}${pct(s.impressions, s.before.impressions)}`, 'Times shown')}${tile(String(s.position), 'Average position', 'Lower is better')}</div>
+          <h3>Top searches</h3>${list(s.queries, q => `<div><span>${esc(q.query)}</span><span class="muted">${q.clicks} clicks, position ${q.position}</span></div>`) || '<p class="muted">None yet.</p>'}` : ''}
+        ${sp?.scores ? `<div class="tiles">${Object.entries({ performance: 'Speed on phones', seo: 'SEO basics', accessibility: 'Accessibility' }).filter(([k]) => k in sp.scores).map(([k, l]) => tile(String(sp.scores[k]), l)).join('')}</div>` : ''}
+        ${Object.entries(a.errors).map(([k, m]) => `<p class="muted" style="margin-top:6px"><b>${{ visitors: 'Visitors', search: 'Google search', speed: 'Speed test' }[k]}:</b> ${esc(m)}</p>`).join('')}`;
+    } catch (err) { $('cuStats').innerHTML = `<p class="bad">${esc(err.message)}</p>`; }
+  }
+  $('custDialog').addEventListener('input', e => { if (e.target.closest('#invLines')) invTotal(); });
+  $('custDialog').addEventListener('click', async e => {
+    if (e.target === $('custDialog') || e.target.dataset.close !== undefined) return $('custDialog').close();
+    const t = e.target, act = t.dataset.cu, c = cust, out = m => { const o = $('cuPanelOut') ?? $('cuOut'); o.innerHTML = m; };
+    if (t.dataset.panel) return openCustomer(c.id, $('cuPanel') && t.classList.contains('plain') === false ? undefined : t.dataset.panel);
+    if (!act && !t.dataset.invPdf && !t.dataset.inv && !t.dataset.invSend && !t.dataset.invDel) return;
+    const was = t.textContent;
+    t.disabled = true;
+    try {
+      if (act === 'save') {
+        const saved = await (await api(c.id ? `/customers/${c.id}` : '/customers', { method: c.id ? 'PUT' : 'POST', body: JSON.stringify(custForm()) })).json();
+        await openCustomer(saved.id); loadCustomers(); $('cuOut').innerHTML = '<span class="good">Saved</span>'; return;
+      }
+      if (act === 'delete') { if (!confirm(`Delete ${c.business_name}?`)) return; await api(`/customers/${c.id}`, { method: 'DELETE' }); $('custDialog').close(); return loadCustomers(); }
+      if (act === 'addLine') { $('invLines').insertAdjacentHTML('beforeend', invLine()); return; }
+      if (act === 'dropLine') { if ($('invLines').children.length > 1) t.closest('.inv-line').remove(); invTotal(); return; }
+      if (act === 'saveNote') { await api(`/customers/${c.id}/notes`, { method: 'POST', body: JSON.stringify({ text: $('cuNote').value }) }); return openCustomer(c.id); }
+      if (act === 'sendEmail') {
+        if (!confirm(`Send this email to ${c.email}?`)) return;
+        out('Sending...'); await api(`/customers/${c.id}/email`, { method: 'POST', body: JSON.stringify({ subject: $('cuSubject').value, body: $('cuBody').value }) });
+        await openCustomer(c.id); $('cuOut').innerHTML = '<span class="good">Email sent</span>'; return;
+      }
+      if (act === 'previewInvoice') { await openPdf(`/customers/${c.id}/invoices/preview`, invForm()); return; }
+      if (act === 'draftInvoice' || act === 'sendInvoice') {
+        const body = invForm();
+        if (act === 'sendInvoice' && !confirm(`Send this invoice to ${c.email}?`)) return;
+        const msg = $('invMsg').value, inv = await (await api(`/customers/${c.id}/invoices`, { method: 'POST', body: JSON.stringify(body) })).json();
+        if (act === 'sendInvoice') { out('Sending...'); await api(`/invoices/${inv.id}/send`, { method: 'POST', body: JSON.stringify({ message: msg }) }).catch(async err => { await openCustomer(c.id); throw err; }); }
+        await openCustomer(c.id); loadCustomers(); $('cuOut').innerHTML = `<span class="good">${act === 'sendInvoice' ? 'Invoice sent' : 'Draft saved'}</span>`; return;
+      }
+      if (t.dataset.invPdf) return await openPdf(`/invoices/${t.dataset.invPdf}/pdf`);
+      if (t.dataset.inv) { await api(`/invoices/${t.dataset.inv}/paid`, { method: 'POST', body: JSON.stringify({ paid: t.dataset.invPaid === '1' }) }); loadCustomers(); return openCustomer(c.id); }
+      if (t.dataset.invDel) { if (!confirm('Delete this draft invoice?')) return; await api(`/invoices/${t.dataset.invDel}`, { method: 'DELETE' }); return openCustomer(c.id); }
+      if (t.dataset.invSend) {
+        if (!confirm(`Send this invoice to ${c.email}?`)) return;
+        await api(`/invoices/${t.dataset.invSend}/send`, { method: 'POST', body: JSON.stringify({ message: `${hi(c)}Please find your invoice attached. The payment details are on it.${signOff}` }) })
+          .finally(() => openCustomer(c.id));
+        return loadCustomers();
+      }
+      if (act === 'previewReport') { out('Making the report. Getting Google\'s numbers can take a minute...'); await openPdf(`/customers/${c.id}/report/preview`, { work: $('repWork').value }); out(''); return; }
+      if (act === 'sendReport') {
+        if (!confirm(`Send the report to ${c.email}?`)) return;
+        out('Making and sending the report...');
+        await apiJob(`/customers/${c.id}/report/send`, { work: $('repWork').value, subject: $('repSubject').value, body: $('repBody').value });
+        await openCustomer(c.id); $('cuOut').innerHTML = '<span class="good">Report sent</span>'; return;
+      }
+    } catch (err) { if (document.body.contains(t)) out(`<span class="bad">${esc(err.message)}</span>`); else alert(err.message); }
+    finally { if (document.body.contains(t)) { t.disabled = false; t.textContent = was; } }
   });
 
   function start() {

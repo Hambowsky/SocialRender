@@ -161,7 +161,7 @@ function ready() {
   if (!PUBLIC_URL) fail(503, 'Set PUBLIC_URL first: every email needs a working unsubscribe link');
 }
 
-const transport = () => nodemailer.createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT === 465,
+export const transport = () => nodemailer.createTransport({ host: SMTP_HOST, port: SMTP_PORT, secure: SMTP_PORT === 465,
   auth: SMTP_USER ? { user: SMTP_USER, pass: SMTP_PASS } : undefined, connectionTimeout: 20_000, socketTimeout: 60_000 });
 
 // The link proves which address it is for without storing anything: a keyed hash of the address.

@@ -30,7 +30,7 @@ async function getJson(url: string, init?: RequestInit, ms = 20_000) {
 }
 
 // Google's mobile score, the one people see when they test their own site.
-async function pageSpeed(site: string) {
+export async function pageSpeed(site: string) {
   const q = new URLSearchParams({ url: site, strategy: 'mobile' });
   for (const c of ['performance', 'accessibility', 'best-practices', 'seo']) q.append('category', c);
   // Without a key Google shares one small daily allowance between everyone, so in practice the key needs the PageSpeed Insights API on.
