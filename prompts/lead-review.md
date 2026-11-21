@@ -16,6 +16,7 @@ Mobile PageSpeed score (0 to 100): {pagespeed}
 Domain registered: {domain_age}
 Google Business Profile: {gbp}
 Social profiles: {social}
+From Apollo (who works there and the company): {apollo}
 
 Write:
 * priority: "hot" when they clearly need help and look like an active business worth the call (for example good reviews but no website, or a slow, insecure site), "warm" when there is a real but smaller opening, "cold" when there is little to offer them or they look inactive.

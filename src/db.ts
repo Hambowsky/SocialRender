@@ -304,6 +304,8 @@ const migrations = [
   `ALTER TABLE leads ADD COLUMN concept TEXT;            -- a homepage concept made for them: JSON with the brand, the words and when
    ALTER TABLE emails ADD COLUMN concept INTEGER NOT NULL DEFAULT 0; -- 1 when the concept picture goes inside the email
    ALTER TABLE campaigns ADD COLUMN concept INTEGER NOT NULL DEFAULT 0`, // 1 to make a concept for every lead before its first email
+
+  `ALTER TABLE leads ADD COLUMN apollo TEXT`, // what Apollo found: the decision maker and company details, JSON
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };

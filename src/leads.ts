@@ -4,19 +4,20 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.ts';
-import { DATA_DIR, fail, GBP_PER_USD, FIRECRAWL_API_KEY, FIRECRAWL_API_URL, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL } from './config.ts';
+import { APOLLO_API_KEY, APOLLO_MONTHLY_CREDITS, DATA_DIR, fail, GBP_PER_USD, FIRECRAWL_API_KEY, FIRECRAWL_API_URL, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL } from './config.ts';
 import { checkSite, type SiteCheck } from './sitecheck.ts';
+import * as apollo from './apollo.ts';
 
 export const screenshotPath = (id: number) => path.join(DATA_DIR, 'leads', `${id}.jpg`);
 
 export const LEAD_TYPES = ['no_website', 'outdated_website', 'both'] as const;
-export const SOURCES = ['places', 'directories'] as const;
+export const SOURCES = ['places', 'directories', 'apollo'] as const;
 export const STATUSES = ['new', 'contacted', 'replied', 'bounced', 'converted', 'not_interested', 'not_a_fit', 'archived'] as const;
 // Google gives 1,000 Text Search calls with phone and website free each month; stay under that unless told otherwise.
 // Town suggestions are a cheaper Google product with 10,000 free a month; half of that is plenty for typing.
 const MONTHLY_CALLS = { places: Number(process.env.PLACES_MONTHLY_CALLS || 900), firecrawl: Number(process.env.FIRECRAWL_MONTHLY_CALLS || 500), towns: 5000,
   scrape: Number(process.env.FIRECRAWL_SCRAPE_MONTHLY_CALLS || 1000), signals: Number(process.env.SIGNALS_MONTHLY_CALLS || 200),
-  links: Number(process.env.LINKS_MONTHLY_CALLS || 150) };
+  links: Number(process.env.LINKS_MONTHLY_CALLS || 150), apollo: 5000 }; // Apollo is capped by credits instead, in apollo.ts
 type Api = keyof typeof MONTHLY_CALLS;
 // Google's price for Text Search with phone and website (Enterprise), after the first 1,000 free each month.
 const GOOGLE_FREE = 1000, GOOGLE_USD_EACH = 0.035;
@@ -28,7 +29,7 @@ type Campaign = Omit<CampaignInput, 'sources'> & { id: number; sources: string; 
 type Found = { company_name: string; phone: string; email: string; website_url: string; address: string; postcode: string; town: string;
   industry: string; source: string; source_ref: string; rating: number | null; reviews: number | null };
 type Progress = { stage: string; found: number; checked: number; added: number; duplicates: number; not_matching: number;
-  google_searches?: number; google_cost_gbp?: number; firecrawl_searches?: number; firecrawl_credits?: number };
+  google_searches?: number; google_cost_gbp?: number; firecrawl_searches?: number; firecrawl_credits?: number; apollo_credits?: number };
 
 const list_ = (s: string) => [...new Set(s.split(',').map(x => x.trim()).filter(Boolean))];
 
@@ -97,7 +98,8 @@ export function usage() {
   const firecrawl = db.prepare(`SELECT COALESCE(SUM(key LIKE 'firecrawl:%'), 0) AS calls, COALESCE(SUM(json_extract(body, '$.creditsUsed')), 0) AS credits FROM api_cache
     WHERE (key LIKE 'firecrawl:%' OR key LIKE 'scrape:%' OR key LIKE 'signals:%' OR key LIKE 'links:%') AND created_at >= datetime('now', 'start of month')`).get() as { calls: number; credits: number };
   const google = used('places');
-  return { google_searches: google, google_free: GOOGLE_FREE, google_cost_gbp: googleCost(0, google), firecrawl_searches: firecrawl.calls, firecrawl_credits: firecrawl.credits };
+  return { google_searches: google, google_free: GOOGLE_FREE, google_cost_gbp: googleCost(0, google), firecrawl_searches: firecrawl.calls, firecrawl_credits: firecrawl.credits,
+    apollo_credits: apollo.creditsUsed(), apollo_cap: APOLLO_MONTHLY_CREDITS };
 }
 // Cost of the Google calls between two month counts, counting only those past the free allowance.
 const googleCost = (from: number, to: number) => +(Math.max(0, to - Math.max(from, GOOGLE_FREE)) * GOOGLE_USD_EACH * GBP_PER_USD).toFixed(2);
@@ -111,7 +113,7 @@ export async function cached<T>(api: Api, request: unknown, call: () => Promise<
   const key = `${api}:${new Date().toISOString().slice(0, 10)}:${crypto.createHash('sha256').update(JSON.stringify(request)).digest('hex')}`;
   const hit = db.prepare('SELECT body FROM api_cache WHERE key = ?').get(key) as { body: string } | undefined;
   if (hit) return JSON.parse(hit.body);
-  if (used(api) >= MONTHLY_CALLS[api]) fail(429, `The monthly limit of ${MONTHLY_CALLS[api]} ${{ places: 'Google Places searches', firecrawl: 'Firecrawl searches', towns: 'town suggestions', scrape: 'Firecrawl page reads', signals: 'signal searches', links: 'link searches' }[api]} is used up`);
+  if (used(api) >= MONTHLY_CALLS[api]) fail(429, `The monthly limit of ${MONTHLY_CALLS[api]} ${{ places: 'Google Places searches', firecrawl: 'Firecrawl searches', towns: 'town suggestions', scrape: 'Firecrawl page reads', signals: 'signal searches', links: 'link searches', apollo: 'Apollo calls' }[api]} is used up`);
   const body = await call();
   db.prepare(`INSERT INTO api_cache (key, body) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET body = excluded.body, created_at = datetime('now')`).run(key, JSON.stringify(body));
   return body;
@@ -223,6 +225,7 @@ async function work(c: Campaign, p: Progress) {
     const found = [
       ...sources.includes('places') ? await places(industry, town, perCombo * 2) : [],
       ...sources.includes('directories') ? await directories(industry, town, perCombo * 2) : [],
+      ...sources.includes('apollo') ? await apollo.companies(industry, town, perCombo * 2) : [],
     ];
     p.found += found.length;
     const seen = new Set<string>();
@@ -258,6 +261,7 @@ export function run(id: number) {
   const sources = c.sources.split(',');
   if (sources.includes('places') && !GOOGLE_PLACES_API_KEY) fail(503, 'Google Maps search is not set up: add GOOGLE_PLACES_API_KEY');
   if (sources.includes('directories') && !FIRECRAWL_API_KEY) fail(503, 'Directory search is not set up: add FIRECRAWL_API_KEY');
+  if (sources.includes('apollo') && !APOLLO_API_KEY) fail(503, 'Apollo search is not set up: add APOLLO_API_KEY');
   const p: Progress = { stage: 'Starting', found: 0, checked: 0, added: 0, duplicates: 0, not_matching: 0 };
   running.set(id, p);
   db.prepare(`UPDATE campaigns SET status = 'running', last_run_at = datetime('now') WHERE id = ?`).run(id);
@@ -270,7 +274,8 @@ export function run(id: number) {
   const spent = () => {
     const after = usage();
     return { google_searches: after.google_searches - before.google_searches, google_cost_gbp: googleCost(before.google_searches, after.google_searches),
-      firecrawl_searches: after.firecrawl_searches - before.firecrawl_searches, firecrawl_credits: after.firecrawl_credits - before.firecrawl_credits };
+      firecrawl_searches: after.firecrawl_searches - before.firecrawl_searches, firecrawl_credits: after.firecrawl_credits - before.firecrawl_credits,
+      apollo_credits: after.apollo_credits - before.apollo_credits };
   };
   work(c, p).then(() => finish('done', { ...p, ...spent(), stage: undefined }), err => finish('failed', { ...p, ...spent(), stage: undefined, error: (err as Error).message }));
   return campaign(id);
@@ -327,7 +332,7 @@ export function leadsCsv(q: LeadFilter) {
 export function lead(id: number) {
   const l = db.prepare('SELECT l.*, c.name AS campaign FROM leads l LEFT JOIN campaigns c ON c.id = l.campaign_id WHERE l.id = ?').get(id) as Record<string, unknown> | undefined;
   if (!l) fail(404, 'No lead with that id');
-  for (const k of ['website_issues', 'seo_issues', 'social_links', 'analysis', 'concept']) l![k] = JSON.parse(String(l![k]));
+  for (const k of ['website_issues', 'seo_issues', 'social_links', 'analysis', 'concept', 'apollo']) l![k] = JSON.parse(String(l![k]));
   return { ...l!, activity: db.prepare('SELECT kind, text, created_at FROM lead_activity WHERE lead_id = ? ORDER BY id DESC').all(id) };
 }
 
