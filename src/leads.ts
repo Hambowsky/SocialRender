@@ -16,7 +16,7 @@ export const STATUSES = ['new', 'contacted', 'replied', 'bounced', 'converted', 
 // Google gives 1,000 Text Search calls with phone and website free each month; stay under that unless told otherwise.
 // Town suggestions are a cheaper Google product with 10,000 free a month; half of that is plenty for typing.
 const MONTHLY_CALLS = { places: Number(process.env.PLACES_MONTHLY_CALLS || 900), firecrawl: Number(process.env.FIRECRAWL_MONTHLY_CALLS || 500), towns: 5000,
-  scrape: Number(process.env.FIRECRAWL_SCRAPE_MONTHLY_CALLS || 1000), signals: Number(process.env.SIGNALS_MONTHLY_CALLS || 200),
+  scrape: Number(process.env.FIRECRAWL_SCRAPE_MONTHLY_CALLS || 1000), signals: Number(process.env.SIGNALS_MONTHLY_CALLS || 300),
   links: Number(process.env.LINKS_MONTHLY_CALLS || 150), apollo: 5000 }; // Apollo is capped by credits instead, in apollo.ts
 type Api = keyof typeof MONTHLY_CALLS;
 // Google's price for Text Search with phone and website (Enterprise), after the first 1,000 free each month.

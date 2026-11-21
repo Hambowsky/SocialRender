@@ -1,4 +1,4 @@
-// Signals: public posts from people asking for a web designer, developer or SEO help, found once a day.
+// Signals: public posts from people asking for a web designer, developer, SEO or AI help, found once a day.
 // A web search finds recent posts, Claude (Haiku) keeps the real requests and suggests a reply, and David answers them himself.
 // Nothing is ever posted from here.
 import { db } from './db.ts';
@@ -9,7 +9,10 @@ import { addNote, dedupKey, firecrawlSearch } from './leads.ts';
 type Signal = { id: number; url: string; title: string; snippet: string; site: string; status: string; service: string; area: string; who: string; summary: string; reply: string; lead_id: number | null; created_at: string };
 
 const SITES = '(site:reddit.com OR site:x.com OR site:threads.net OR site:ukbusinessforums.co.uk OR site:mumsnet.com OR site:linkedin.com/posts)';
-const ASK = '("web designer" OR "website designer" OR "web developer" OR "SEO" OR "new website") (recommend OR recommendations OR "looking for" OR "need")';
+const NEED = '(recommend OR recommendations OR "looking for" OR "need" OR "help")';
+const ASK = `("web designer" OR "website designer" OR "web developer" OR "SEO" OR "new website") ${NEED}`;
+// AI help is rarely local, so it is searched for the UK and the North East rather than town by town.
+const ASK_AI = `("AI consultant" OR "AI advice" OR "AI automation" OR "automate" OR "AI agent" OR "chatbot" OR "ChatGPT" OR "AI search" OR "GEO") business ${NEED}`;
 
 // The towns in David's campaigns, so the search covers where he works.
 export function towns() {
@@ -26,7 +29,7 @@ export async function scan() {
   try {
     const places = towns();
     // One search per town plus one for the UK, limited to the past week.
-    const queries = [...places.map(t => `${ASK} "${t}" ${SITES}`), `${ASK} UK small business ${SITES}`];
+    const queries = [...places.map(t => `${ASK} "${t}" ${SITES}`), `${ASK} UK small business ${SITES}`, `${ASK_AI} UK ${SITES}`, `${ASK_AI} "North East" ${SITES}`];
     const hits = new Map<string, { title: string; snippet: string }>();
     for (const query of queries) {
       const data = await firecrawlSearch({ query, limit: 20, tbs: 'qdr:w', location: 'United Kingdom', country: 'GB' }, 'signals');
