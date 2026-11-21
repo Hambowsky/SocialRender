@@ -212,10 +212,13 @@ const PAGE_CSS = `
   .num { text-align: right; white-space: nowrap; padding-left: 4mm; }
   .end { margin-top: 8mm; padding: 5mm 6mm; background: #f6f3f3; border-left: 1.4mm solid #b5333f; break-inside: avoid; }
   footer { margin-top: 8mm; padding-top: 3mm; border-top: 1px solid #1a1a1a; display: flex; justify-content: space-between; font-size: 9pt; }
-  footer span:last-child { color: #b5333f; font-weight: 500; }`;
-const page = (tag: string, body: string) => `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><style>${PAGE_CSS}</style></head><body>
-  <div class="top"><img src="/assets/logo-print.jpg" alt="Red Cherry IT"><span class="tag">${esc(tag)}</span></div><div class="bar"></div>${body}
-  <footer><span><b>Red Cherry IT</b>, web design and digital marketing</span><span>redcherryit.com</span></footer></body></html>`;
+  footer span:last-child { color: #b5333f; font-weight: 500; }
+  .sheet { min-height: 262mm; display: flex; flex-direction: column; justify-content: space-between; }
+  .pay { margin-top: 8mm; padding-top: 4mm; border-top: 1px solid #eee; font-size: 9.5pt; break-inside: avoid; }`;
+// The logo top left on every page made here. Anything in `foot` sits at the bottom of the page, above the footer line.
+const page = (tag: string, body: string, foot = '') => `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><style>${PAGE_CSS}</style></head><body><div class="sheet"><div>
+  <div class="top"><img src="/assets/logo-print.jpg" alt="Red Cherry IT"><span class="tag">${esc(tag)}</span></div><div class="bar"></div>${body}</div>
+  <div>${foot}<footer><span><b>Red Cherry IT</b>, web design and digital marketing</span><span>redcherryit.com</span></footer></div></div></body></html>`;
 
 type InvoiceShape = { label: string; items: Item[]; note: string; vat_rate: number; issued_on: string | null; due_days: number; due_on: string | null };
 function invoiceHtml(c: Row, i: InvoiceShape) {
@@ -237,7 +240,8 @@ function invoiceHtml(c: Row, i: InvoiceShape) {
     <tr><td><b>Total due</b></td><td class="num"><b>${money(t.total)}</b></td></tr>
   </table>
   ${i.note ? `<p class="pre">${esc(i.note)}</p>` : ''}
-  ${s.payment ? `<div class="end pre"><b>How to pay</b>\n${esc(s.payment)}\nPlease use ${esc(i.label === 'Draft' ? 'the invoice number' : i.label)} as the reference.</div>` : ''}`);
+`, `<div class="pay pre">You can pay your invoice by either Card (Stripe), Cash on Delivery or BACS.${s.payment ? `\n\n<b>Bank Details:</b>\n${esc(s.payment)}` : ''}
+    Please use ${esc(i.label === 'Draft' ? 'the invoice number' : i.label)} as the reference.</div>`);
 }
 
 // Their website's numbers: Google Analytics visitors and Google search, the last 28 days against the 28 before,
