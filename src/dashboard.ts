@@ -4,6 +4,7 @@ import { db } from './db.ts';
 import { CLAUDE_MONTHLY_CAP_GBP, GBP_PER_USD, OUTREACH_DAILY_CAP } from './config.ts';
 import { usage } from './leads.ts';
 import { followUpsDue, sentToday } from './outreach.ts';
+import * as customers from './customers.ts';
 import { stats } from './tracking.ts';
 
 const n = (sql: string, ...args: (string | number)[]) => (db.prepare(sql).get(...args) as { n: number }).n;
@@ -78,6 +79,7 @@ export function sales() {
       replies_to_answer: status.replied ?? 0,
       signals_new: n(`SELECT COUNT(*) AS n FROM signals WHERE status = 'new'`),
       call_backs_due: n(`SELECT COUNT(*) AS n FROM leads WHERE follow_up_date <= date('now') AND status NOT IN ('converted', 'not_interested', 'not_a_fit', 'archived')`),
+      ...customers.needs(),
     },
     leads: n(`SELECT COUNT(*) AS n FROM leads WHERE status != 'archived'`),
     leads_this_month: n(`SELECT COUNT(*) AS n FROM leads WHERE created_at >= ${MONTH}`),

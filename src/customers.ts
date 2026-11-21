@@ -1,20 +1,23 @@
 // Customers: the businesses Red Cherry IT works for. Their details, notes, emails from David's own mailbox,
 // invoices as PDFs, their website's numbers from Google, and a monthly report. Plain code, no Claude.
+import tls from 'node:tls';
 import { db } from './db.ts';
 import { fail, GA4_API_URL, GSC_CREDENTIALS, SMTP_FROM, SMTP_HOST } from './config.ts';
 import { lead, updateLead, addNote } from './leads.ts';
 import { transport } from './outreach.ts';
 import { pdf } from './render.ts';
+import { fetchPage } from './page.ts';
 import { accessToken, query as gscQuery, serviceEmail } from './gsc.ts';
 import { pageSpeed } from './analyse.ts';
 
 export const SERVICES = ['Web design', 'Custom web development', 'Website care plan', 'Hosting', 'SEO', 'Conversion rate optimisation', 'AI services', 'Google Ads', 'Social media', 'Email marketing'];
 const FIELDS = ['business_name', 'first_name', 'last_name', 'email', 'phone', 'address', 'website_url', 'ga4_property', 'gsc_site'] as const;
 export type CustomerInput = Partial<Record<typeof FIELDS[number], string>> & { services?: string[] };
-type Row = Record<typeof FIELDS[number], string> & { id: number; services: string; lead_id: number | null; created_at: string; updated_at: string };
+type Row = Record<typeof FIELDS[number], string> & { id: number; services: string; lead_id: number | null; recurring: string | null; site_check: string | null; created_at: string; updated_at: string };
 type Item = { description: string; qty: number; price: number };
 type Invoice = { id: number; customer_id: number; number: number | null; items: string; note: string; vat_rate: number; total: number; due_days: number;
-  status: string; error: string | null; issued_on: string | null; due_on: string | null; sent_at: string | null; paid_at: string | null; created_at: string };
+  status: string; error: string | null; issued_on: string | null; due_on: string | null; sent_at: string | null; paid_at: string | null; created_at: string;
+  month: string | null; reminded_at: string | null };
 
 const row = (id: number) => (db.prepare('SELECT * FROM customers WHERE id = ?').get(id) as Row | undefined) ?? fail(404, `There is no customer ${id}`);
 const log = (id: number, kind: string, text: string) => db.prepare('INSERT INTO customer_activity (customer_id, kind, text) VALUES (?, ?, ?)').run(id, kind, text);
@@ -27,7 +30,8 @@ const ukDate = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'nu
 
 const invoiceView = (i: Invoice) => ({ ...i, items: JSON.parse(i.items) as Item[], label: i.number ? `${settings().prefix}${String(i.number).padStart(4, '0')}` : 'Draft',
   overdue: i.status === 'sent' && !!i.due_on && i.due_on < today() });
-const view = (c: Row) => ({ ...c, services: JSON.parse(c.services) as string[], contact_name: name(c) });
+const view = (c: Row) => ({ ...c, services: JSON.parse(c.services) as string[], contact_name: name(c),
+  recurring: c.recurring ? JSON.parse(c.recurring) as Recurring : null, site_check: c.site_check ? JSON.parse(c.site_check) as SiteCheck : null });
 
 export function list() {
   return (db.prepare(`SELECT c.*, COALESCE((SELECT SUM(total) FROM invoices i WHERE i.customer_id = c.id AND i.status = 'sent'), 0) AS unpaid,
@@ -40,6 +44,7 @@ export function get(id: number) {
   return { ...c,
     activity: db.prepare('SELECT * FROM customer_activity WHERE customer_id = ? ORDER BY id DESC').all(id),
     invoices: (db.prepare('SELECT * FROM invoices WHERE customer_id = ? ORDER BY id DESC').all(id) as Invoice[]).map(invoiceView),
+    renewals: db.prepare('SELECT * FROM renewals WHERE customer_id = ? ORDER BY renews_on').all(id),
     service_email: GSC_CREDENTIALS ? serviceEmail() : '' };
 }
 
@@ -67,7 +72,7 @@ export function remove(id: number) {
   row(id);
   if (db.prepare(`SELECT 1 FROM invoices WHERE customer_id = ? AND number IS NOT NULL`).get(id)) fail(409, 'This customer has invoices, so they are kept for your records');
   db.exec('BEGIN');
-  for (const t of ['invoices', 'customer_activity']) db.prepare(`DELETE FROM ${t} WHERE customer_id = ?`).run(id);
+  for (const t of ['invoices', 'customer_activity', 'renewals']) db.prepare(`DELETE FROM ${t} WHERE customer_id = ?`).run(id);
   db.prepare('DELETE FROM customers WHERE id = ?').run(id);
   db.exec('COMMIT');
   return { ok: true };
@@ -160,6 +165,8 @@ export const previewInvoice = (id: number, inv: InvoiceInput) => {
 
 // Sent once: the row is numbered and claimed as "sending" before the mail goes. A mail server error puts it
 // back to draft with its number, so sending again reuses the number. A crash mid send leaves "sending" for David to check.
+const invoiceMessage = (c: Row) => `Hi ${c.first_name || 'there'},\n\nPlease find your invoice attached. The payment details are on it.\n\nKind regards,\nDavid Hanmer\nRed Cherry IT`;
+
 export async function sendInvoice(id: number, message: string) {
   const i = getInvoice(id), c = row(i.customer_id);
   if (i.status !== 'draft') fail(409, i.status === 'sending' ? 'This invoice may already have gone. Check your sent mail, then mark it paid or sent.' : 'This invoice has already been sent');
@@ -207,7 +214,7 @@ const PAGE_CSS = `
   footer { margin-top: 8mm; padding-top: 3mm; border-top: 1px solid #1a1a1a; display: flex; justify-content: space-between; font-size: 9pt; }
   footer span:last-child { color: #b5333f; font-weight: 500; }`;
 const page = (tag: string, body: string) => `<!doctype html><html lang="en-GB"><head><meta charset="utf-8"><style>${PAGE_CSS}</style></head><body>
-  <div class="top"><img src="/assets/logo.png" alt="Red Cherry IT"><span class="tag">${esc(tag)}</span></div><div class="bar"></div>${body}
+  <div class="top"><img src="/assets/logo-print.jpg" alt="Red Cherry IT"><span class="tag">${esc(tag)}</span></div><div class="bar"></div>${body}
   <footer><span><b>Red Cherry IT</b>, web design and digital marketing</span><span>redcherryit.com</span></footer></body></html>`;
 
 type InvoiceShape = { label: string; items: Item[]; note: string; vat_rate: number; issued_on: string | null; due_days: number; due_on: string | null };
@@ -323,4 +330,143 @@ export async function sendReport(id: number, work: string, subject: string, mess
 export function recentNotes(id: number) {
   row(id);
   return (db.prepare(`SELECT text FROM customer_activity WHERE customer_id = ? AND kind = 'note' AND created_at >= datetime('now', '-31 days') ORDER BY id`).all(id) as { text: string }[]).map(n => n.text);
+}
+
+// Monthly invoices, such as a care plan: the same lines each month, sent on the day given. Each month goes once
+// (a unique month per customer), and a send that fails stays as a draft with its error for David to look at.
+export type Recurring = { items: Item[]; day: number; note: string; start: string };
+export function setRecurring(id: number, r: { items: Item[]; day: number; note?: string } | null) {
+  row(id);
+  if (r) {
+    const items = r.items.filter(i => i.description.trim());
+    if (!items.length) fail(400, 'Add at least one line to the monthly invoice');
+    const now = new Date(), month = now.toISOString().slice(0, 7);
+    // The first one goes this month if its day has not passed, otherwise next month.
+    const start = now.getUTCDate() <= r.day ? month : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString().slice(0, 7);
+    const old = view(row(id)).recurring;
+    db.prepare('UPDATE customers SET recurring = ? WHERE id = ?').run(JSON.stringify({ items, day: r.day, note: r.note ?? '', start: old && old.start <= start ? old.start : start }), id);
+    log(id, 'invoice', `Monthly invoice set: ${money(totals(items, 0).net)} on day ${r.day} of each month`);
+  } else {
+    db.prepare('UPDATE customers SET recurring = NULL WHERE id = ?').run(id);
+    log(id, 'invoice', 'Monthly invoice stopped');
+  }
+  return get(id);
+}
+
+export async function sendMonthly(now = new Date()) {
+  const month = now.toISOString().slice(0, 7), day = now.getUTCDate();
+  const label = new Date(`${month}-01`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+  const due = (db.prepare(`SELECT * FROM customers WHERE recurring IS NOT NULL`).all() as Row[]).map(view)
+    .filter(c => c.recurring!.start <= month && c.recurring!.day <= day);
+  const sent: number[] = [];
+  for (const c of due) {
+    const s = settings(), r = c.recurring!;
+    const made = db.prepare(`INSERT INTO invoices (customer_id, items, note, vat_rate, total, due_days, month) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`)
+      .run(c.id, JSON.stringify(r.items), r.note ? `${r.note}\n${label}` : label, s.vat_rate, totals(r.items, s.vat_rate).total, s.due_days, month);
+    if (!made.changes) continue;
+    const id = Number(made.lastInsertRowid);
+    try { await sendInvoice(id, invoiceMessage(row(c.id))); sent.push(id); }
+    catch (err) { db.prepare('UPDATE invoices SET error = ? WHERE id = ?').run((err as Error).message, id); log(c.id, 'invoice', `Could not send the ${label} invoice: ${(err as Error).message}`); }
+  }
+  return sent;
+}
+
+// A reminder for an overdue invoice, with the PDF again.
+export async function remind(id: number, message?: string) {
+  const i = invoiceView(getInvoice(id)), c = row(i.customer_id);
+  if (i.status !== 'sent') fail(409, 'Only an unpaid sent invoice can be chased');
+  mailReady(c);
+  const text = message ?? `Hi ${c.first_name || 'there'},\n\nA quick reminder that invoice ${i.label} for ${money(i.total)} was due on ${ukDate(i.due_on!)}. I have attached it again. If you have already paid, thank you, and please ignore this.\n\nKind regards,\nDavid Hanmer\nRed Cherry IT`;
+  await send(c.email, `Reminder: invoice ${i.label} from Red Cherry IT`, text, [{ filename: `invoice-${i.label}.pdf`, content: await pdf(invoiceHtml(c, i)) }]);
+  db.prepare('UPDATE invoices SET reminded_at = ? WHERE id = ?').run(new Date().toISOString(), id);
+  log(c.id, 'invoice', `Sent a reminder for invoice ${i.label}`);
+  return get(c.id);
+}
+
+// Renewals: domains, hosting and anything else with a date. They show on the Overview from 30 days before.
+export function addRenewal(id: number, r: { what: string; renews_on: string; cost?: number | null }) {
+  row(id);
+  db.prepare('INSERT INTO renewals (customer_id, what, renews_on, cost) VALUES (?, ?, ?, ?)').run(id, r.what.trim(), r.renews_on, r.cost ?? null);
+  return get(id);
+}
+const getRenewal = (id: number) => (db.prepare('SELECT * FROM renewals WHERE id = ?').get(id) as { id: number; customer_id: number; what: string; renews_on: string } | undefined) ?? fail(404, `There is no renewal ${id}`);
+export function deleteRenewal(id: number) { const r = getRenewal(id); db.prepare('DELETE FROM renewals WHERE id = ?').run(id); return get(r.customer_id); }
+// Renewed: the date moves on a year.
+export function renewed(id: number) {
+  const r = getRenewal(id), next = new Date(r.renews_on);
+  next.setUTCFullYear(next.getUTCFullYear() + 1);
+  db.prepare('UPDATE renewals SET renews_on = ? WHERE id = ?').run(next.toISOString().slice(0, 10), id);
+  log(r.customer_id, 'note', `Renewed ${r.what}, next due ${ukDate(next.toISOString())}`);
+  return get(r.customer_id);
+}
+
+// Website checks, hourly: is it up, how fast, and when its SSL certificate runs out. Two failures in a row count as
+// down, so one slow moment is not a false alarm. David gets an email when a site goes down and when it is back.
+export type SiteCheck = { ok: boolean; status: number; ms: number; fails: number; error: string; ssl_expires: string | null; checked_at: string; down_since?: string | null };
+const siteUrl = (u: string) => /^https?:/.test(u) ? u : `https://${u}`;
+function sslExpiry(host: string) {
+  return new Promise<string | null>(resolve => {
+    const sock = tls.connect({ host, port: 443, servername: host, timeout: 10_000 }, () => {
+      const to = sock.getPeerCertificate()?.valid_to; sock.end();
+      resolve(to ? new Date(to).toISOString().slice(0, 10) : null);
+    });
+    sock.on('error', () => resolve(null)); sock.on('timeout', () => { sock.destroy(); resolve(null); });
+  });
+}
+const own = () => SMTP_FROM.match(/<([^>]+)>/)?.[1] ?? SMTP_FROM;
+
+export async function checkSite(id: number) {
+  const c = view(row(id)), was = c.site_check;
+  if (!c.website_url) return null;
+  const url = siteUrl(c.website_url), start = Date.now();
+  let status = 0, error = '';
+  try { status = (await fetchPage(url)).res.status; } catch (err) { error = (err as Error).message.replace(/^Could not load that page: /, ''); }
+  const ok = status > 0 && status < 500, ms = Date.now() - start;
+  const sslDue = !was?.checked_at || Date.now() - Date.parse(was.checked_at) > 20 * 3_600_000 || !was.ssl_expires;
+  const ssl_expires = url.startsWith('https:') && sslDue ? await sslExpiry(new URL(url).hostname) : was?.ssl_expires ?? null;
+  const fails = ok ? 0 : (was?.fails ?? 0) + 1;
+  const down = fails >= 2, wasDown = (was?.fails ?? 0) >= 2;
+  const check: SiteCheck = { ok, status, ms, fails, error: error || (ok ? '' : `answered ${status}`), ssl_expires, checked_at: new Date().toISOString(),
+    down_since: down ? was?.down_since ?? new Date().toISOString() : null };
+  db.prepare('UPDATE customers SET site_check = ? WHERE id = ?').run(JSON.stringify(check), id);
+  if (down !== wasDown) {
+    log(id, 'site', down ? `Website down: ${check.error}` : 'Website back up');
+    if (SMTP_HOST && SMTP_FROM) await send(own(), down ? `${c.business_name}'s website is down` : `${c.business_name}'s website is back up`,
+      down ? `${url} has failed two checks in a row: ${check.error}.\n\nThe studio checks it every hour and will email you when it is back.` : `${url} is answering again.`).catch(() => {});
+  }
+  return check;
+}
+
+let checking = false;
+export async function checkSites() {
+  if (checking) return;
+  checking = true;
+  try { for (const { id } of db.prepare(`SELECT id FROM customers WHERE website_url != ''`).all() as { id: number }[]) await checkSite(id).catch(() => {}); }
+  finally { checking = false; }
+}
+
+// For the Overview's Needs you list.
+export function needs() {
+  const n = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
+  return {
+    invoices_overdue: n(`SELECT COUNT(*) AS n FROM invoices WHERE status = 'sent' AND due_on < date('now')`),
+    invoices_to_check: n(`SELECT COUNT(*) AS n FROM invoices WHERE (status = 'draft' AND error IS NOT NULL) OR status = 'sending'`),
+    renewals_due: n(`SELECT COUNT(*) AS n FROM renewals WHERE renews_on <= date('now', '+30 days')`)
+      + n(`SELECT COUNT(*) AS n FROM customers WHERE json_extract(site_check, '$.ssl_expires') <= date('now', '+14 days')`),
+    sites_down: n(`SELECT COUNT(*) AS n FROM customers WHERE json_extract(site_check, '$.fails') >= 2`),
+  };
+}
+
+// A message from a customer's address in David's inbox shows on their page.
+export function logReply(from: string, subject: string) {
+  const c = db.prepare(`SELECT id FROM customers WHERE lower(email) = ?`).get(from.toLowerCase()) as { id: number } | undefined;
+  if (c) log(c.id, 'reply', `Emailed you: ${subject || '(no subject)'}`);
+  return !!c;
+}
+
+// Hourly: website checks, then any monthly invoices due (from 9am UTC, so they arrive in working hours).
+export function startCustomers() {
+  const tick = async () => { await checkSites(); if (new Date().getUTCHours() >= 9) await sendMonthly().catch(() => {}); };
+  setTimeout(() => void tick(), 60_000).unref();
+  setInterval(() => void tick(), 60 * 60_000).unref();
 }

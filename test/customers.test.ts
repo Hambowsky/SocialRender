@@ -174,3 +174,70 @@ test('the client report sends as a PDF with this month\'s notes', async () => {
   assert.equal(mail.length, before + 1);
   assert.match(mail.at(-1)!, /filename=report-\d{4}-\d{2}\.pdf/);
 });
+
+test('a monthly invoice goes once a month, from its start month and day', async () => {
+  const c = (await call('PUT', `/customers/${id}/recurring`, { items: [{ description: 'Website care plan', qty: 1, price: 49 }], day: 28, note: 'Care plan' })).json();
+  const start = c.recurring.start, before = mail.length;
+  const { sendMonthly } = await import('../src/customers.ts');
+  assert.deepEqual(await sendMonthly(new Date(`${start}-27T10:00:00Z`)), []);
+  const sent = await sendMonthly(new Date(`${start}-28T10:00:00Z`));
+  assert.equal(sent.length, 1);
+  assert.deepEqual(await sendMonthly(new Date(`${start}-28T11:00:00Z`)), []);
+  assert.equal(mail.length, before + 1);
+  const inv = (await call('GET', `/customers/${id}`)).json().invoices.find((i: any) => i.id === sent[0]);
+  assert.equal(inv.month, start);
+  assert.match(inv.note, /^Care plan\n\w+ \d{4}$/);
+  const stop = await app.inject({ method: 'PUT', url: `/customers/${id}/recurring`, headers: { ...headers, 'content-type': 'application/json' }, payload: 'null' });
+  assert.equal(stop.json().recurring, null, stop.body);
+});
+
+test('an overdue invoice shows on the Overview and can be chased with the PDF again', async () => {
+  const inv = (await call('POST', `/customers/${id}/invoices`, { items: [{ description: 'Late one', qty: 1, price: 5 }] })).json();
+  await call('POST', `/invoices/${inv.id}/send`, { message: 'x' });
+  db.prepare(`UPDATE invoices SET due_on = date('now', '-3 days') WHERE id = ?`).run(inv.id);
+  assert.ok((await call('GET', '/dashboard/sales')).json().needs.invoices_overdue >= 1);
+  const before = mail.length;
+  const c = (await call('POST', `/invoices/${inv.id}/remind`, {})).json();
+  assert.equal(mail.length, before + 1);
+  assert.match(mail.at(-1)!, /Subject: Reminder: invoice RC-\d+/);
+  assert.match(mail.at(-1)!, /filename=invoice-RC-\d+\.pdf/);
+  assert.ok(c.invoices.find((i: any) => i.id === inv.id).reminded_at);
+});
+
+test('renewals warn from 30 days before and roll on a year when renewed', async () => {
+  const soon = new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10);
+  const c = (await call('POST', `/customers/${id}/renewals`, { what: 'Domain pipepros.co.uk', renews_on: soon, cost: 12 })).json();
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 1);
+  const r = c.renewals[0];
+  const after = (await call('POST', `/renewals/${r.id}/renewed`)).json().renewals[0];
+  assert.equal(after.renews_on, `${Number(soon.slice(0, 4)) + 1}${soon.slice(4)}`);
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.renewals_due, 0);
+});
+
+test('a website counts as down after two failed checks, and David is emailed once', async () => {
+  const c = (await call('POST', '/customers', { business_name: 'Down Ltd', website_url: 'http://127.0.0.1:1/' })).json();
+  const before = mail.length;
+  assert.equal((await call('POST', `/customers/${c.id}/check`)).json().site_check.fails, 1);
+  assert.equal(mail.length, before);
+  const two = (await call('POST', `/customers/${c.id}/check`)).json();
+  assert.equal(two.site_check.fails, 2);
+  assert.equal(mail.length, before + 1);
+  assert.match(mail.at(-1)!, /Subject: Down Ltd's website is down/);
+  assert.match(mail.at(-1)!, /To: david@redcherryit\.com/);
+  await call('POST', `/customers/${c.id}/check`);
+  assert.equal(mail.length, before + 1);
+  assert.equal((await call('GET', '/dashboard/sales')).json().needs.sites_down, 1);
+  assert.equal(two.activity[0].kind, 'site');
+});
+
+test('an email from a customer shows on their page', async () => {
+  const { handleMessage } = await import('../src/inbox.ts');
+  assert.equal(handleMessage('From: Sam <SAM@pipepros.co.uk>\r\nSubject: Quick question\r\n\r\nHello'), 'reply');
+  assert.equal((await call('GET', `/customers/${id}`)).json().activity[0].text, 'Emailed you: Quick question');
+  assert.equal(handleMessage('From: stranger@example.com\r\nSubject: Hi\r\n\r\nHello'), 'ignored');
+});
+
+test('PDFs stay small', async () => {
+  const pdf = await call('GET', '/invoices/1/pdf');
+  assert.ok(pdf.rawPayload.length < 30_000, `invoice PDF is ${pdf.rawPayload.length} bytes`);
+});

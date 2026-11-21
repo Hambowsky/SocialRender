@@ -90,7 +90,7 @@ export function reportHtml(id: number) {
   footer { margin-top: 8mm; padding-top: 3mm; border-top: 1px solid #1a1a1a; display: flex; justify-content: space-between; font-size: 9pt; }
   footer span:last-child { color: #b5333f; font-weight: 500; }
 </style></head><body>
-  <div class="top"><img src="/assets/logo.png" alt="Red Cherry IT"><span class="tag">Website report · ${esc(date)}</span></div>
+  <div class="top"><img src="/assets/logo-print.jpg" alt="Red Cherry IT"><span class="tag">Website report · ${esc(date)}</span></div>
   <div class="bar"></div>
   <h1>How <em>${esc(l.company_name)}</em> looks online</h1>
   <p class="site">${esc(l.website_url)}</p>

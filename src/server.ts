@@ -381,6 +381,17 @@ export function buildApp() {
   app.post<{ Params: { id: number }; Body: { paid: boolean } }>('/invoices/:id/paid', { schema: { params: id, body: { type: 'object', required: ['paid'],
     additionalProperties: false, properties: { paid: { type: 'boolean' } } } } }, async req => customers.markPaid(req.params.id, req.body.paid));
   app.delete<{ Params: { id: number } }>('/invoices/:id', { schema: { params: id } }, async req => customers.deleteInvoice(req.params.id));
+  app.post<{ Params: { id: number }; Body: { message?: string } }>('/invoices/:id/remind', { schema: { params: id, body: { type: 'object', additionalProperties: false,
+    properties: { message: { type: 'string', minLength: 1, maxLength: 20000 } } } } }, async req => customers.remind(req.params.id, req.body?.message));
+  app.put<{ Params: { id: number }; Body: { items: { description: string; qty: number; price: number }[]; day: number; note?: string } | null }>('/customers/:id/recurring',
+    { schema: { params: id, body: { anyOf: [{ type: 'null' }, { ...invBody, required: ['items', 'day'], properties: { items: invBody.properties.items, note: str(300),
+      day: { type: 'integer', minimum: 1, maximum: 28 } } }] } } }, async req => customers.setRecurring(req.params.id, req.body));
+  app.post<{ Params: { id: number }; Body: { what: string; renews_on: string; cost?: number | null } }>('/customers/:id/renewals', { schema: { params: id, body: {
+    type: 'object', required: ['what', 'renews_on'], additionalProperties: false, properties: { what: { type: 'string', minLength: 1, maxLength: 200 },
+      renews_on: { type: 'string', format: 'date' }, cost: { anyOf: [{ type: 'number', minimum: 0 }, { type: 'null' }] } } } } }, async req => customers.addRenewal(req.params.id, req.body));
+  app.delete<{ Params: { id: number } }>('/renewals/:id', { schema: { params: id } }, async req => customers.deleteRenewal(req.params.id));
+  app.post<{ Params: { id: number } }>('/renewals/:id/renewed', { schema: { params: id } }, async req => customers.renewed(req.params.id));
+  app.post<{ Params: { id: number } }>('/customers/:id/check', { schema: { params: id } }, async req => { customers.get(req.params.id); await customers.checkSite(req.params.id); return customers.get(req.params.id); });
   app.post<{ Params: { id: number } }>('/customers/:id/analytics', { schema: { params: id } }, async (req, reply) => { customers.get(req.params.id); return background(reply, () => customers.analytics(req.params.id)); });
   app.get<{ Params: { id: number } }>('/customers/:id/report/notes', { schema: { params: id } }, async req => ({ notes: customers.recentNotes(req.params.id) }));
   const workBody = { type: 'object', additionalProperties: false, properties: { work: str(5000) } };
@@ -583,6 +594,7 @@ export async function start() {
   startCleanup();
   outreach.startOutreach();
   startInbox();
+  customers.startCustomers();
   signals.startSignals();
   links.startLinks();
   const app = buildApp();

@@ -348,6 +348,20 @@ const migrations = [
      paid_at TEXT,
      created_at TEXT NOT NULL DEFAULT (datetime('now'))
    )`,
+
+  `ALTER TABLE customers ADD COLUMN recurring TEXT;   -- a monthly invoice: JSON {items, day, note, start: YYYY-MM}, null for none
+   ALTER TABLE customers ADD COLUMN site_check TEXT;  -- the last website check: JSON {ok, status, ms, fails, error, ssl_expires, checked_at}
+   ALTER TABLE invoices ADD COLUMN month TEXT;         -- YYYY-MM on a monthly invoice, so each month goes once
+   ALTER TABLE invoices ADD COLUMN reminded_at TEXT;
+   CREATE UNIQUE INDEX invoices_month ON invoices (customer_id, month);
+   CREATE TABLE renewals (             -- domains, hosting and anything else that runs out
+     id INTEGER PRIMARY KEY,
+     customer_id INTEGER NOT NULL,
+     what TEXT NOT NULL,
+     renews_on TEXT NOT NULL,
+     cost REAL,
+     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+   )`,
 ];
 
 const { user_version } = db.prepare('PRAGMA user_version').get() as { user_version: number };
