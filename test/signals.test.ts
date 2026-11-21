@@ -63,7 +63,7 @@ async function scan() {
 
 test('a search keeps the real requests, and each post is only looked at once', async () => {
   const r = await scan();
-  assert.deepEqual(r, { searched: 4, found: 2, checked: 2, added: 1 });
+  assert.deepEqual(r, { searched: 6, found: 2, checked: 2, added: 1 });
   assert.ok(searches.every(s => s.tbs === 'qdr:w' && s.query.includes('site:reddit.com') && s.query.includes('site:linkedin.com/posts')), 'past week, public sites only');
   assert.match(prompt, /Newcastle upon Tyne/);
   const list = (await app.inject({ method: 'GET', url: '/signals', headers })).json();

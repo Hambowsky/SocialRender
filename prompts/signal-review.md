@@ -11,8 +11,8 @@ Posts:
 {posts}
 
 For every post, return one item with its number and:
-* genuine: true only when someone is asking for, or clearly about to hire, a web designer, web developer, SEO help, a new or fixed website, or similar digital marketing help. False for adverts, agencies or freelancers offering their services, job adverts for staff, news, guides, and old or general discussion.
-* service: a few words for what they want, such as "new website", "SEO", "website fix", "online shop". Empty when not genuine.
+* genuine: true only when someone is asking for, or clearly about to hire, a web designer, web developer, SEO or GEO help (showing up in Google or in AI answers such as ChatGPT), a new or fixed website, similar digital marketing help, or AI help for their business: AI advice, automating tasks, chatbots, AI agents or other AI services. Someone asking how to use AI in their own business counts; general AI news, opinions and tool reviews do not. False for adverts, agencies or freelancers offering their services, job adverts for staff, news, guides, and old or general discussion.
+* service: a few words for what they want, such as "new website", "SEO", "GEO", "website fix", "online shop", "AI advice", "automation", "chatbot". Empty when not genuine.
 * area: the town or region if the post gives one, else empty. Do not guess.
 * who: the business name or kind of business if the post gives it, such as "a café in Durham", else empty.
 * summary: one plain sentence for David on what they asked. Empty when not genuine.
