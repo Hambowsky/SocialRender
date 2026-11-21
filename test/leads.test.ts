@@ -176,7 +176,7 @@ test('a campaign finds businesses with no website or a dead one, once each', asy
   assert.equal(again.last_run_summary.added, 0);
   assert.equal(again.last_run_summary.google_searches, 0, 'repeat searches cost nothing');
   const usage = (await app.inject({ method: 'GET', url: '/campaigns/usage', headers })).json();
-  assert.deepEqual(usage, { google_searches: 1, google_free: 1000, google_cost_gbp: 0, firecrawl_searches: 8, firecrawl_credits: 16 });
+  assert.deepEqual(usage, { google_searches: 1, google_free: 1000, google_cost_gbp: 0, firecrawl_searches: 8, firecrawl_credits: 16, apollo_credits: 0, apollo_cap: 100 });
   assert.deepEqual(calls, before);
   const list = async (q: string) => (await app.inject({ method: 'GET', url: `/leads?${q}`, headers })).json();
   const all = await list('');

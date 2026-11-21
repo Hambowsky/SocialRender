@@ -497,6 +497,7 @@
           <div class="chips" id="cSources">
             <label class="chip"><input type="checkbox" value="places" checked>Google Maps</label>
             <label class="chip"><input type="checkbox" value="directories">Directories (Yell, Checkatrade and others)</label>
+            <label class="chip"><input type="checkbox" value="apollo">Apollo</label>
           </div>
         </div>
         <div class="row"><button type="button" id="cSave">Save campaign</button></div>
@@ -866,7 +867,7 @@
     if (c.status === 'running' && p) return `${esc(p.stage)}. ${p.added} added so far, ${p.found} found, ${p.checked} website${p.checked === 1 ? '' : 's'} checked.`;
     if (!p) return 'Not run yet.';
     const counts = `${p.added} added, ${p.duplicates} already known, ${p.not_matching} did not fit. ${p.found} business${p.found === 1 ? '' : 'es'} found, ${p.checked} website${p.checked === 1 ? '' : 's'} checked.`;
-    const cost = p.google_searches === undefined ? '' : `<br><span class="muted">Cost: ${money(p.google_cost_gbp)} for ${plural(p.google_searches, 'Google search', 'Google searches')}${p.firecrawl_credits ? `, plus ${plural(p.firecrawl_credits, 'Firecrawl credit')}` : ''}. Repeat searches the same day are free.</span>`;
+    const cost = p.google_searches === undefined ? '' : `<br><span class="muted">Cost: ${money(p.google_cost_gbp)} for ${plural(p.google_searches, 'Google search', 'Google searches')}${p.firecrawl_credits ? `, plus ${plural(p.firecrawl_credits, 'Firecrawl credit')}` : ''}${p.apollo_credits ? `, plus ${plural(p.apollo_credits, 'Apollo credit')}` : ''}. Repeat searches the same day are free.</span>`;
     return (p.error ? `<span class="bad">${esc(p.error)}</span> ${p.found !== undefined ? counts : ''}` : counts) + cost;
   }
   function analysisLine(c) {
@@ -880,7 +881,7 @@
   async function loadCampaigns() {
     try {
       api('/campaigns/usage').then(r => r.json()).then(u => {
-        $('cUsage').textContent = `This month: ${u.google_searches} of ${u.google_free.toLocaleString('en-GB')} free Google searches${u.google_cost_gbp ? `, ${money(u.google_cost_gbp)} beyond that` : ''}, ${plural(u.firecrawl_credits, 'Firecrawl credit')}`;
+        $('cUsage').textContent = `This month: ${u.google_searches} of ${u.google_free.toLocaleString('en-GB')} free Google searches${u.google_cost_gbp ? `, ${money(u.google_cost_gbp)} beyond that` : ''}, ${plural(u.firecrawl_credits, 'Firecrawl credit')}, ${u.apollo_credits} of ${u.apollo_cap} Apollo credits`;
       }).catch(() => {});
       campList = await (await api('/campaigns')).json();
       const live = (await (await api('/guides')).json()).filter(g => g.status === 'published'), pickedGuide = $('cGuide').value;
@@ -1630,10 +1631,18 @@
   $('lRows').addEventListener('click', e => { const tr = e.target.closest('tr[data-lead]'); if (tr) openLead(tr.dataset.lead); });
 
   const PRIORITY = { hot: 'Hot', warm: 'Warm', cold: 'Cold' };
+  // Who Apollo says to write to, and the company facts it has. Shown after analysis.
+  const apolloHtml = ap => {
+    if (!ap) return '';
+    const p = ap.person, c = ap.company;
+    if (!p && !c) return '<span class="muted">Apollo has no decision maker with an email for this business.</span>';
+    return `<div class="note"><strong>From Apollo</strong>${p ? `<br>${esc(p.name)}${p.title ? `, ${esc(p.title)}` : ''}${p.email ? ` · ${esc(p.email)}${p.email_status === 'verified' ? ' (checked)' : ''}` : ''}${p.linkedin_url ? ` · <a href="${esc(p.linkedin_url)}" target="_blank" rel="noopener">LinkedIn</a>` : ''}` : ''}
+      ${c ? `<br><span class="muted">${esc([c.employees && `About ${c.employees} staff`, c.founded_year && `founded ${c.founded_year}`, c.industry].filter(Boolean).join(', '))}</span>${c.description ? `<br><span style="font-size:13px">${esc(c.description)}</span>` : ''}` : ''}</div>`;
+  };
   // What phase 3 found: Claude's view first, since that is what David acts on, then the facts behind it.
   function analysisHtml(l) {
     const a = l.analysis;
-    if (!l.analysed_at) return `<div class="row"><button type="button" class="plain" id="ldAnalyse" data-id="${l.id}">Analyse this lead</button><span class="muted">PageSpeed, domain age, Business Profile, a screenshot and Claude's view. Well under a penny of Claude.</span></div>`;
+    if (!l.analysed_at) return `<div class="row"><button type="button" class="plain" id="ldAnalyse" data-id="${l.id}">Analyse this lead</button><span class="muted">PageSpeed, domain age, Business Profile, the decision maker from Apollo, a screenshot and Claude's view. Well under a penny of Claude, and 1 Apollo credit if a person is found.</span></div>`;
     const g = a.gbp, facts = [
       a.pagespeed && `Mobile PageSpeed ${a.pagespeed.score}${a.pagespeed.lcp ? ` (loads in ${esc(a.pagespeed.lcp)})` : ''}`,
       a.domain && `Domain since ${esc(a.domain.registered.split('-').reverse().join('/'))} (${a.domain.years} years)`,
@@ -1646,6 +1655,7 @@
         ${a.notes ? `<p style="font-size:14px">${esc(a.notes)}</p>` : ''}
         ${a.pitch ? `<div class="note"><strong>Opening line</strong><br><span id="ldPitch">${esc(a.pitch)}</span><div class="row" style="margin-top:6px"><button type="button" class="plain small" id="ldCopy">Copy</button></div></div>` : ''}
         <div class="facts">${facts.map(f => `<span class="badge">${f}</span>`).join('')}${g?.maps_url ? `<a class="badge" href="${esc(g.maps_url)}" target="_blank" rel="noopener">Google Maps</a>` : ''}</div>
+        ${apolloHtml(l.apollo)}
         ${a.screenshot ? `<img class="shot" id="ldShot" alt="Their homepage">` : ''}
         ${a.errors?.length ? `<span class="muted">Could not get: ${esc(a.errors.join('; '))}</span>` : ''}
         <div class="row"><button type="button" class="plain small" id="ldAnalyse" data-id="${l.id}">Analyse again</button>${l.website_url ? `<button type="button" class="plain small" id="ldReport" data-id="${l.id}">Website report (PDF)</button>` : ''}<span class="muted">Checked ${esc(l.analysed_at.slice(0, 10).split('-').reverse().join('/'))}</span></div>

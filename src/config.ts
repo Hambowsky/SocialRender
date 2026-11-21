@@ -40,6 +40,10 @@ export const GOOGLE_PLACES_API_KEY = env.GOOGLE_PLACES_API_KEY ?? '';
 export const GOOGLE_PLACES_URL = env.GOOGLE_PLACES_URL || 'https://places.googleapis.com'; // tests point these at fakes
 export const FIRECRAWL_API_KEY = env.FIRECRAWL_API_KEY ?? '';
 export const FIRECRAWL_API_URL = env.FIRECRAWL_API_URL || 'https://api.firecrawl.dev';
+// Apollo.io: a business source for campaigns, and the decision maker at each lead. Blank turns it off.
+export const APOLLO_API_KEY = env.APOLLO_API_KEY ?? '';
+export const APOLLO_API_URL = env.APOLLO_API_URL || 'https://api.apollo.io';
+export const APOLLO_MONTHLY_CREDITS = Number(env.APOLLO_MONTHLY_CREDITS || 100);
 
 // Lead analysis. PageSpeed uses GOOGLE_PLACES_API_KEY, which needs the PageSpeed Insights API turned on in Google Cloud.
 export const PAGESPEED_URL = env.PAGESPEED_URL || 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed';

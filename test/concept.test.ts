@@ -124,7 +124,7 @@ test('the brand is read from a page: logo, the main colour, big photos and the p
   const d = await page.evaluate(extract);
   await b.close();
   assert.equal(d.colours[0], '#c0392b');
-  assert.ok(d.logo && 'src' in d.logo && d.logo.src.startsWith('data:'));
+  assert.ok(d.logo && 'src' in d.logo && d.logo.src!.startsWith('data:'));
   assert.equal(d.logo_on_dark, false);
   assert.equal(d.photos.length, 1, 'only the big picture, not the logo or the icon');
   assert.equal(d.phone, '0114 496 0000');

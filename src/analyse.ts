@@ -3,12 +3,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { db } from './db.ts';
-import { fail, FIRECRAWL_API_KEY, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL, PAGESPEED_URL, RDAP_URL } from './config.ts';
+import { APOLLO_API_KEY, fail, FIRECRAWL_API_KEY, GOOGLE_PLACES_API_KEY, GOOGLE_PLACES_URL, PAGESPEED_URL, RDAP_URL } from './config.ts';
 import { analysing, busy, cached, lead, screenshotPath } from './leads.ts';
 import { screenshotSite } from './render.ts';
 import { checkSite, findEmail, findSocial, scrape, scrapeShot } from './sitecheck.ts';
 import { BROWSER, isChallenge } from './page.ts';
 import { runPrompt } from './copy.ts';
+import * as apollo from './apollo.ts';
 
 type Analysis = {
   pagespeed?: { score: number; lcp: string; scores?: Record<string, number> };
@@ -65,6 +66,7 @@ async function businessProfile(placeId: string) {
   return { rating: json.rating ?? null, reviews: json.userRatingCount ?? null, has_hours: !!json.regularOpeningHours, photos: json.photos?.length ?? 0, maps_url: json.googleMapsUri };
 }
 
+const GENERIC = /^(info|hello|enquiries|enquiry|contact|office|admin|sales|mail|bookings|reception|accounts|support)@/i;
 const describe = (o: Record<string, unknown>) => Object.entries(o).map(([k, v]) => v === true ? k : `${k}: ${v}`).join(', ') || 'none';
 
 export async function analyseLead(id: number) {
@@ -116,6 +118,20 @@ export async function analyseLead(id: number) {
     db.prepare(`UPDATE leads SET email = ? WHERE id = ? AND email = ''`).run(email, id);
     db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`).run(id, `Found ${email} on the website`);
   }
+  // Apollo: the person to write to. Looked up once per lead, since a found person costs a credit.
+  if (site && APOLLO_API_KEY && !l.apollo?.person) await step('Apollo', async () => {
+    const found = await apollo.find(new URL(site).hostname.replace(/^www\./, ''));
+    db.prepare('UPDATE leads SET apollo = ? WHERE id = ?').run(JSON.stringify(found), id);
+    const p = found.person;
+    if (!p) return;
+    const fresh = lead(id) as any;
+    if (p.name && !fresh.contact_name) db.prepare('UPDATE leads SET contact_name = ? WHERE id = ?').run(p.name, id);
+    // A named, checked address beats info@ or enquiries@: the old one is kept in a note.
+    const better = p.email && p.email_status === 'verified' && (!fresh.email || GENERIC.test(fresh.email)) && p.email.toLowerCase() !== fresh.email.toLowerCase();
+    if (better) db.prepare('UPDATE leads SET email = ? WHERE id = ?').run(p.email.toLowerCase(), id);
+    db.prepare(`INSERT INTO lead_activity (lead_id, kind, text) VALUES (?, 'note', ?)`)
+      .run(id, `Apollo found ${p.name}${p.title ? ` (${p.title})` : ''}${better ? `, email ${p.email}${fresh.email ? ` instead of ${fresh.email}` : ''}` : ''}`);
+  });
   l = lead(id);
   if (l.source === 'places' && l.source_ref && GOOGLE_PLACES_API_KEY) await step('Business Profile', async () => { a.gbp = await businessProfile(l.source_ref); });
   else if (l.rating !== null) a.gbp = { rating: l.rating, reviews: l.reviews };
@@ -129,7 +145,7 @@ export async function analyseLead(id: number) {
       pagespeed: a.pagespeed ? `${a.pagespeed.score}, largest content shows in ${a.pagespeed.lcp}` : 'not checked',
       domain_age: a.domain ? `${a.domain.registered} (${a.domain.years} years ago)` : 'not known',
       gbp: g ? `${g.rating ?? 'no'} stars from ${g.reviews ?? 0} reviews${g.has_hours === undefined ? '' : `, ${g.has_hours ? 'has' : 'no'} opening hours, ${g.photos} photos`}` : 'not found',
-      social: Object.keys(l.social_links).join(', ') || 'none found',
+      social: Object.keys(l.social_links).join(', ') || 'none found', apollo: apollo.describe(l.apollo),
     }, { job: 'lead:review' });
     priority = r.output.priority;
     a.notes = r.output.notes;
