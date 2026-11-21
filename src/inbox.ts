@@ -4,6 +4,7 @@ import { ImapFlow } from 'imapflow';
 import { db } from './db.ts';
 import { IMAP_HOST, IMAP_PASS, IMAP_PORT, IMAP_USER } from './config.ts';
 import { suppress } from './outreach.ts';
+import { logReply } from './customers.ts';
 
 type State = { validity?: string; uid?: number; checked_at?: string; error?: string };
 export const inboxState = () => JSON.parse((db.prepare(`SELECT value FROM settings WHERE key = 'imap'`).get() as { value: string } | undefined)?.value ?? '{}') as State;
@@ -47,8 +48,9 @@ export function handleMessage(raw: string): 'reply' | 'bounce' | 'ignored' {
   // Out of office and other automatic answers are not a reply from the business.
   if (/auto-(replied|generated)/i.test(header('Auto-Submitted')) || header('X-Autoreply') || header('X-Autorespond') || /^(automatic reply|auto(matic)?[ :]|out of (the )?office)/i.test(header('Subject')))
     return 'ignored';
+  const customer = logReply(from, header('Subject'));
   const e = ourIds(`${header('In-Reply-To')} ${header('References')}`).map(id => sentEmail('id = ?', id)).find(Boolean) ?? sentEmail('to_email = ?', from);
-  if (!e?.lead_id) return 'ignored';
+  if (!e?.lead_id) return customer ? 'reply' : 'ignored';
   db.prepare(`UPDATE leads SET status = 'replied', updated_at = datetime('now') WHERE id = ? AND status IN ('new', 'contacted', 'bounced')`).run(e.lead_id);
   note(e.lead_id, `Replied from ${from}: ${header('Subject') || '(no subject)'}`);
   return 'reply';
@@ -74,8 +76,9 @@ export async function testInbox() {
 let checking = false;
 export async function checkInbox() {
   if (checking || !IMAP_HOST) return;
-  const sentSince = (db.prepare(`SELECT MIN(sent_at) AS d FROM emails WHERE sent_at IS NOT NULL`).get() as { d: string | null }).d;
-  if (!sentSince) return; // nothing sent yet, so nothing to look for
+  // From the oldest outreach email, or from today once there are customers whose emails should show on their page.
+  const sentSince = (db.prepare(`SELECT COALESCE(MIN(sent_at), (SELECT date('now') FROM customers LIMIT 1)) AS d FROM emails WHERE sent_at IS NOT NULL`).get() as { d: string | null }).d;
+  if (!sentSince) return; // nothing sent yet and no customers, so nothing to look for
   checking = true;
   const state = inboxState();
   const client = new ImapFlow({ host: IMAP_HOST, port: IMAP_PORT, secure: IMAP_PORT === 993, auth: { user: IMAP_USER, pass: IMAP_PASS }, logger: false });

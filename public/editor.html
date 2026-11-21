@@ -1219,7 +1219,9 @@
       '#articles', `data-article="${a.id}" data-category="${esc(a.category)}"`])]; };
   const salesTodo = ({ needs: nd }) => [[nd.replies_to_answer, ['lead has replied', 'leads have replied'], '#leads'], [nd.signals_new, ['person asking for help in public', 'people asking for help in public'], '#signals'], [nd.emails_to_approve, ['email waiting for your approval', 'emails waiting for your approval'], '#emails'],
     [nd.follow_ups_due, ['lead ready for a follow up email', 'leads ready for a follow up email'], '#emails'], [nd.call_backs_due, ['follow up date due today or earlier', 'follow up dates due today or earlier'], '#leads'],
-    [nd.emails_to_check, ['email that failed or needs checking', 'emails that failed or need checking'], '#emails']];
+    [nd.emails_to_check, ['email that failed or needs checking', 'emails that failed or need checking'], '#emails'],
+    [nd.sites_down, ["customer's website is down", "customers' websites are down"], '#customers'], [nd.invoices_overdue, ['invoice is overdue', 'invoices are overdue'], '#customers'],
+    [nd.invoices_to_check, ['invoice did not send', 'invoices did not send'], '#customers'], [nd.renewals_due, ['renewal is due in the next 30 days', 'renewals are due in the next 30 days'], '#customers']];
 
   // Small pictures for the Overview: a line over time, a ring for a share, a split bar.
   const spark = rows => {
@@ -1825,7 +1827,7 @@
     $('cuCount').textContent = `${custList.length} customer${custList.length === 1 ? '' : 's'}`;
     $('cuRows').innerHTML = rows.map(c => `<tr data-customer="${c.id}" style="cursor:pointer"><td><b>${esc(c.business_name)}</b>${c.website_url ? `<br><span class="muted">${esc(c.website_url.replace(/^https?:\/\//, ''))}</span>` : ''}</td>
       <td>${esc(c.contact_name)}${c.email ? `<br><span class="muted">${esc(c.email)}</span>` : ''}</td><td>${c.services.map(x => `<span class="badge">${esc(x)}</span>`).join(' ')}</td>
-      <td>${c.unpaid ? `<span class="badge ${c.overdue ? 'bad' : 'pending'}">${money(c.unpaid)}${c.overdue ? ' overdue' : ''}</span>` : ''}</td></tr>`).join('')
+      <td>${c.unpaid ? `<span class="badge ${c.overdue ? 'bad' : 'pending'}">${money(c.unpaid)}${c.overdue ? ' overdue' : ''}</span>` : ''}${c.site_check?.fails >= 2 ? ' <span class="badge bad">Website down</span>' : ''}</td></tr>`).join('')
       || `<tr><td colspan="4" class="muted">${custList.length ? 'No customers match.' : 'No customers yet. Add one, or press Make a customer on a lead you have won.'}</td></tr>`;
   }
   $('cuSearch').addEventListener('input', drawCustomers);
@@ -1853,6 +1855,12 @@
       <label>Note on the invoice (optional) <textarea id="invNote" rows="2" placeholder="Such as the month it covers"></textarea></label>
       <label>Message with it <textarea id="invMsg" rows="7">${esc(`${hi(c)}Please find your invoice attached. The payment details are on it.${signOff}`)}</textarea></label>
       <div class="row"><button type="button" data-cu="sendInvoice">Send to ${esc(c.email)}</button><button type="button" class="plain" data-cu="previewInvoice">Preview PDF</button><button type="button" class="plain" data-cu="draftInvoice">Save as a draft</button></div>`,
+    monthly: c => { const r = c.recurring; return `<p class="muted">The same invoice goes to ${esc(c.email)} on this day each month, on its own. Each month is sent once.</p>
+      <div id="invLines" class="fields" style="gap:8px">${(r?.items ?? [{ description: 'Website care plan', qty: 1, price: '' }]).map(invLine).join('')}</div>
+      <div class="row"><button type="button" class="plain small" data-cu="addLine">Add a line</button><b id="invTotal"></b></div>
+      <div class="cols two"><label>Day of the month <select id="recDay">${Array.from({ length: 28 }, (_, i) => `<option ${(r?.day ?? 1) === i + 1 ? 'selected' : ''}>${i + 1}</option>`).join('')}</select></label>
+        <label>Note on each invoice (the month is added) <input id="invNote" maxlength="300" value="${esc(r?.note ?? '')}"></label></div>
+      <div class="row"><button type="button" data-cu="saveMonthly">${r ? 'Save changes' : 'Start monthly invoices'}</button>${r ? '<button type="button" class="plain" data-cu="stopMonthly">Stop them</button>' : ''}</div>`; },
     analytics: () => '<div id="cuStats"><p class="muted">Getting their numbers from Google...</p></div>',
     report: c => `<label>What we did this month <textarea id="repWork" rows="5" placeholder="Shown at the top of the report. This month's notes fill it in."></textarea></label>
       <label>Subject <input id="repSubject" maxlength="200" value="${esc(`Your website report for ${new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}`)}"></label>
@@ -1860,12 +1868,17 @@
       <div class="row"><button type="button" data-cu="sendReport">Send to ${esc(c.email)}</button><button type="button" class="plain" data-cu="previewReport">Preview PDF</button></div>`,
     note: () => `<label>Note <textarea id="cuNote" rows="3" placeholder="Saved on their page with the date"></textarea></label><div class="row"><button type="button" data-cu="saveNote">Save note</button></div>`,
   };
+  // Their website's last hourly check, and when its SSL certificate runs out.
+  const siteLine = c => { const k = c.site_check; if (!c.website_url) return '';
+    const ssl = k?.ssl_expires ? Math.round((Date.parse(k.ssl_expires) - Date.now()) / 864e5) : null;
+    return `<p class="muted">${!k ? 'Website not checked yet.' : k.fails >= 2 ? `<span class="bad">Website down since ${esc(dm(k.down_since))}: ${esc(k.error)}</span>` : k.ok ? `Website up, answered in ${(k.ms / 1000).toFixed(1)}s.` : `Last check failed (${esc(k.error)}), checking again within the hour.`}
+      ${ssl === null ? '' : ` SSL certificate runs out ${ssl <= 14 ? `<span class="bad">in ${ssl} days</span>` : `on ${esc(dm(k.ssl_expires))}`}.`} <button type="button" class="plain small" data-cu="checkSite">Check now</button></p>`; };
   async function openCustomer(id, panel) {
     cust = id ? await (await api(`/customers/${id}`)).json() : { business_name: '', first_name: '', last_name: '', email: '', phone: '', address: '', website_url: '', services: [], ga4_property: '', gsc_site: '', activity: [], invoices: [] };
     const c = cust, others = c.services.filter(x => !custServices.includes(x));
     const act = (k, label, needsEmail) => `<button type="button" class="${panel === k ? '' : 'plain '}small" data-panel="${k}" ${needsEmail && !c.email ? 'disabled title="Add their email first"' : ''}>${label}</button>`;
     $('custDetail').innerHTML = `<div class="card-head"><h2>${esc(c.business_name || 'New customer')}</h2><button type="button" class="icon" data-close aria-label="Close">×</button></div>
-      ${c.id ? `<div class="row">${act('invoice', 'Send an invoice', 1)}${act('email', 'Email them', 1)}${act('analytics', 'Website analytics')}${act('report', 'Send a client report', 1)}${act('note', 'Add a note')}</div>
+      ${c.id ? `${siteLine(c)}<div class="row">${act('invoice', 'Send an invoice', 1)}${act('monthly', c.recurring ? `Monthly invoice: day ${c.recurring.day}` : 'Monthly invoice', 1)}${act('email', 'Email them', 1)}${act('analytics', 'Website analytics')}${act('report', 'Send a client report', 1)}${act('note', 'Add a note')}</div>
         ${panel ? `<div class="cu-panel" id="cuPanel">${PANELS[panel](c)}<span id="cuPanelOut"></span></div>` : ''}` : ''}
       <div class="cols two">
         <label>Business name <input id="cuName" value="${esc(c.business_name)}" maxlength="200"></label>
@@ -1885,15 +1898,20 @@
         <p class="muted">${c.service_email ? `In their Google Analytics and Search Console, add <b>${esc(c.service_email)}</b> as a user (Viewer is enough).` : 'Google numbers need GSC_CREDENTIALS set in Coolify.'}</p></details>
       <div class="row"><button type="button" data-cu="save">${c.id ? 'Save' : 'Add customer'}</button>${c.id ? '<button type="button" class="plain small" data-cu="delete">Delete</button>' : ''}<span id="cuOut"></span></div>
       ${c.invoices.length ? `<h3>Invoices</h3><div class="list">${c.invoices.map(i => `<div><span><b>${esc(i.label)}</b> ${money(i.total)} <span class="muted">${i.issued_on ? esc(dm(i.issued_on)) : 'not sent'}${i.due_on && i.status === 'sent' ? `, due ${esc(dm(i.due_on))}` : ''}</span>
-          <span class="badge ${i.overdue ? 'bad' : { paid: 'sent', sent: 'pending', draft: 'draft' }[i.status] ?? ''}">${i.overdue ? 'Overdue' : { paid: 'Paid', sent: 'Unpaid', draft: 'Draft', sending: 'Check your sent mail' }[i.status]}</span>${i.error ? ` <span class="bad">${esc(i.error)}</span>` : ''}</span>
+          ${i.reminded_at ? `<span class="muted">reminded ${esc(dm(i.reminded_at))}</span> ` : ''}<span class="badge ${i.overdue ? 'bad' : { paid: 'sent', sent: 'pending', draft: 'draft' }[i.status] ?? ''}">${i.overdue ? 'Overdue' : { paid: 'Paid', sent: 'Unpaid', draft: 'Draft', sending: 'Check your sent mail' }[i.status]}</span>${i.error ? ` <span class="bad">${esc(i.error)}</span>` : ''}</span>
         <span class="row"><button type="button" class="plain small" data-inv-pdf="${i.id}" data-label="${esc(i.label)}">PDF</button>
-          ${i.status === 'sent' ? `<button type="button" class="plain small" data-inv-paid="1" data-inv="${i.id}">Mark paid</button>` : ''}${i.status === 'paid' ? `<button type="button" class="plain small" data-inv-paid="0" data-inv="${i.id}">Mark unpaid</button>` : ''}
+          ${i.overdue ? `<button type="button" class="small" data-inv-remind="${i.id}">Send a reminder</button>` : ''}${i.status === 'sent' ? `<button type="button" class="plain small" data-inv-paid="1" data-inv="${i.id}">Mark paid</button>` : ''}${i.status === 'paid' ? `<button type="button" class="plain small" data-inv-paid="0" data-inv="${i.id}">Mark unpaid</button>` : ''}
           ${i.status === 'draft' ? `<button type="button" class="small" data-inv-send="${i.id}">Send</button><button type="button" class="plain small" data-inv-del="${i.id}">Delete</button>` : ''}</span></div>`).join('')}</div>` : ''}
+      ${c.id ? `<h3>Renewals</h3>${c.renewals.length ? `<div class="list">${c.renewals.map(r => { const days = Math.round((Date.parse(r.renews_on) - Date.now()) / 864e5);
+          return `<div><span><b>${esc(r.what)}</b> <span class="muted">${esc(new Date(r.renews_on).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }))}${r.cost ? `, ${money(r.cost)}` : ''}</span>
+            ${days <= 30 ? `<span class="badge ${days < 0 ? 'bad' : 'pending'}">${days < 0 ? 'Overdue' : `In ${days} day${days === 1 ? '' : 's'}`}</span>` : ''}</span>
+            <span class="row"><button type="button" class="plain small" data-ren-done="${r.id}">Renewed</button><button type="button" class="plain small" data-ren-del="${r.id}">Delete</button></span></div>`; }).join('')}</div>` : ''}
+        <div class="row"><input id="renWhat" placeholder="Such as Domain pipepros.co.uk" maxlength="200" style="flex:2;min-width:160px"><input id="renOn" type="date" style="flex:1"><input id="renCost" type="number" step="0.01" min="0" placeholder="Cost" style="width:90px"><button type="button" class="plain small" data-cu="addRenewal">Add</button></div>` : ''}
       ${c.activity.length ? `<h3>Notes and history</h3><div class="activity">${c.activity.map(a => `<div><span class="muted">${esc(a.created_at.slice(0, 16).split(' ')[0].split('-').reverse().join('/'))} ${esc(a.created_at.slice(11, 16))}</span><br>${esc(a.text)}</div>`).join('')}</div>` : ''}`;
     if (!$('custDialog').open) $('custDialog').showModal();
     if (panel === 'analytics') loadCustStats(c.id);
     if (panel === 'report') api(`/customers/${c.id}/report/notes`).then(r => r.json()).then(r => { if (!$('repWork').value) $('repWork').value = r.notes.join('\n'); });
-    if (panel === 'invoice') invTotal();
+    if (panel === 'invoice' || panel === 'monthly') invTotal();
     $('cuPanel')?.scrollIntoView({ block: 'nearest' });
   }
   const custForm = () => ({ business_name: $('cuName').value, first_name: $('cuFirst').value, last_name: $('cuLast').value, email: $('cuEmail').value, phone: $('cuPhone').value,
@@ -1927,7 +1945,7 @@
     if (e.target === $('custDialog') || e.target.dataset.close !== undefined) return $('custDialog').close();
     const t = e.target, act = t.dataset.cu, c = cust, out = m => { const o = $('cuPanelOut') ?? $('cuOut'); o.innerHTML = m; };
     if (t.dataset.panel) return openCustomer(c.id, $('cuPanel') && t.classList.contains('plain') === false ? undefined : t.dataset.panel);
-    if (!act && !t.dataset.invPdf && !t.dataset.inv && !t.dataset.invSend && !t.dataset.invDel) return;
+    if (!act && !t.dataset.invPdf && !t.dataset.inv && !t.dataset.invSend && !t.dataset.invDel && !t.dataset.invRemind && !t.dataset.renDone && !t.dataset.renDel) return;
     const was = t.textContent;
     t.disabled = true;
     try {
@@ -1944,6 +1962,22 @@
         out('Sending...'); await api(`/customers/${c.id}/email`, { method: 'POST', body: JSON.stringify({ subject: $('cuSubject').value, body: $('cuBody').value }) });
         await openCustomer(c.id); $('cuOut').innerHTML = '<span class="good">Email sent</span>'; return;
       }
+      if (act === 'saveMonthly' || act === 'stopMonthly') {
+        if (act === 'stopMonthly' && !confirm('Stop the monthly invoice?')) return;
+        await api(`/customers/${c.id}/recurring`, { method: 'PUT', body: JSON.stringify(act === 'stopMonthly' ? null : { items: invForm().items, day: Number($('recDay').value), note: $('invNote').value }) });
+        await openCustomer(c.id); $('cuOut').innerHTML = `<span class="good">${act === 'stopMonthly' ? 'Monthly invoice stopped' : 'Monthly invoice saved'}</span>`; return;
+      }
+      if (t.dataset.invRemind) {
+        if (!confirm(`Send a reminder to ${c.email}, with the invoice attached again?`)) return;
+        await api(`/invoices/${t.dataset.invRemind}/remind`, { method: 'POST', body: '{}' }); await openCustomer(c.id); $('cuOut').innerHTML = '<span class="good">Reminder sent</span>'; return;
+      }
+      if (act === 'addRenewal') {
+        await api(`/customers/${c.id}/renewals`, { method: 'POST', body: JSON.stringify({ what: $('renWhat').value, renews_on: $('renOn').value, cost: $('renCost').value ? Number($('renCost').value) : null }) });
+        return openCustomer(c.id);
+      }
+      if (t.dataset.renDone) { await api(`/renewals/${t.dataset.renDone}/renewed`, { method: 'POST' }); return openCustomer(c.id); }
+      if (t.dataset.renDel) { if (!confirm('Delete this renewal?')) return; await api(`/renewals/${t.dataset.renDel}`, { method: 'DELETE' }); return openCustomer(c.id); }
+      if (act === 'checkSite') { t.textContent = 'Checking...'; await api(`/customers/${c.id}/check`, { method: 'POST' }); loadCustomers(); return openCustomer(c.id); }
       if (act === 'previewInvoice') { await openPdf(`/customers/${c.id}/invoices/preview`, invForm()); return; }
       if (act === 'draftInvoice' || act === 'sendInvoice') {
         const body = invForm();

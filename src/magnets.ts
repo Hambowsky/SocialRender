@@ -120,7 +120,7 @@ export function guideHtml(m: Magnet) {
   .end p:last-child { margin: 0; }
 </style></head><body>
   <section class="cover">
-    <div class="top"><img src="/assets/logo.png" alt="Red Cherry IT"><span class="tag">Free guide · ${esc(date)}</span></div>
+    <div class="top"><img src="/assets/logo-print.jpg" alt="Red Cherry IT"><span class="tag">Free guide · ${esc(date)}</span></div>
     <div class="bar"></div>
     <h1>${esc(m.title)}</h1>
     <p>${esc(m.summary)}</p>
